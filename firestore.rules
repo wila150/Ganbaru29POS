@@ -30,6 +30,7 @@ service cloud.firestore {
 
     match /shoppers/{id} { allow read: if active(); }
     match /posOrders/{id} { allow read: if active(); }
+    match /posPayments/{id} { allow read: if active(); }
     match /shifts/{id} { allow read: if active(); }
 
     // 促銷活動：店長以上可以新增、修改；結帳時由 posCheckout 重算

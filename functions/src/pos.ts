@@ -5,6 +5,8 @@ import * as meep from "./lib/meepshop";
 import { createMovement, pushBulk } from "./lib/movements";
 import { assert, db, errMsg, FieldValue, HttpsError, int, num, str, taipeiDate, Timestamp } from "./lib/util";
 import { applyPromotions, type Promotion } from "./shared/promo";
+import { claimOnlinePayment } from "./payments/index";
+import { invoiceAfterRefund, issueForOrder, parseInvoiceRequest } from "./payments/invoice";
 import { mobileKey } from "./sync";
 
 /**
@@ -16,7 +18,9 @@ import { mobileKey } from "./sync";
 
 const METHODS = ["cash", "card", "linepay", "transfer"] as const;
 /** "exchange" = credit from items returned in an exchange; never sent by the tablet directly. */
-type Method = (typeof METHODS)[number] | "exchange";
+type Method = (typeof METHODS)[number] | "exchange" | "ecpay" | "newebpay";
+/** 線上付款（掃 QR）：必須帶 posPayments 的 id（ref），posCheckout 會確認已付款 */
+const ONLINE_METHODS = ["ecpay", "newebpay"];
 const opts = { maxInstances: 5 };
 
 interface Line {
@@ -166,9 +170,11 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   assert(total >= 0, "折扣超過應收金額");
 
   const payments = (Array.isArray(d.payments) ? d.payments : []).map((p: Record<string, unknown>) => {
-    assert((METHODS as readonly string[]).includes(p.method as string), "付款方式不正確");
-    return { method: p.method as Method, amount: num(p.amount, "付款金額", { min: 0, max: 1e8 }) };
-  }).filter((p: { amount: number }) => p.amount > 0);
+    const online = ONLINE_METHODS.includes(p.method as string);
+    assert(online || (METHODS as readonly string[]).includes(p.method as string), "付款方式不正確");
+    return { method: p.method as Method, amount: num(p.amount, "付款金額", { min: 0, max: 1e8 }), ...(online ? { ref: str(p.ref, "線上付款編號", { max: 40 }) } : {}) };
+  }).filter((p: { amount: number }) => p.amount > 0) as { method: Method; amount: number; ref?: string }[];
+  const invoiceRequest = parseInvoiceRequest(d.invoice);
 
   // --- 換貨：退回商品的金額當作這張新單的抵用 ---
   let exchange: (ExchangeQuote & { refundDue: number; refundMethod: Method }) | null = existing?.exchange ?? null;
@@ -198,7 +204,12 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
     const orderNo = await nextOrderNo();
     await db.runTransaction(async (tx) => {
       if ((await tx.get(ref)).exists) return;
+      // 線上付款：確認已付款、金額相符，並標記給這張單用（一筆付款只能用一次）
+      const claims = [];
+      for (const p of payments.filter((x) => x.ref)) claims.push(await claimOnlinePayment(tx, p.ref!, id, p.method, p.amount));
+      claims.forEach((apply) => apply());
       tx.create(ref, {
+        invoiceRequest,
         orderNo,
         status: "pending",
         shiftId,
@@ -289,6 +300,8 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
       }
     }
   }
+  // --- 5. 電子發票（啟用時；失敗不影響交易，可在交易瀏覽重開） ---
+  await issueForOrder(id);
   if (d.holdId) await db.doc(`posHolds/${str(d.holdId, "掛單", { max: 64 })}`).delete().catch(() => undefined);
   return summarize(id);
 });
@@ -300,7 +313,7 @@ async function summarize(id: string) {
     .map((m) => m.data())
     .filter((m) => m.type === "sale" && m.status !== "synced")
     .map((m) => ({ title: `${m.productTitle} ${m.options}`.trim(), status: m.status, error: m.error }));
-  return { id, orderNo: o.orderNo, status: o.status, total: o.total, change: o.change, rewardEarned: o.rewardEarned ?? 0, stockIssues };
+  return { id, orderNo: o.orderNo, status: o.status, total: o.total, change: o.change, rewardEarned: o.rewardEarned ?? 0, stockIssues, invoice: o.invoice ?? null, invoiceError: o.invoiceError ?? null };
 }
 
 // ---------- refund / void ----------
@@ -411,6 +424,9 @@ async function doRefund(
   await pushBulk(moveIds);
 
   const notes: string[] = [];
+  for (const p of plan.record.payments) {
+    if (p.method === "ecpay" || p.method === "newebpay") notes.push(`${p.method === "ecpay" ? "綠界" : "藍新"}線上付款 $${p.amount}：請到${p.method === "ecpay" ? "綠界" : "藍新"}商店後台辦理退款`);
+  }
   if (o.shopper && plan.record.pointsReturned > 0 && o.pointsDeducted) {
     try {
       await meep.sendRewardPoints(o.shopper.id, plan.record.pointsReturned, `門市退貨退回購物金 ${o.orderNo}`);
@@ -425,6 +441,7 @@ async function doRefund(
       notes.push(`收回回饋購物金失敗：${errMsg(e)}`);
     }
   }
+  await invoiceAfterRefund(orderId, isVoid || plan.record.lines.length > 0 && (await db.doc(`posOrders/${orderId}`).get()).data()?.status === "refunded", isVoid ? "作廢" : "退貨");
   if (notes.length) {
     logger.warn(`refund ${refundId}`, notes);
     await db.doc(`posOrders/${orderId}`).update({ refundNotes: FieldValue.arrayUnion(...notes) });

@@ -403,3 +403,10 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .tag-sku { font-size: 6.5pt; color: #333; }
 .tag-care { font-size: 6pt; color: #333; border-top: 0.2mm solid #999; padding-top: 1mm; width: 100%; text-align: left; }
 @media print { .tag { border-color: transparent; } }
+
+.invoice-box { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.invoice-box .segmented { margin-bottom: 0; }
+.online-pay { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; justify-content: center; }
+.online-pay img { border: 8px solid #fff; box-shadow: var(--shadow); border-radius: 8px; }
+.online-pay > div { flex: 1; min-width: 220px; }
+.cred-form { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }

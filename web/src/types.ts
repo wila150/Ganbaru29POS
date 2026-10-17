@@ -101,6 +101,9 @@ export interface ShopSettings {
   birthdayGiftPoints?: number;
   birthdayPointMultiplier?: number;
   tiersAt?: Timestamp;
+  payment?: { provider: "ecpay" | "newebpay" | null; stage: boolean };
+  invoice?: { enabled: boolean; stage: boolean; notifyEmail?: string; address?: string };
+  credsSet?: Record<string, boolean>;
   tiersError?: string | null;
 }
 
@@ -166,6 +169,10 @@ export interface PosOrder {
   rewardEarned: number;
   refunds: Refund[];
   refundNotes?: string[];
+  invoice?: { no: string; date: string; random: string; print: boolean; stage: boolean; type: string; taxId: string | null; voided?: boolean } | null;
+  invoiceError?: string | null;
+  invoiceNote?: string | null;
+  exchange?: ExchangeQuote & { refundDue: number; refundMethod: string };
   createdAt: Timestamp | null;
 }
 

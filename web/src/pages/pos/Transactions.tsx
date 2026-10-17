@@ -9,6 +9,7 @@ import { call, db } from "../../firebase";
 import { printReceipt } from "../../lib/receipt";
 import { atLeast, fmtTime, money, newId, PAY_LABEL, PAY_NAME, todayStr } from "../../lib/util";
 import type { PosOrder, Shopper } from "../../types";
+import { InvoiceInfo } from "./Checkout";
 import { MemberPicker } from "./Register";
 
 const ORDER_BADGE: Record<PosOrder["status"], React.ReactNode> = {
@@ -219,6 +220,7 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
         </dd>
       </dl>
       {o.note && <p>備註：{o.note}</p>}
+      <InvoiceInfo order={o} />
       {(o.refunds ?? []).length > 0 && (
         <>
           <h3>退貨紀錄</h3>

@@ -10,9 +10,9 @@ import { useData, variantName } from "../../data";
 import { call, db } from "../../firebase";
 import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
 import { resolveCode, searchVariants } from "../../lib/lookup";
-import { printReceipt } from "../../lib/receipt";
 import { beep, deviceId, money, newId, PAY_LABEL, todayStr } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
+import { Checkout, Done } from "./Checkout";
 import { useCurrentShift } from "./PosLayout";
 
 export interface HoldState {
@@ -408,7 +408,8 @@ export function Register() {
         <Checkout
           total={due}
           onClose={() => setCheckout(false)}
-          submit={async (payments) => {
+          itemName={cart.map((l) => byId.get(l.variantId)?.productTitle ?? "商品").slice(0, 5).join("、") + (cart.length > 5 ? " 等" : "")}
+          submit={async (payments, invoice) => {
             const id = orderId.current;
             type R = { id: string; status: string; stockIssues: { title: string; status: string; error: string | null }[] };
             const send = (allowOversell: boolean) =>
@@ -421,6 +422,7 @@ export function Register() {
               ...disc,
               shopperId: shopper?.id ?? null,
               payments,
+              invoice,
               note,
               guests,
               holdId,
@@ -569,140 +571,6 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
             </button>
           </div>
         </>
-      )}
-    </Modal>
-  );
-}
-
-type Pay = { method: string; amount: number };
-function Checkout({ total, onClose, submit }: { total: number; onClose: () => void; submit: (p: Pay[]) => Promise<void> }) {
-  const [method, setMethod] = useState<string>("cash");
-  const [cash, setCash] = useState("");
-  const [mixed, setMixed] = useState<Pay[]>([]);
-  const [mixMethod, setMixMethod] = useState("card");
-  const [mixAmt, setMixAmt] = useState("");
-  const { busy, run } = useAction();
-
-  const payments: Pay[] =
-    method === "mixed" ? mixed : method === "cash" ? [{ method: "cash", amount: cash === "" ? total : Number(cash) }] : [{ method, amount: total }];
-  const paid = payments.reduce((s, p) => s + p.amount, 0);
-  const change = paid - total;
-  const mixedLeft = total - mixed.reduce((s, p) => s + p.amount, 0);
-  const ok = paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
-
-  return (
-    <Modal
-      title={`結帳 ${money(total)}`}
-      onClose={() => !busy && onClose()}
-      wide
-      footer={
-        <button className="btn btn-pay btn-lg block" disabled={!ok || busy} onClick={() => run(() => submit(payments))}>
-          {busy ? "結帳中…" : change > 0 ? `完成結帳（找零 ${money(change)}）` : "完成結帳"}
-        </button>
-      }
-    >
-      <div className="pay-methods">
-        {[...Object.entries(PAY_LABEL), ["mixed", "混合付款"]].map(([k, l]) => (
-          <button key={k} className={method === k ? "active" : ""} onClick={() => setMethod(k)}>
-            {l}
-          </button>
-        ))}
-      </div>
-      {method === "cash" && (
-        <div className="pay-cash">
-          <div>
-            <div className="keypad-display">
-              {cash === "" ? money(total) : money(Number(cash))}
-              <small>收款</small>
-            </div>
-            <div className="quick-cash">
-              {[total, Math.ceil(total / 100) * 100, Math.ceil(total / 500) * 500, Math.ceil(total / 1000) * 1000]
-                .filter((v, i, a) => v >= total && a.indexOf(v) === i)
-                .map((v) => (
-                  <button key={v} onClick={() => setCash(String(v))}>
-                    {money(v)}
-                  </button>
-                ))}
-            </div>
-            <div className={`change ${change < 0 ? "error" : ""}`}>{change >= 0 ? `找零 ${money(change)}` : `還差 ${money(-change)}`}</div>
-          </div>
-          <Keypad value={cash} onChange={setCash} />
-        </div>
-      )}
-      {method !== "cash" && method !== "mixed" && <p className="center big">請以 {PAY_LABEL[method]} 收款 {money(total)}</p>}
-      {method === "mixed" && (
-        <div>
-          <ul className="pick-list">
-            {mixed.map((p, i) => (
-              <li key={i} className="row-between">
-                {PAY_LABEL[p.method]} {money(p.amount)}
-                <button className="btn btn-sm btn-ghost" onClick={() => setMixed((m) => m.filter((_, j) => j !== i))}>
-                  移除
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p>{mixedLeft > 0 ? `尚餘 ${money(mixedLeft)}` : mixedLeft < 0 ? `找零 ${money(-mixedLeft)}` : "金額已足"}</p>
-          <div className="inline-form">
-            <select value={mixMethod} onChange={(e) => setMixMethod(e.target.value)}>
-              {Object.entries(PAY_LABEL).map(([k, l]) => (
-                <option key={k} value={k}>
-                  {l}
-                </option>
-              ))}
-            </select>
-            <input type="number" placeholder={String(Math.max(0, mixedLeft))} value={mixAmt} onChange={(e) => setMixAmt(e.target.value)} />
-            <button
-              className="btn"
-              onClick={() => {
-                const a = mixAmt === "" ? Math.max(0, mixedLeft) : Number(mixAmt);
-                if (a > 0) setMixed((m) => [...m, { method: mixMethod, amount: a }]);
-                setMixAmt("");
-              }}
-            >
-              加入
-            </button>
-          </div>
-        </div>
-      )}
-    </Modal>
-  );
-}
-
-function Done({ order, issues, onClose }: { order: PosOrder; issues: { title: string; status: string; error: string | null }[]; onClose: () => void }) {
-  const { settings } = useData();
-  return (
-    <Modal
-      title="結帳完成"
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn" onClick={() => printReceipt(order, settings)}>
-            列印收據
-          </button>
-          <button className="btn btn-primary" onClick={onClose}>
-            下一位
-          </button>
-        </>
-      }
-    >
-      <div className="center">
-        <div className="muted">{order.orderNo}</div>
-        <div className="done-total">{money(order.total)}</div>
-        {order.change > 0 && <div className="done-change">找零 {money(order.change)}</div>}
-        {order.rewardEarned > 0 && <div className="ok">回饋購物金 {order.rewardEarned} 點</div>}
-      </div>
-      {issues.length > 0 && (
-        <div className="notice notice-warn">
-          以下商品網店庫存沒有扣成功（已記錄，店長可在異動紀錄處理）：
-          <ul>
-            {issues.map((i, k) => (
-              <li key={k}>
-                {i.title}：{i.error ?? i.status}
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
     </Modal>
   );

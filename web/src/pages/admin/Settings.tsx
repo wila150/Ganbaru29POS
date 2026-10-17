@@ -16,6 +16,7 @@ export function Settings() {
       <Alerts />
       <PosSettings />
       <MemberSettings />
+      <PaymentSettings />
     </div>
   );
 }
@@ -391,6 +392,93 @@ function MemberSettings() {
           {b2 ? "計算中…" : "立即重算等級"}
         </button>
       </div>
+    </section>
+  );
+}
+
+const CRED_LABEL: Record<string, string> = { ecpay_payment: "綠界金流", newebpay_payment: "藍新金流", ecpay_invoice: "綠界電子發票" };
+
+function CredForm({ kind, current, onSaved }: { kind: string; current: string | null | undefined; onSaved: () => void }) {
+  const [f, setF] = useState({ merchantId: "", hashKey: "", hashIv: "" });
+  const { busy, run } = useAction();
+  return (
+    <div className="cred-form">
+      <div className="row-between">
+        <strong>{CRED_LABEL[kind]}</strong>
+        {current ? <Badge tone="ok">已設定：商店代號 {current}</Badge> : <Badge>未設定{kind.startsWith("ecpay") ? "（測試環境會用綠界公用測試帳號）" : ""}</Badge>}
+      </div>
+      <div className="inline-form">
+        <input placeholder="商店代號 MerchantID" value={f.merchantId} onChange={(e) => setF({ ...f, merchantId: e.target.value.trim() })} />
+        <input type="password" autoComplete="off" placeholder="HashKey" value={f.hashKey} onChange={(e) => setF({ ...f, hashKey: e.target.value.trim() })} />
+        <input type="password" autoComplete="off" placeholder="HashIV" value={f.hashIv} onChange={(e) => setF({ ...f, hashIv: e.target.value.trim() })} />
+        <button className="btn" disabled={busy || !f.merchantId || !f.hashKey || !f.hashIv} onClick={() => run(async () => {
+          await call("setPaymentCreds", { kind, ...f });
+          setF({ merchantId: "", hashKey: "", hashIv: "" });
+          onSaved();
+        }, "已儲存")}>
+          儲存
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PaymentSettings() {
+  const { form, set, save, busy } = useSettingsForm(["payment", "invoice"]);
+  const [creds, setCreds] = useState<Record<string, string | null>>({});
+  const load = () => call<Record<string, string | null>>("paymentCredsStatus").then(setCreds).catch(() => undefined);
+  useEffect(() => {
+    load();
+  }, []);
+  const pay = form.payment ?? { provider: null, stage: true };
+  const inv = form.invoice ?? { enabled: false, stage: true };
+  return (
+    <section className="card">
+      <h2>金流與電子發票</h2>
+      <p className="muted small">
+        「掃碼付款」：POS 產生 QR code，客人用手機在綠界／藍新的付款頁刷卡、Apple Pay、LINE Pay、台灣 Pay 付款，付款完成 POS 自動結帳。刷卡機目前仍是另外刷，再在 POS 選「信用卡」。
+        金鑰只存在伺服器（Secret Manager），存了之後畫面上只顯示商店代號。
+      </p>
+      <div className="grid-fields">
+        <Field label="掃碼付款服務">
+          <select value={pay.provider ?? ""} onChange={(e) => set("payment", { ...pay, provider: (e.target.value || null) as "ecpay" | "newebpay" | null })}>
+            <option value="">不使用</option>
+            <option value="ecpay">綠界 ECPay</option>
+            <option value="newebpay">藍新 NewebPay</option>
+          </select>
+        </Field>
+        <Field label="金流環境">
+          <select value={pay.stage ? "stage" : "prod"} onChange={(e) => set("payment", { ...pay, stage: e.target.value === "stage" })}>
+            <option value="stage">測試（不會真的扣款）</option>
+            <option value="prod">正式</option>
+          </select>
+        </Field>
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={!!inv.enabled} onChange={(e) => set("invoice", { ...inv, enabled: e.target.checked })} /> 結帳時自動開立電子發票（綠界）
+      </label>
+      <div className="grid-fields">
+        <Field label="發票環境">
+          <select value={inv.stage ? "stage" : "prod"} onChange={(e) => set("invoice", { ...inv, stage: e.target.value === "stage" })}>
+            <option value="stage">測試（發票不會上傳財政部）</option>
+            <option value="prod">正式</option>
+          </select>
+        </Field>
+        <Field label="發票通知 Email" hint="綠界規定買受人 Email 或手機須擇一；客人沒留時用這個">
+          <input type="email" value={inv.notifyEmail ?? ""} onChange={(e) => set("invoice", { ...inv, notifyEmail: e.target.value })} />
+        </Field>
+        <Field label="門市地址" hint="打統編、列印發票時綠界要求填地址">
+          <input value={inv.address ?? ""} onChange={(e) => set("invoice", { ...inv, address: e.target.value })} />
+        </Field>
+      </div>
+      {!pay.stage && pay.provider && !creds[`${pay.provider}_payment`] && <p className="notice notice-bad">正式環境需要先填 {CRED_LABEL[`${pay.provider}_payment`]} 的商店代號與金鑰。</p>}
+      <button className="btn btn-primary" disabled={busy} onClick={save}>
+        儲存金流與發票設定
+      </button>
+      <h3>商店代號與金鑰</h3>
+      {(["ecpay_payment", "newebpay_payment", "ecpay_invoice"] as const).map((k) => (
+        <CredForm key={k} kind={k} current={creds[k]} onSaved={load} />
+      ))}
     </section>
   );
 }
