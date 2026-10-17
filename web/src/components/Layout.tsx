@@ -20,6 +20,7 @@ const ADMIN_NAV: NavItem[] = [
   { to: "/admin/inventory", label: "庫存查詢", icon: "▤", min: "staff" },
   { to: "/admin/stocktake", label: "盤點", icon: "✓", min: "staff" },
   { to: "/admin/transfers", label: "調貨", icon: "⇄", min: "staff" },
+  { to: "/admin/products", label: "商品與條碼", icon: "▦", min: "manager" },
   {
     to: "/admin/members",
     label: "顧客管理",
@@ -27,14 +28,30 @@ const ADMIN_NAV: NavItem[] = [
     min: "staff",
     children: [
       { to: "/admin/members", label: "顧客名單", min: "staff" },
-      { to: "/admin/member-rules", label: "會員等級與購物金", min: "owner" },
+      { to: "/admin/member-rules", label: "會員等級", min: "owner" },
     ],
   },
-  { to: "/admin/products", label: "商品與條碼", icon: "▦", min: "manager" },
-  { to: "/admin/promotions", label: "促銷活動", icon: "%", min: "manager" },
+  {
+    to: "/admin/promotions",
+    label: "行銷",
+    icon: "%",
+    min: "manager",
+    children: [
+      { to: "/admin/promotions", label: "促銷活動", min: "manager" },
+      { to: "/admin/rewards", label: "購物金回饋", min: "owner" },
+    ],
+  },
   { to: "/admin/movements", label: "異動紀錄", icon: "≡", min: "manager" },
-  { to: "/admin/reports", label: "報表", icon: "◔", min: "manager" },
-  { to: "/admin/expenses", label: "開支", icon: "$", min: "manager" },
+  {
+    to: "/admin/reports",
+    label: "報表",
+    icon: "◔",
+    min: "manager",
+    children: [
+      { to: "/admin/reports", label: "報表中心", min: "manager" },
+      { to: "/admin/expenses", label: "開支", min: "manager" },
+    ],
+  },
   { to: "/admin/attendance", label: "打卡", icon: "◷", min: "staff" },
   { to: "/admin/settings", label: "設定", icon: "⚙", min: "owner" },
 ];
@@ -59,11 +76,11 @@ export function AdminLayout() {
             return kids && kids.length > 1 ? (
               <NavGroup key={n.to} item={n} kids={kids} />
             ) : (
-              <NavLink key={n.to} to={n.to} className="nav-item">
+              <NavLink key={n.to} to={kids?.[0]?.to ?? n.to} className="nav-item">
                 <span className="nav-icon" aria-hidden>
                   {n.icon}
                 </span>
-                {n.label}
+                {kids?.length === 1 && n.label === "行銷" ? kids[0].label : n.label}
               </NavLink>
             );
           })}

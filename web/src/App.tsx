@@ -18,7 +18,7 @@ import { Settings } from "./pages/admin/Settings";
 import { Transfers } from "./pages/admin/Transfers";
 import { Expenses } from "./pages/admin/Expenses";
 import { Attendance } from "./pages/admin/Attendance";
-import { Customers, MemberRules } from "./pages/admin/Customers";
+import { Customers, MemberRules, Rewards } from "./pages/admin/Customers";
 import { StocktakeDetail, StocktakeList } from "./pages/admin/Stocktake";
 import { PosLayout } from "./pages/pos/PosLayout";
 import { Register } from "./pages/pos/Register";
@@ -54,6 +54,7 @@ export function App() {
                 <Route path="attendance" element={<Attendance />} />
                 <Route path="members" element={<Customers />} />
                 <Route path="member-rules" element={<Guard min="owner"><MemberRules /></Guard>} />
+                <Route path="rewards" element={<Guard min="owner"><Rewards /></Guard>} />
                 <Route path="expenses" element={<Guard min="manager"><Expenses /></Guard>} />
                 <Route path="products" element={<Guard min="manager"><Products /></Guard>} />
                 <Route path="labels" element={<Guard min="manager"><Labels /></Guard>} />

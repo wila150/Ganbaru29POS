@@ -314,13 +314,13 @@ const TIER_EXAMPLE: TierDef[] = [
 
 export function MemberSettings() {
   const { settings } = useData();
-  const { form, set, save, busy } = useSettingsForm(["memberTiers", "birthdayGiftPoints", "birthdayPointMultiplier"]);
+  const { form, set, save, busy } = useSettingsForm(["memberTiers"]);
   const { busy: b2, run } = useAction();
   const tiers = form.memberTiers ?? [];
   const setTier = (i: number, patch: Partial<TierDef>) => set("memberTiers", tiers.map((t, j) => (j === i ? { ...t, ...patch } : t)));
   return (
     <section className="card">
-      <h2>會員等級與生日禮</h2>
+      <h2>會員等級</h2>
       <p className="muted small">
         依「近 12 個月消費（門市＋網店）」每天凌晨自動升降級，累計或單次任一達標即升級；結帳時自動套用等級折扣，回饋購物金乘上倍數。meepShop 不能改會員等級，等級只存在本系統。
         {settings.tiersAt && ` 上次計算：${fmtTime(settings.tiersAt)}`}
@@ -376,21 +376,12 @@ export function MemberSettings() {
           </button>
         )}
       </div>
-      <RewardRules />
-      <div className="grid-fields" style={{ marginTop: 12 }}>
-        <Field label="生日禮購物金（點）" hint="每月 1 日送給當月壽星，一年一次；0 = 不送">
-          <input type="number" min={0} value={form.birthdayGiftPoints ?? 0} onChange={(e) => set("birthdayGiftPoints", Number(e.target.value))} />
-        </Field>
-        <Field label="生日當月回饋倍數" hint="例：2 = 當月門市消費購物金加倍">
-          <input type="number" min={1} step={0.5} value={form.birthdayPointMultiplier ?? 1} onChange={(e) => set("birthdayPointMultiplier", Number(e.target.value))} />
-        </Field>
-      </div>
       <div className="btn-row">
         <button className="btn btn-primary" disabled={busy} onClick={() => {
           if (tiers.some((t) => !t.name.trim())) return alert("等級名稱不能空白");
           save();
         }}>
-          儲存會員設定
+          儲存會員等級
         </button>
         <button className="btn" disabled={b2} onClick={() => run(async () => {
           const r = await call<{ updated: number; error: string | null }>("recomputeMemberTiers");
@@ -659,6 +650,30 @@ function StaffMoneySettings() {
 }
 
 /** 購物金回饋規則（門市結帳用；網店的回饋由 meepShop 自己發） */
+/** 行銷 → 購物金回饋：門市結帳的購物金回饋規則＋生日禮 */
+export function RewardSettings() {
+  const { form, set, save, busy } = useSettingsForm(["birthdayGiftPoints", "birthdayPointMultiplier"]);
+  return (
+    <section className="card">
+      <h2>購物金回饋</h2>
+      <RewardRules />
+      <h3>生日禮</h3>
+      <p className="muted small">meepShop 後台已設定「會員生日」寄送購物金時，這裡的生日禮請保持 0，避免重複送。</p>
+      <div className="grid-fields">
+        <Field label="生日禮購物金（點）" hint="每月 1 日送給當月壽星，一年一次；0 = 不送">
+          <input type="number" min={0} value={form.birthdayGiftPoints ?? 0} onChange={(e) => set("birthdayGiftPoints", Number(e.target.value))} />
+        </Field>
+        <Field label="生日當月回饋倍數" hint="例：2 = 當月門市消費購物金加倍">
+          <input type="number" min={1} step={0.5} value={form.birthdayPointMultiplier ?? 1} onChange={(e) => set("birthdayPointMultiplier", Number(e.target.value))} />
+        </Field>
+      </div>
+      <button className="btn btn-primary" disabled={busy} onClick={save}>
+        儲存生日禮設定
+      </button>
+    </section>
+  );
+}
+
 function RewardRules() {
   const { settings } = useData();
   const { form, set, save, busy } = useSettingsForm(["rewardRules"]);
@@ -669,7 +684,7 @@ function RewardRules() {
   const toggle = (list: string[] | undefined, v: string) => ((list ?? []).includes(v) ? (list ?? []).filter((x) => x !== v) : [...(list ?? []), v]);
   return (
     <div className="reward-rules">
-      <h3>購物金回饋（門市結帳）</h3>
+      <h3>回饋規則（門市結帳）</h3>
       <p className="muted small">
         門市結帳時依規則送購物金到客人的 meepShop 帳戶（網店訂單的回饋由 meepShop 自己發，不會重複）。符合多條時取送最多的一條，再乘上會員等級、生日月的倍數。
       </p>
