@@ -9,6 +9,12 @@ service firebase.storage {
     match /products/{file} {
       allow read: if active();
     }
+    // 開支收據
+    match /receipts/{expenseId}/{file} {
+      allow read: if isManager();
+      allow write: if isManager() && request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
+    }
     // 「商品與條碼」頁手動上傳的圖片
     match /manual/{productId}/{file} {
       allow read: if active();

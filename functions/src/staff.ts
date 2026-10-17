@@ -1,6 +1,7 @@
 import { getAuth } from "firebase-admin/auth";
 import { defineString } from "firebase-functions/params";
 import { onCall } from "firebase-functions/v2/https";
+import { audit } from "./lib/audit";
 import { requireRole, Role } from "./lib/auth";
 import { assert, db, FieldValue, HttpsError, str, Timestamp } from "./lib/util";
 
@@ -53,6 +54,7 @@ export const inviteStaff = onCall(async (req) => {
     expiresAt: Timestamp.fromMillis(Date.now() + INVITE_DAYS * 86400_000),
     usedBy: null,
   });
+  await audit(actor, "staff.invite", { email, role });
   return { id: ref.id };
 });
 
@@ -88,6 +90,7 @@ export const setRole = onCall(async (req) => {
   assert(u, "找不到這位員工", "not-found");
   assert(!PROTECTED.includes(u.role), "老闆／工程師的角色不能在這裡更改", "permission-denied");
   await setUser(uid, { email: u.email, name: u.name, role, active: u.active });
+  await audit(actor, "staff.role", { uid, name: u.name, from: u.role, to: role });
   return { ok: true };
 });
 
@@ -103,6 +106,7 @@ export const setActive = onCall(async (req) => {
   assert(u.role !== "engineer" || actor.role === "owner", "只有老闆可以停用工程師", "permission-denied");
   await setUser(uid, { email: u.email, name: u.name, role: u.role, active });
   if (!active) await getAuth().revokeRefreshTokens(uid);
+  await audit(actor, active ? "staff.enable" : "staff.disable", { uid, name: u.name });
   return { ok: true };
 });
 

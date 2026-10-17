@@ -17,6 +17,7 @@ const MENU = [
   { to: "/pos/transactions", label: "交易瀏覽", icon: "≡" },
   { to: "/pos/members", label: "會員", icon: "☺" },
   { to: "/admin/scan", label: "庫存", icon: "▤" },
+  { to: "/admin/attendance", label: "打卡", icon: "◷" },
 ];
 
 export interface Shift {

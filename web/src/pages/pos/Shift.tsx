@@ -2,6 +2,7 @@ import { collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, type Tim
 import { Fragment, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ExchangeDialog } from "../../components/ExchangeDialog";
+import { DEFAULT_EXPENSE_CATEGORIES } from "../admin/Expenses";
 import { getDeviceLocationId } from "../../lib/location";
 import { Badge, Empty, Field, useAction } from "../../components/ui";
 import { useData } from "../../data";
@@ -261,7 +262,9 @@ export function Drawer() {
   const [type, setType] = useState<"in" | "out">("out");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [expCat, setExpCat] = useState("");
   const { busy, run } = useAction();
+  const expenseCategories = settings.expenseCategories?.length ? settings.expenseCategories : DEFAULT_EXPENSE_CATEGORIES;
 
   useEffect(() => {
     if (!shift) return setFull(null);
@@ -319,13 +322,24 @@ export function Drawer() {
         <div className="inline-form">
           <input type="number" min={1} placeholder="金額" value={amount} onChange={(e) => setAmount(e.target.value)} />
           <input placeholder="說明（例如：付貨款、換零錢）" value={note} onChange={(e) => setNote(e.target.value)} />
+          {type === "out" && (
+            <select value={expCat} onChange={(e) => setExpCat(e.target.value)} title="選了分類會同時記為開支">
+              <option value="">不是開支（換零錢、存銀行）</option>
+              {expenseCategories.map((c) => (
+                <option key={c} value={c}>
+                  記為開支：{c}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             className="btn btn-primary"
             disabled={busy || !(Number(amount) > 0)}
             onClick={() =>
-              run(() => call("cashMove", { type, amount: Number(amount), note, locationId: getDeviceLocationId() }), "已記錄").then(() => {
+              run(() => call("cashMove", { type, amount: Number(amount), note, locationId: getDeviceLocationId(), expenseCategory: type === "out" ? expCat : "" }), "已記錄").then(() => {
                 setAmount("");
                 setNote("");
+                setExpCat("");
               })
             }
           >

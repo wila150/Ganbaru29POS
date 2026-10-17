@@ -109,6 +109,9 @@ export interface ShopSettings {
   onlineLocationId?: string | null;
   locationStockInitAt?: Timestamp;
   merchantId?: string;
+  commissionPct?: number;
+  commissionByUser?: Record<string, number>;
+  expenseCategories?: string[];
   merchantSync?: { at?: Timestamp; trigger?: string; products?: number; done?: number; failed?: number; error?: string | null };
   tiersError?: string | null;
 }

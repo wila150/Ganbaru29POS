@@ -6,6 +6,7 @@ import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
 import type { ShopSettings, TierDef } from "../../types";
+import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
 
 export function Settings() {
   return (
@@ -19,6 +20,7 @@ export function Settings() {
       <PaymentSettings />
       <LocationSettings />
       <MerchantSettings />
+      <StaffMoneySettings />
     </div>
   );
 }
@@ -600,6 +602,50 @@ function MerchantSettings() {
           {m.error ? `　失敗：${m.error}` : `　Merchant Center ${m.products ?? 0} 個商品，補上 ${m.done ?? 0} 張`}
         </p>
       )}
+    </section>
+  );
+}
+
+/** 員工抽成與開支分類 */
+function StaffMoneySettings() {
+  const { form, set, save, busy } = useSettingsForm(["commissionPct", "commissionByUser", "expenseCategories"]);
+  const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => onSnapshot(collection(db, "users"), (s) => setUsers(s.docs.filter((d) => d.data().active).map((d) => ({ id: d.id, name: d.data().name })))), []);
+  const byUser = form.commissionByUser ?? {};
+  return (
+    <section className="card">
+      <h2>員工抽成與開支分類</h2>
+      <div className="grid-fields">
+        <Field label="預設抽成（淨銷售額 %）" hint="報表中心「員工業績」用；0 = 不抽成">
+          <input type="number" min={0} max={100} step={0.1} value={form.commissionPct ?? 0} onChange={(e) => set("commissionPct", Number(e.target.value))} />
+        </Field>
+      </div>
+      <h3>個別員工抽成（留空 = 用預設）</h3>
+      <div className="grid-fields">
+        {users.map((u) => (
+          <Field key={u.id} label={u.name}>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.1}
+              value={byUser[u.id] ?? ""}
+              onChange={(e) => {
+                const n = { ...byUser };
+                if (e.target.value === "") delete n[u.id];
+                else n[u.id] = Number(e.target.value);
+                set("commissionByUser", n);
+              }}
+            />
+          </Field>
+        ))}
+      </div>
+      <Field label="開支分類（一行一個）" hint="留空 = 使用預設分類">
+        <textarea rows={5} value={(form.expenseCategories ?? []).join("\n")} placeholder={DEFAULT_EXPENSE_CATEGORIES.join("\n")} onChange={(e) => set("expenseCategories", e.target.value.split("\n").map((x) => x.trim()).filter(Boolean))} />
+      </Field>
+      <button className="btn btn-primary" disabled={busy} onClick={save}>
+        儲存
+      </button>
     </section>
   );
 }

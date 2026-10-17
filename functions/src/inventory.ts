@@ -1,5 +1,6 @@
 import { onCall } from "firebase-functions/v2/https";
 import { getStorage, getDownloadURL } from "firebase-admin/storage";
+import { audit } from "./lib/audit";
 import { atLeast, requireRole } from "./lib/auth";
 import { getVariant } from "./lib/meepshop";
 import { createMovement, MoveType, pushMovement } from "./lib/movements";
@@ -127,6 +128,7 @@ export const resolveMovement = onCall(opts, async (req) => {
   const m = (await ref.get()).data();
   assert(m && ["failed", "unknown"].includes(m.status), "這筆不是失敗或待確認狀態", "failed-precondition");
   const note = str(req.data?.note, "備註", { optional: true, max: 200 });
+  await audit(actor, "movement." + action, { id, title: `${m.productTitle} ${m.options}`, delta: m.delta, status: m.status, note });
   if (action === "retry") {
     await ref.update({ status: "pending", retryable: true, attempts: 0, resolvedBy: actor.uid, resolveNote: note || null });
     const r = await pushMovement(id);

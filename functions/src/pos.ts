@@ -7,6 +7,7 @@ import { assert, db, errMsg, FieldValue, HttpsError, int, num, str, taipeiDate, 
 import { applyPromotions, type Promotion } from "./shared/promo";
 import { claimOnlinePayment } from "./payments/index";
 import { invoiceAfterRefund, issueForOrder, parseInvoiceRequest } from "./payments/invoice";
+import { audit } from "./lib/audit";
 import { mobileKey } from "./sync";
 
 /**
@@ -293,6 +294,10 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
     moveIds.push(moveId);
   }
   await ref.update({ status: "completed", completedAt: FieldValue.serverTimestamp() });
+  const changed = (order.lines as Line[]).filter((l) => l.unitPrice !== l.listPrice || l.discountPct > 0);
+  if (changed.length || order.orderDiscount || order.allowance) {
+    await audit(actor, "pos.discount", { orderId: id, orderNo: order.orderNo, priceChanges: changed.map((l) => ({ title: `${l.productTitle} ${l.options}`, listPrice: l.listPrice, unitPrice: l.unitPrice, discountPct: l.discountPct })), orderDiscountPct: order.orderDiscountPct, allowance: order.allowance });
+  }
   await pushBulk(moveIds);
 
   // --- 4. 回饋購物金 ---
@@ -421,6 +426,7 @@ async function doRefund(
     return { already: false as const, o, record };
   });
   if (plan.already) return { refundId, already: true };
+  await audit(actor, isVoid ? "pos.void" : "pos.refund", { orderId, orderNo: plan.o.orderNo, amount: plan.record.amount, lines: plan.record.lines, reason, payments: plan.record.payments });
 
   const o = plan.o;
   const moveIds: string[] = [];
@@ -611,9 +617,16 @@ export const cashMove = onCall(opts, async (req) => {
   assert(shiftId, "目前沒有開班", "failed-precondition");
   const type = req.data?.type === "out" ? "out" : "in";
   const amount = num(req.data?.amount, "金額", { min: 1, max: 1e7 });
+  const note = str(req.data?.note, "說明", { optional: true, max: 100 }) || null;
+  const expenseCategory = type === "out" ? str(req.data?.expenseCategory, "開支分類", { optional: true, max: 30 }) : "";
   await db.doc(`shifts/${shiftId}`).update({
-    cashMoves: FieldValue.arrayUnion({ id: db.collection("x").doc().id, type, amount, note: str(req.data?.note, "說明", { optional: true, max: 100 }) || null, by: actor.name, at: Timestamp.now() }),
+    cashMoves: FieldValue.arrayUnion({ id: db.collection("x").doc().id, type, amount, note, by: actor.name, at: Timestamp.now(), expenseCategory: expenseCategory || null }),
   });
+  // 錢櫃提款同時記為開支（例如付貨運、買文具）
+  if (expenseCategory) {
+    await db.collection("expenses").add({ date: taipeiDate(), category: expenseCategory, amount, note, payMethod: "cash", source: "drawer", shiftId, locationId: str(req.data?.locationId, "門市", { optional: true, max: 40 }) || null, createdBy: actor.uid, createdByName: actor.name, createdAt: FieldValue.serverTimestamp() });
+  }
+  await audit(actor, "drawer." + type, { amount, note, expenseCategory: expenseCategory || null, shiftId });
   return { ok: true };
 });
 
@@ -696,6 +709,7 @@ export const closeShift = onCall(opts, async (req) => {
     summary: { orders: s.orders, total: s.total, refundTotal: s.refundTotal, rewardPoints: s.rewardPoints, byMethod: s.byMethod, ins: s.ins, outs: s.outs },
     closeNote: str(req.data?.note, "備註", { optional: true, max: 300 }) || null,
   });
+  await audit(actor, "shift.close", { shiftId, expectedCash: s.expectedCash, countedCash, diff: countedCash - s.expectedCash });
   const k = shiftKey(req.data?.locationId);
   await sRef.set({ currentShifts: { [k]: null }, ...(k === "main" ? { currentShiftId: null } : {}) }, { merge: true });
   return { expectedCash: s.expectedCash, countedCash, diff: countedCash - s.expectedCash };

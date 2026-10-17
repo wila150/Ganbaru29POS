@@ -12,3 +12,5 @@ export { createOnlinePayment, cancelOnlinePayment, checkOnlinePayment, payPage, 
 export { reissueInvoice, invoicePrint } from "./payments/invoice";
 export { initLocationStock, requestTransfer, shipTransfer, receiveTransfer, cancelTransfer } from "./locations";
 export { merchantImagesDaily, syncImagesFromMerchant } from "./merchant";
+export { reportCenter } from "./reports";
+export { clockIn, clockOut, fixAttendance } from "./attendance";

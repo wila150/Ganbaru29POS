@@ -13,6 +13,8 @@ const ADMIN_NAV: { to: string; label: string; icon: string; min: Role }[] = [
   { to: "/admin/promotions", label: "促銷活動", icon: "%", min: "manager" },
   { to: "/admin/movements", label: "異動紀錄", icon: "≡", min: "manager" },
   { to: "/admin/reports", label: "報表", icon: "◔", min: "manager" },
+  { to: "/admin/expenses", label: "開支", icon: "$", min: "manager" },
+  { to: "/admin/attendance", label: "打卡", icon: "◷", min: "staff" },
   { to: "/admin/settings", label: "設定", icon: "⚙", min: "owner" },
 ];
 

@@ -1,4 +1,5 @@
 import { onCall } from "firebase-functions/v2/https";
+import { audit } from "./lib/audit";
 import { requireRole } from "./lib/auth";
 import { variantStocks } from "./lib/meepshop";
 import { createMovement, pushBulk } from "./lib/movements";
@@ -141,6 +142,7 @@ export const applyStocktake = onCall({ timeoutSeconds: 540, memory: "512MiB", ma
     const results = moveIds.length ? await db.getAll(...moveIds.map((m) => db.doc(`movements/${m}`))) : [];
     const failed = results.filter((r) => r.data()?.status !== "synced").length;
     await ref.update({ status: "applied", appliedAt: FieldValue.serverTimestamp(), appliedBy: actor.uid, appliedByName: actor.name, onlyCounted, adjusted: moveIds.length, failed });
+    await audit(actor, "stocktake.apply", { id, name: st.name, adjusted: moveIds.length, failed, onlyCounted });
     return { adjusted: moveIds.length, failed };
   } catch (e) {
     await ref.update({ status: "open" });

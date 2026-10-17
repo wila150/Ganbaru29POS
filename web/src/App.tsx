@@ -15,6 +15,8 @@ import { Reports } from "./pages/admin/Reports";
 import { Scan } from "./pages/admin/Scan";
 import { Settings } from "./pages/admin/Settings";
 import { Transfers } from "./pages/admin/Transfers";
+import { Expenses } from "./pages/admin/Expenses";
+import { Attendance } from "./pages/admin/Attendance";
 import { StocktakeDetail, StocktakeList } from "./pages/admin/Stocktake";
 import { PosLayout } from "./pages/pos/PosLayout";
 import { Register } from "./pages/pos/Register";
@@ -46,6 +48,8 @@ export function App() {
                 <Route path="stocktake" element={<StocktakeList />} />
                 <Route path="stocktake/:id" element={<StocktakeDetail />} />
                 <Route path="transfers" element={<Transfers />} />
+                <Route path="attendance" element={<Attendance />} />
+                <Route path="expenses" element={<Guard min="manager"><Expenses /></Guard>} />
                 <Route path="products" element={<Guard min="manager"><Products /></Guard>} />
                 <Route path="labels" element={<Guard min="manager"><Labels /></Guard>} />
                 <Route path="promotions" element={<Guard min="manager"><Promotions /></Guard>} />

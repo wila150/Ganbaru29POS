@@ -414,3 +414,11 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .loc-select.compact { width: auto; min-height: 30px; padding: 2px 8px; background: #374151; color: #fff; border-color: #4b5563; }
 .transfer-items { margin: 6px 0; padding-left: 18px; }
 .other-locs h3 { margin-top: 12px; }
+
+/* ---------- reports ---------- */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+.bar-col { width: 30%; min-width: 80px; }
+.bar { display: block; height: 10px; border-radius: 5px; background: #60a5fa; min-width: 2px; }
+.matrix.heat td { min-width: 44px; height: 34px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.pl tr.strong td { border-top: 2px solid var(--border); }

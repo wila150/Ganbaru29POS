@@ -1,4 +1,5 @@
 import { onCall } from "firebase-functions/v2/https";
+import { audit } from "./lib/audit";
 import { requireRole } from "./lib/auth";
 import { notifyOwner } from "./lib/line";
 import { gql, MeepError } from "./lib/meepshop";
@@ -22,6 +23,7 @@ export const setApiKey = onCall(async (req) => {
   }
   await setSecret("MEEPSHOP_API_KEY", key);
   await db.doc("settings/shop").set({ apiKeySetAt: FieldValue.serverTimestamp(), apiKeySetBy: actor.name }, { merge: true });
+  await audit(actor, "settings.meepshopKey", {});
   return { ok: true, products: total };
 });
 
