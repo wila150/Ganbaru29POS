@@ -120,8 +120,11 @@ export async function recomputeTiers() {
   // Members with no purchases in 12 months drop to the base tier.
   const lowest = [...tiers].sort((a, b) => a.minSpend - b.minSpend)[0];
   const baseTier = lowest && lowest.minSpend <= 0 ? lowest.name : null;
-  const withTier = await db.collection("shoppers").where("spend12m", ">", 0).select().get();
-  for (const d of withTier.docs) if (!seen.has(d.id)) writer.set(d.ref, { spend12m: 0, spendStore12m: 0, spendOnline12m: 0, tier: baseTier, tierAt: Timestamp.now() }, { merge: true });
+  // 不再有任何消費紀錄的會員（例如訂單被取消）：數字歸零
+  const [withSpend, withOrders] = await Promise.all([db.collection("shoppers").where("spend12m", ">", 0).select().get(), db.collection("shoppers").where("ordersTotal", ">", 0).select().get()]);
+  const stale = new Map([...withSpend.docs, ...withOrders.docs].filter((d) => !seen.has(d.id)).map((d) => [d.id, d.ref]));
+  for (const ref of stale.values())
+    writer.set(ref, { spend12m: 0, spendStore12m: 0, spendOnline12m: 0, maxSingle12m: 0, ordersTotal: 0, spendTotal: 0, orders12m: 0, orders6m: 0, orders3m: 0, firstOrderAt: null, lastOrderAt: null, tier: baseTier, tierAt: Timestamp.now() }, { merge: true });
   await writer.close();
   await db.doc("settings/shop").set({ tiersAt: Timestamp.now(), tiersError: null }, { merge: true });
   return { updated, error: null };
