@@ -1,12 +1,14 @@
-import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
 import { Badge, Empty, Field, Modal, useAction } from "../../components/ui";
 import { daysSince, useData, variantName } from "../../data";
-import { db } from "../../firebase";
+import { call, db } from "../../firebase";
+import { Barcode } from "../../components/Barcode";
+import { QrImg } from "../../components/QrImg";
 import { searchVariants } from "../../lib/lookup";
 import { applyPromotions, describePromo, inScope, PROMO_TYPE_LABEL, taipeiClock, type PromoScope, type PromoType, type Promotion } from "../../lib/promo";
-import { money, todayStr } from "../../lib/util";
+import { downloadCsv, money, todayStr } from "../../lib/util";
 import type { Variant } from "../../types";
 
 type PromoDoc = Promotion & { note?: string };
@@ -14,6 +16,7 @@ type PromoDoc = Promotion & { note?: string };
 export function Promotions() {
   const [list, setList] = useState<PromoDoc[]>([]);
   const [edit, setEdit] = useState<PromoDoc | "new" | null>(null);
+  const [couponFor, setCouponFor] = useState<PromoDoc | null>(null);
   const { run } = useAction();
   useEffect(() => onSnapshot(query(collection(db, "promotions"), orderBy("createdAt", "desc")), (s) => setList(s.docs.map((d) => ({ id: d.id, ...d.data() }) as PromoDoc))), []);
   const today = todayStr();
@@ -58,6 +61,11 @@ export function Promotions() {
                 <button className="btn btn-sm" onClick={() => setEdit(p)}>
                   編輯
                 </button>
+                {p.couponOnly && (
+                  <button className="btn btn-sm btn-primary" onClick={() => setCouponFor(p)}>
+                    優惠碼
+                  </button>
+                )}
                 <button className="btn btn-sm" onClick={() => run(() => setDoc(doc(db, "promotions", p.id), { active: !p.active, updatedAt: serverTimestamp() }, { merge: true }), p.active ? "已停用" : "已啟用")}>
                   {p.active ? "停用" : "啟用"}
                 </button>
@@ -70,6 +78,7 @@ export function Promotions() {
         </div>
       )}
       {edit && <PromoEditor promo={edit === "new" ? null : edit} onClose={() => setEdit(null)} />}
+      {couponFor && <CouponManager promo={couponFor} onClose={() => setCouponFor(null)} />}
     </div>
   );
 }
@@ -130,6 +139,7 @@ function PromoEditor({ promo, onClose }: { promo: PromoDoc | null; onClose: () =
         minSpend: Number(p.minSpend) || 0,
         maxUses: Number(p.maxUses) || 0,
         noMemberStack: !!p.noMemberStack,
+        couponOnly: !!p.couponOnly,
         note: p.note ?? null,
         updatedBy: profile?.name ?? "",
         updatedAt: serverTimestamp(),
@@ -370,7 +380,10 @@ function PromoEditor({ promo, onClose }: { promo: PromoDoc | null; onClose: () =
         </Field>
       </div>
 
-      <h3 className="form-section">5. 搭配</h3>
+      <h3 className="form-section">5. 搭配與優惠碼</h3>
+      <label className="check">
+        <input type="checkbox" checked={!!p.couponOnly} onChange={(e) => set({ couponOnly: e.target.checked })} /> 需要優惠碼才能使用（儲存後在活動卡片按「優惠碼」產生）
+      </label>
       <label className="check">
         <input type="checkbox" checked={!p.noMemberStack} onChange={(e) => set({ noMemberStack: !e.target.checked })} /> 可以和會員等級折扣併用
       </label>
@@ -550,5 +563,159 @@ function ProductPicker({ value, onChange, onClose }: { value: string[]; onChange
         </table>
       </div>
     </Modal>
+  );
+}
+
+interface Coupon {
+  code: string;
+  kind: "shared" | "single";
+  used: number;
+  maxUses: number;
+  active: boolean;
+  expiresAt: { toMillis(): number; toDate(): Date } | null;
+}
+
+/** 優惠碼：共用碼（例 VIP2026）或 N 張單次碼；可列印 QR／條碼、匯出 Excel */
+function CouponManager({ promo, onClose }: { promo: PromoDoc; onClose: () => void }) {
+  const [list, setList] = useState<Coupon[]>([]);
+  const [kind, setKind] = useState<"shared" | "single">("shared");
+  const [code, setCode] = useState("");
+  const [count, setCount] = useState(20);
+  const [maxUses, setMaxUses] = useState(0);
+  const [expires, setExpires] = useState(promo.endDate ?? "");
+  const [printing, setPrinting] = useState<Coupon[] | null>(null);
+  const { busy, run } = useAction();
+  useEffect(
+    () => onSnapshot(query(collection(db, "coupons"), where("promoId", "==", promo.id)), (s) => setList(s.docs.map((d) => d.data() as Coupon).sort((a, b) => a.code.localeCompare(b.code)))),
+    [promo.id]
+  );
+  const left = (c: Coupon) => (c.maxUses ? Math.max(0, c.maxUses - c.used) : Infinity);
+  const unused = list.filter((c) => c.active && left(c) > 0);
+  return (
+    <Modal
+      title={`優惠碼：${promo.name}`}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <button className="btn" disabled={!list.length} onClick={() => downloadCsv(`優惠碼_${promo.name}.csv`, [["優惠碼", "類型", "已使用", "上限", "狀態", "到期"], ...list.map((c) => [c.code, c.kind === "shared" ? "共用" : "單次", c.used, c.maxUses || "不限", c.active ? "啟用" : "停用", c.expiresAt ? c.expiresAt.toDate().toISOString().slice(0, 10) : ""])])}>
+            匯出 Excel
+          </button>
+          <button className="btn btn-primary" disabled={!unused.length} onClick={() => setPrinting(unused)}>
+            列印未使用的優惠碼（{unused.length}）
+          </button>
+        </>
+      }
+    >
+      <p className="muted small">{describePromo(promo)}。收銀時掃描或輸入優惠碼就會套用。</p>
+      <div className="segmented">
+        <button className={kind === "shared" ? "active" : ""} onClick={() => setKind("shared")}>
+          共用碼<small>一組碼大家都能用</small>
+        </button>
+        <button className={kind === "single" ? "active" : ""} onClick={() => setKind("single")}>
+          單次碼<small>每張只能用一次</small>
+        </button>
+      </div>
+      <div className="inline-form">
+        {kind === "shared" ? (
+          <>
+            <input placeholder="優惠碼，例：VIP2026" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+            <label className="check">
+              總次數上限
+              <input type="number" min={0} value={maxUses} onChange={(e) => setMaxUses(Number(e.target.value))} style={{ width: 90 }} />
+              <span className="muted small">（0 = 不限）</span>
+            </label>
+          </>
+        ) : (
+          <label className="check">
+            產生
+            <input type="number" min={1} max={1000} value={count} onChange={(e) => setCount(Number(e.target.value))} style={{ width: 90 }} />
+            張
+          </label>
+        )}
+        <label className="check">
+          到期日
+          <input type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
+        </label>
+        <button
+          className="btn btn-primary"
+          disabled={busy || (kind === "shared" && !code.trim())}
+          onClick={() =>
+            run(async () => {
+              const r = await call<{ codes: string[] }>("createCoupons", { promoId: promo.id, kind, code, count, maxUses, expiresAt: expires || null });
+              setCode("");
+              return r;
+            }, "已產生優惠碼")
+          }
+        >
+          產生
+        </button>
+      </div>
+      {list.length === 0 ? (
+        <Empty>還沒有優惠碼</Empty>
+      ) : (
+        <div className="table-wrap" style={{ maxHeight: 320, overflowY: "auto" }}>
+          <table className="table table-compact">
+            <tbody>
+              {list.map((c) => (
+                <tr key={c.code} className={c.active ? "" : "row-muted"}>
+                  <td>
+                    <code>{c.code}</code>
+                  </td>
+                  <td>{c.kind === "shared" ? "共用" : "單次"}</td>
+                  <td className="num">
+                    已用 {c.used}
+                    {c.maxUses ? ` / ${c.maxUses}` : ""}
+                  </td>
+                  <td>{c.expiresAt ? `${c.expiresAt.toDate().toISOString().slice(0, 10)} 到期` : "不限期"}</td>
+                  <td>
+                    <button className="btn btn-sm btn-ghost" onClick={() => run(() => call("setCouponActive", { code: c.code, active: !c.active }), c.active ? "已停用" : "已啟用")}>
+                      {c.active ? "停用" : "啟用"}
+                    </button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setPrinting([c])}>
+                      列印
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {printing && <CouponPrint promo={promo} coupons={printing} onClose={() => setPrinting(null)} />}
+    </Modal>
+  );
+}
+
+/** 優惠券列印：QR＋條碼＋活動說明，A4 排版或標籤機一張一頁 */
+function CouponPrint({ promo, coupons, onClose }: { promo: PromoDoc; coupons: Coupon[]; onClose: () => void }) {
+  const { settings } = useData();
+  return (
+    <div className="coupon-print-overlay">
+      <div className="no-print btn-row coupon-print-bar">
+        <strong>列印 {coupons.length} 張優惠券</strong>
+        <button className="btn btn-primary" onClick={() => window.print()}>
+          列印
+        </button>
+        <button className="btn" onClick={onClose}>
+          關閉
+        </button>
+      </div>
+      <div className="coupon-sheet">
+        {coupons.map((c) => (
+          <div key={c.code} className="coupon">
+            <div className="coupon-shop">{settings.shopName || "ganbaru29"}</div>
+            <div className="coupon-title">{promo.name}</div>
+            <div className="coupon-desc">{describePromo(promo)}</div>
+            <QrImg value={c.code} size={96} />
+            <Barcode value={c.code} height={34} width={1.4} fontSize={11} />
+            <div className="coupon-foot">
+              {c.expiresAt ? `${c.expiresAt.toDate().toISOString().slice(0, 10)} 前有效` : promo.endDate ? `${promo.endDate} 前有效` : ""}
+              {c.kind === "single" ? "・限用一次" : ""}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

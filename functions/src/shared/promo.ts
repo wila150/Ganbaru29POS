@@ -62,6 +62,8 @@ export interface Promotion {
   maxUses?: number;
   /** true = 套用這個活動的商品，不再打會員等級折扣 */
   noMemberStack?: boolean;
+  /** true = 要掃／輸入這個活動的優惠碼才會套用 */
+  couponOnly?: boolean;
 }
 
 export interface PromoLine {
@@ -87,6 +89,8 @@ export interface PromoContext {
   tier: string | null;
   /** meepShop 會員群組名稱 */
   group?: string | null;
+  /** 結帳時輸入的優惠碼解鎖的促銷 id */
+  coupons?: string[];
 }
 
 export interface PromoApplied {
@@ -127,6 +131,7 @@ function ctxOf(c: PromoContext | string): PromoContext {
 export function promoIsLive(p: Promotion, c: PromoContext | string): boolean {
   const ctx = ctxOf(c);
   if (!p.active) return false;
+  if (p.couponOnly && !(ctx.coupons ?? []).includes(p.id)) return false;
   if (p.startDate && ctx.date < p.startDate) return false;
   if (p.endDate && ctx.date > p.endDate) return false;
   if (p.days?.length && !p.days.includes(ctx.weekday)) return false;
@@ -320,5 +325,6 @@ export function describePromo(p: Promotion): string {
   if (p.minSpend) extra.push(`滿 $${p.minSpend} 才適用`);
   if (p.maxUses) extra.push(`每單限 ${p.maxUses} 次`);
   if (p.noMemberStack) extra.push("不併用會員折扣");
+  if (p.couponOnly) extra.push("需優惠碼");
   return extra.length ? `${main}（${extra.join("，")}）` : main;
 }

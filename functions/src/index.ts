@@ -15,3 +15,4 @@ export { initLocationStock, requestTransfer, shipTransfer, receiveTransfer, canc
 export { merchantImagesDaily, syncImagesFromMerchant } from "./merchant";
 export { reportCenter } from "./reports";
 export { clockIn, clockOut, fixAttendance } from "./attendance";
+export { ensureAllMemberCodes, memberCard, resetMemberCard, createCoupons, setCouponActive } from "./cards";

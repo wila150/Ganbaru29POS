@@ -8,6 +8,7 @@ import { applyPromotions, taipeiClock, type Promotion } from "./shared/promo";
 import { claimOnlinePayment } from "./payments/index";
 import { invoiceAfterRefund, issueForOrder, parseInvoiceRequest } from "./payments/invoice";
 import { audit } from "./lib/audit";
+import { consumeCoupons, ensureMemberCodes, validateCoupons } from "./cards";
 import { mobileKey } from "./sync";
 
 /**
@@ -153,6 +154,9 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   const shopperId = d.shopperId ? str(d.shopperId, "會員", { max: 64 }) : null;
   const shopperDoc = shopperId ? (await db.doc(`shoppers/${shopperId}`).get()).data() : undefined;
 
+  // --- 優惠碼：驗證後解鎖對應的促銷（pending 重送時沿用已驗證的碼） ---
+  const couponCheck = existing?.coupons ? { promoIds: existing.coupons.map((c: { promoId: string }) => c.promoId), coupons: existing.coupons } : await validateCoupons(Array.isArray(d.coupons) ? d.coupons.map(String) : []);
+
   // --- 促銷：伺服器重算一次（與 POS 畫面用同一個引擎） ---
   const promoSnap = await db.collection("promotions").where("active", "==", true).get();
   const promotions = promoSnap.docs.map((p) => ({ id: p.id, ...p.data() }) as Promotion);
@@ -161,7 +165,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
     lines.map((l, i) => ({ key: String(i), variantId: l.variantId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct })),
     (vid) => infoById.get(vid),
     promotions,
-    { ...taipeiClock(), isMember: !!shopperId, tier: shopperDoc?.tier ?? null, group: shopperDoc?.memberGroup ?? null }
+    { ...taipeiClock(), isMember: !!shopperId, tier: shopperDoc?.tier ?? null, group: shopperDoc?.memberGroup ?? null, coupons: couponCheck.promoIds }
   );
   lines.forEach((l, i) => {
     l.promoDiscount = promo.lineDiscount[String(i)] ?? 0;
@@ -268,6 +272,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
         shopper,
         lines,
         promotions: promo.applied,
+        coupons: couponCheck.coupons,
         promoTotal,
         itemCount: lines.reduce((s, l) => s + l.qty, 0),
         subtotal,
@@ -331,6 +336,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
     moveIds.push(moveId);
   }
   await ref.update({ status: "completed", completedAt: FieldValue.serverTimestamp() });
+  if (order.coupons?.length) await consumeCoupons(id, order.coupons);
   const changed = (order.lines as Line[]).filter((l) => l.unitPrice !== l.listPrice || l.discountPct > 0);
   if (changed.length || order.orderDiscount || order.allowance) {
     await audit(actor, "pos.discount", { orderId: id, orderNo: order.orderNo, priceChanges: changed.map((l) => ({ title: `${l.productTitle} ${l.options}`, listPrice: l.listPrice, unitPrice: l.unitPrice, discountPct: l.discountPct })), orderDiscountPct: order.orderDiscountPct, allowance: order.allowance });
@@ -825,6 +831,7 @@ export const createShopper = onCall(opts, async (req) => {
   try {
     const s = await meep.createShopper({ email, name: str(req.data?.name, "姓名", { optional: true, max: 40 }) || undefined, mobile: mobile || undefined });
     await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? "", mobile: s.mobile ?? "", mobileKey: mobileKey(s.mobile), points: s.usableRewardPoints ?? 0, updatedAt: s.updatedAt ?? null });
+    await ensureMemberCodes([s.id]);
     return { id: s.id, name: s.name, email: s.email, mobile: s.mobile, points: s.usableRewardPoints ?? 0 };
   } catch (e) {
     throw new HttpsError("failed-precondition", `新增會員失敗：${errMsg(e)}`);

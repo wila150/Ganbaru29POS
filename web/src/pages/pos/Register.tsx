@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth";
@@ -56,6 +56,7 @@ export function Register() {
   const [holdId, setHoldId] = useState<string | undefined>(draft.holdId);
   const [exchange, setExchange] = useState<ExchangeQuote | null>(draft.exchange ?? null);
   const [refundMethod, setRefundMethod] = useState("cash");
+  const [coupons, setCoupons] = useState<{ code: string; promoId: string; promoName: string }[]>([]);
   const [cat, setCat] = useState<string>("全部");
   const [q, setQ] = useState("");
   const [pick, setPick] = useState<Variant[] | null>(null);
@@ -67,7 +68,7 @@ export function Register() {
   const orderId = useRef<string>(newId("o"));
   useEffect(() => {
     orderId.current = newId("o"); // the cart changed → it is a different sale
-  }, [cart, disc, shopper, exchange]);
+  }, [cart, disc, shopper, exchange, coupons]);
   const [done, setDone] = useState<{ order: PosOrder; issues: { title: string; status: string; error: string | null }[] } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -83,7 +84,46 @@ export function Register() {
   }, [incoming, nav]);
 
   const pointValue = settings.pointValue ?? 1;
-  const promo = useMemo(() => cartPromos(cart, byId, promotions, shopper), [cart, byId, promotions, shopper]);
+  const promo = useMemo(() => cartPromos(cart, byId, promotions, shopper, coupons.map((c) => c.promoId)), [cart, byId, promotions, shopper, coupons]);
+
+  /** 會員條碼（M + 9 碼）→ 帶入會員 */
+  const scanMember = async (code: string) => {
+    const q = await getDocs(query(collection(db, "shoppers"), where("memberCode", "==", code), limit(1)));
+    const d = q.docs[0];
+    if (!d) return false;
+    const x = d.data();
+    const s: Shopper = { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null };
+    setShopper(s);
+    toast(`會員：${s.name || s.mobile}`, "ok");
+    if (s.email)
+      call<{ shoppers: Shopper[] }>("searchShopper", { q: s.email })
+        .then((r) => {
+          const live = r.shoppers.find((y) => y.id === s.id);
+          if (live) setShopper((cur) => (cur?.id === s.id ? { ...cur, ...live } : cur));
+        })
+        .catch(() => undefined);
+    return true;
+  };
+
+  /** 優惠碼 → 解鎖「需要優惠碼」的促銷 */
+  const applyCoupon = async (raw: string): Promise<boolean> => {
+    const code = raw.trim().toUpperCase().replace(/\s+/g, "");
+    if (!code) return false;
+    const snap = await getDoc(doc(db, "coupons", code)).catch(() => null);
+    if (!snap?.exists()) return false;
+    const c = snap.data();
+    const problem = !c.active ? "已停用" : c.expiresAt && c.expiresAt.toMillis() < Date.now() ? "已過期" : c.maxUses && c.used >= c.maxUses ? "已經用過" : null;
+    if (problem) {
+      beep(false);
+      toast(`優惠碼 ${code} ${problem}`, "bad");
+      return true;
+    }
+    if (coupons.some((x) => x.code === code)) return true;
+    setCoupons((l) => [...l, { code, promoId: c.promoId, promoName: c.promoName }]);
+    beep(true);
+    toast(`已套用優惠碼：${c.promoName}`, "ok");
+    return true;
+  };
   const tier = shopper?.tier ? (settings.memberTiers ?? []).find((x) => x.name === shopper.tier) : undefined;
   const isBirthday = !!shopper?.birthMonth && shopper.birthMonth === todayStr().slice(5, 7);
   const t = totals(cart, disc, pointValue, promo, tier?.discountPct ?? 0);
@@ -124,8 +164,11 @@ export function Register() {
   const onScan = async (code: string) => {
     const v = await resolveCode(code, byId);
     if (!v) {
+      // 不是商品：試會員條碼、優惠碼
+      if (/^M\d{9}$/.test(code.trim()) && (await scanMember(code.trim()))) return beep(true);
+      if (await applyCoupon(code)) return;
       beep(false);
-      toast(`找不到商品：${code}`, "bad");
+      toast(`找不到商品、會員或優惠碼：${code}`, "bad");
       return;
     }
     beep(true);
@@ -159,6 +202,7 @@ export function Register() {
     setDisc(emptyDiscounts(settings.serviceFeeDefault ?? 0));
     setHoldId(undefined);
     setExchange(null);
+    setCoupons([]);
     setSelected(null);
   };
 
@@ -258,6 +302,27 @@ export function Register() {
           </button>
         </div>
 
+        {(coupons.length > 0 || cart.length > 0) && (
+          <div className="coupon-chips">
+            {coupons.map((c) => (
+              <span key={c.code} className="tag tag-promo">
+                🎟 {c.code}（{c.promoName}）
+                <button className="btn-icon" onClick={() => setCoupons((l) => l.filter((x) => x.code !== c.code))} aria-label="移除優惠碼">
+                  ✕
+                </button>
+              </span>
+            ))}
+            <button
+              className="link-btn small"
+              onClick={async () => {
+                const code = prompt("輸入或掃描優惠碼");
+                if (code && !(await applyCoupon(code))) toast(`找不到優惠碼 ${code}`, "bad");
+              }}
+            >
+              ＋ 優惠碼
+            </button>
+          </div>
+        )}
         <ul className="cart-lines">
           {cart.length === 0 && <li className="muted center cart-empty">點商品或掃條碼加入</li>}
           {cart.map((l) => {
@@ -429,6 +494,7 @@ export function Register() {
               shopperId: shopper?.id ?? null,
               payments,
               invoice,
+              coupons: coupons.map((c) => c.code),
               note,
               guests,
               holdId,
@@ -513,7 +579,16 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ email: "", name: "", mobile: "" });
   const { busy, run } = useAction();
-  const search = () => run(async () => setList((await call<{ shoppers: Shopper[] }>("searchShopper", { q })).shoppers));
+  const search = () =>
+    run(async () => {
+      // 會員條碼（掃描槍或手動輸入 M + 9 碼）
+      if (/^M\d{9}$/i.test(q.trim())) {
+        const r = await getDocs(query(collection(db, "shoppers"), where("memberCode", "==", q.trim().toUpperCase()), limit(1)));
+        setList(r.docs.map((d) => ({ id: d.id, name: d.data().name ?? "", email: d.data().email ?? "", mobile: d.data().mobile ?? "", points: d.data().points ?? 0, tier: d.data().tier ?? null, group: d.data().memberGroup ?? null })));
+        return;
+      }
+      setList((await call<{ shoppers: Shopper[] }>("searchShopper", { q })).shoppers);
+    });
   const choose = (s: Shopper) => {
     onPick(s);
     onClose();
@@ -537,7 +612,7 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
       {!creating ? (
         <>
           <div className="inline-form">
-            <input autoFocus placeholder="手機號碼或 Email" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && q && search()} />
+            <input autoFocus placeholder="手機號碼、Email 或掃會員條碼" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && q && search()} />
             <button className="btn btn-primary" disabled={busy || !q} onClick={search}>
               查詢
             </button>

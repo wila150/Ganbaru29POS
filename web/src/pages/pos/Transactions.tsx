@@ -11,6 +11,7 @@ import { atLeast, fmtTime, money, newId, PAY_LABEL, PAY_NAME, todayStr } from ".
 import type { PosOrder, Shopper } from "../../types";
 import { InvoiceInfo } from "./Checkout";
 import { getDeviceLocationId } from "../../lib/location";
+import { MemberCardDialog } from "../../components/MemberCardDialog";
 import { MemberList } from "../../components/MemberList";
 import { MemberPicker } from "./Register";
 
@@ -329,6 +330,7 @@ function RefundDialog({ order: o, onClose }: { order: PosOrder; onClose: () => v
 export function Members() {
   const [shopper, setShopper] = useState<Shopper | null>(null);
   const [picking, setPicking] = useState(false);
+  const [showCard, setShowCard] = useState(false);
   const [orders, setOrders] = useState<PosOrder[]>([]);
   const nav = useNavigate();
 
@@ -387,6 +389,9 @@ export function Members() {
               <button className="btn btn-primary" onClick={() => nav("/pos", { state: { shopper } })}>
                 帶入收銀
               </button>
+              <button className="btn" onClick={() => setShowCard(true)}>
+                會員卡／會員條碼
+              </button>
             </div>
           </div>
           <h2>門市消費紀錄</h2>
@@ -409,6 +414,7 @@ export function Members() {
           )}
         </>
       )}
+      {showCard && shopper && <MemberCardDialog shopperId={shopper.id} name={shopper.name || shopper.mobile} onClose={() => setShowCard(false)} />}
       {picking && <MemberPicker current={null} onClose={() => setPicking(false)} onPick={setShopper} />}
     </div>
   );

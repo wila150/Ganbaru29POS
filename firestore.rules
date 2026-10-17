@@ -45,6 +45,8 @@ service cloud.firestore {
     // 打卡：員工看自己的，店長以上看全部；寫入一律經過 Cloud Functions
     match /attendance/{id} { allow read: if active() && (resource.data.uid == request.auth.uid || isManager()); }
     match /auditLogs/{id} { allow read: if isManager(); }
+    // 優惠碼：收銀員掃碼時要能查；建立、停用經過 Cloud Functions
+    match /coupons/{code} { allow read: if active(); }
     match /transfers/{id} { allow read: if active(); }
     match /shifts/{id} { allow read: if active(); }
 
@@ -54,7 +56,7 @@ service cloud.firestore {
       allow create, update: if isManager()
         && request.resource.data.keys().hasOnly(['name', 'active', 'type', 'startDate', 'endDate', 'scope', 'excludeScope', 'percentOff', 'amountOff', 'n', 'bundlePrice',
              'addonScope', 'addonPrice', 'thresholdType', 'threshold', 'thresholdReward', 'repeat', 'memberRule', 'memberTiers', 'memberGroups',
-             'days', 'timeFrom', 'timeTo', 'minSpend', 'maxUses', 'noMemberStack', 'note', 'updatedBy', 'updatedAt', 'createdAt'])
+             'days', 'timeFrom', 'timeTo', 'minSpend', 'maxUses', 'noMemberStack', 'couponOnly', 'note', 'updatedBy', 'updatedAt', 'createdAt'])
         && request.resource.data.name is string && request.resource.data.name.size() > 0
         && request.resource.data.type in ['percent_off', 'amount_off', 'nth_discount', 'bundle_price', 'addon', 'threshold']
         && request.resource.data.active is bool;

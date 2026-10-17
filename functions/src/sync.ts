@@ -7,6 +7,7 @@ import { MProduct, productsPage, shoppersPage } from "./lib/meepshop";
 import { Batch, consumeFifo } from "./lib/movements";
 import { codeKey, db, errMsg, FieldValue, sleep, Timestamp, TZ } from "./lib/util";
 import { reconcileLocations } from "./locations";
+import { ensureMemberCodes } from "./cards";
 
 const DEFAULT_SITE = "https://www.ganbaru29.com";
 
@@ -252,6 +253,7 @@ export async function runShopperSync(mode: "full" | "incremental") {
     }
     // meepShop 會員群組清單（促銷、購物金回饋規則選群組用）
     await settingsRef.set({ lastShopperSyncAt: Timestamp.fromDate(startedAt), memberGroups: [...groups].sort() }, { merge: true });
+    await ensureMemberCodes();
     return count;
   });
 }

@@ -20,7 +20,7 @@ export const lineTotal = (l: Pick<CartLine, "qty" | "unitPrice" | "discountPct">
 
 const NO_PROMO: PromoResult = { lineDiscount: {}, lineLabels: {}, noMemberStack: [], applied: [], total: 0 };
 
-export function cartPromos(lines: CartLine[], byId: Map<string, Variant>, promotions: Promotion[], shopper?: { tier?: string | null; group?: string | null } | null): PromoResult {
+export function cartPromos(lines: CartLine[], byId: Map<string, Variant>, promotions: Promotion[], shopper?: { tier?: string | null; group?: string | null } | null, couponPromoIds: string[] = []): PromoResult {
   if (!promotions.length) return NO_PROMO;
   return applyPromotions(
     lines,
@@ -29,7 +29,7 @@ export function cartPromos(lines: CartLine[], byId: Map<string, Variant>, promot
       return v ? { productId: v.productId, category: v.posCategory, tags: v.tags ?? [] } : undefined;
     },
     promotions,
-    { ...taipeiClock(), isMember: !!shopper, tier: shopper?.tier ?? null, group: shopper?.group ?? null }
+    { ...taipeiClock(), isMember: !!shopper, tier: shopper?.tier ?? null, group: shopper?.group ?? null, coupons: couponPromoIds }
   );
 }
 
