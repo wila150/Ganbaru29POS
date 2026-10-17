@@ -64,6 +64,8 @@ export function Products() {
             商品從 meepShop 同步而來（新增商品請到 meepShop 後台）。上次完整同步：{fmtTime(settings.lastCatalogSyncAt)}
           </div>
         </div>
+        <div className="btn-row">
+        <FeedImport />
         <button
           className="btn btn-primary"
           disabled={busy}
@@ -77,6 +79,7 @@ export function Products() {
         >
           {busy ? "同步中（可能要幾分鐘）…" : "立即同步 meepShop 商品"}
         </button>
+        </div>
       </div>
 
       <input className="search" placeholder="搜尋名稱、編號、條碼、儲位" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -328,5 +331,45 @@ function ImageDialog({ group, onClose }: { group: Group; onClose: () => void }) 
         )}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * 匯入 meepShop 的 Google 商品 Feed（.tsv / .txt）補商品圖。
+ * Feed 網址有 Cloudflare 驗證，系統抓不到，所以由老闆用瀏覽器下載後在這裡上傳。
+ */
+function FeedImport() {
+  const { busy, run } = useAction();
+  const parse = (text: string) => {
+    const lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter((l) => l.trim());
+    const head = lines[0]?.split("\t").map((h) => h.trim().toLowerCase()) ?? [];
+    const iId = head.indexOf("id");
+    const iImg = head.indexOf("image_link");
+    if (iId < 0 || iImg < 0) throw new Error("檔案格式不對：找不到 id 或 image_link 欄位。請下載 meepShop「第三方設定 → Google Ads → 動態檔案網址」的檔案。");
+    return lines.slice(1).map((l) => {
+      const c = l.split("\t");
+      return { id: (c[iId] ?? "").trim(), image: (c[iImg] ?? "").trim() };
+    }).filter((r) => r.id && r.image);
+  };
+  return (
+    <label className={`btn ${busy ? "disabled" : ""}`} title="用瀏覽器下載 meepShop 的 Google 商品 Feed 後上傳，補齊商品圖">
+      {busy ? "匯入圖片中（約 1～3 分鐘）…" : "匯入商品 Feed 補圖片"}
+      <input
+        type="file"
+        accept=".tsv,.txt,text/tab-separated-values,text/plain"
+        hidden
+        disabled={busy}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file) return;
+          run(async () => {
+            const rows = parse(await file.text());
+            const r = await call<{ done: number; skipped: number; failedCount: number; failed: string[] }>("importImageFeed", { rows });
+            alert(`已補上 ${r.done} 個商品的圖片${r.skipped ? `，略過 ${r.skipped} 個（已有圖片、手動上傳過或不在系統中）` : ""}${r.failedCount ? `\n失敗 ${r.failedCount} 個：\n${r.failed.join("\n")}` : ""}`);
+          });
+        }}
+      />
+    </label>
   );
 }

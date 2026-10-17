@@ -292,3 +292,70 @@ export const catalogDaily = onSchedule({ schedule: "0 4 * * *", timeZone: TZ, ti
   }
   await processPendingImages(deadline);
 });
+
+// ---------- 商品圖：匯入 meepShop 的 Google 商品 Feed（老闆用瀏覽器下載的 .tsv） ----------
+
+const FEED_IMAGE_HOSTS = ["img.meepshop.com", "storage.googleapis.com"];
+
+/**
+ * 官網與 Feed 網址都有 Cloudflare 機器人驗證，系統抓不到；但圖片主機沒有擋。
+ * 老闆在瀏覽器下載 Feed（id = 商品 ID、image_link = 主圖），前端解析後把 [商品 ID, 圖片網址] 傳上來，
+ * 這裡逐一從圖片主機下載、存進 Storage。手動上傳過的商品不會被覆蓋。
+ */
+export const importImageFeed = onCall({ timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async (req) => {
+  await requireRole(req, "manager");
+  const rows = (Array.isArray(req.data?.rows) ? req.data.rows : []).slice(0, 3000) as { id: string; image: string }[];
+  const overwrite = req.data?.overwrite === true;
+  const bucket = getStorage().bucket();
+  const deadline = Date.now() + 500_000;
+  let done = 0;
+  let skipped = 0;
+  const failed: string[] = [];
+  for (const r of rows) {
+    if (Date.now() > deadline) {
+      failed.push("時間不足，請再匯入一次以完成剩下的商品");
+      break;
+    }
+    const productId = String(r.id ?? "").trim();
+    let url: URL;
+    try {
+      url = new URL(String(r.image ?? ""));
+    } catch {
+      skipped++;
+      continue;
+    }
+    if (!/^[\w-]{8,}$/.test(productId) || !FEED_IMAGE_HOSTS.includes(url.hostname)) {
+      skipped++;
+      continue;
+    }
+    const imgRef = db.doc(`productImages/${productId}`);
+    const cur = (await imgRef.get()).data();
+    if (cur?.source === "manual" || (!overwrite && cur?.status === "ok" && cur?.url)) {
+      skipped++;
+      continue;
+    }
+    const vs = await db.collection("variants").where("productId", "==", productId).get();
+    if (vs.empty) {
+      skipped++;
+      continue;
+    }
+    try {
+      const res = await fetch(url.toString(), { headers: { "user-agent": "ganbaru29-pos/1.0 (+image sync)" } });
+      const type = res.headers.get("content-type") || "";
+      if (!res.ok || !type.startsWith("image/")) throw new Error(`圖片 HTTP ${res.status} ${type}`);
+      const ext = type.includes("png") ? "png" : type.includes("webp") ? "webp" : "jpg";
+      const file = bucket.file(`products/${productId}.${ext}`);
+      await file.save(Buffer.from(await res.arrayBuffer()), { contentType: type, resumable: false, metadata: { cacheControl: "public, max-age=86400" } });
+      const stored = await getDownloadURL(file);
+      await imgRef.set({ url: stored, status: "ok", source: "feed", sourceUrl: url.toString(), fetchedAt: FieldValue.serverTimestamp(), error: null }, { merge: true });
+      const batch = db.batch();
+      vs.docs.filter((v) => v.data().imageSource !== "manual").forEach((v) => batch.update(v.ref, { imageUrl: stored, imageSource: "feed" }));
+      await batch.commit();
+      done++;
+    } catch (e) {
+      failed.push(`${productId}：${errMsg(e)}`);
+    }
+    await sleep(200);
+  }
+  return { done, skipped, failed: failed.slice(0, 20), failedCount: failed.length };
+});
