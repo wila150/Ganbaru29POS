@@ -42,6 +42,14 @@ export async function recomputeTiers() {
     orders3m: number;
   }
   const spend = new Map<string, Stat>();
+  /** 累計已使用購物金（取消、作廢的單不算；門市退貨退回的點數扣掉） */
+  const used = new Map<string, { store: number; online: number }>();
+  const addUsed = (id: string, k: "store" | "online", v: number) => {
+    if (!(v > 0)) return;
+    const cur = used.get(id) ?? { store: 0, online: 0 };
+    cur[k] += v;
+    used.set(id, cur);
+  };
   const add = (id: string, k: "store" | "online", v: number, at: number) => {
     (purchases.get(id) ?? purchases.set(id, []).get(id)!).push({ at, amount: v });
     const cur = spend.get(id) ?? { store: 0, online: 0, maxSingle: 0, orders: 0, total: 0, first: at, last: at, orders12m: 0, orders6m: 0, orders3m: 0 };
@@ -60,9 +68,13 @@ export async function recomputeTiers() {
     spend.set(id, cur);
   };
 
-  const pos = await db.collection("posOrders").select("shopper", "total", "refunds", "status", "createdAt").get();
+  const pos = await db.collection("posOrders").select("shopper", "total", "refunds", "status", "createdAt", "rewardPoints", "pointsDeducted").get();
   for (const d of pos.docs) {
     const o = d.data();
+    if (o.shopper?.id && o.pointsDeducted && !["canceled", "void"].includes(o.status)) {
+      const back = (o.refunds ?? []).reduce((s: number, r: { pointsReturned?: number }) => s + (r.pointsReturned ?? 0), 0);
+      addUsed(o.shopper.id, "store", (o.rewardPoints ?? 0) - back);
+    }
     if (!o.shopper?.id || ["pending", "canceled", "void", "refunded"].includes(o.status)) continue;
     const refunded = (o.refunds ?? []).reduce((s: number, r: { amount: number }) => s + r.amount, 0);
     add(o.shopper.id, "store", (o.total ?? 0) - refunded, o.createdAt?.toMillis?.() ?? now);
@@ -76,6 +88,7 @@ export async function recomputeTiers() {
       const p = await ordersPage({ first: 50, after });
       for (const e of p.edges) {
         const o = e.node;
+        if (o?.shopper?.id && o.status !== "CANCELED") addUsed(o.shopper.id, "online", Math.round(o.rewardPointUsed ?? 0));
         // 與 meepShop 顧客分眾一致：只算「已結案」的網店訂單（處理中、取消、退貨不算消費）
         if (!o?.shopper?.id || o.status !== "CLOSED") continue;
         add(o.shopper.id, "online", o.totalPrice, new Date(o.createdAt).getTime());
@@ -151,6 +164,9 @@ export async function recomputeTiers() {
         orders12m: s?.orders12m ?? 0,
         orders6m: s?.orders6m ?? 0,
         orders3m: s?.orders3m ?? 0,
+        pointsUsed: Math.round((used.get(d.id)?.store ?? 0) + (used.get(d.id)?.online ?? 0)),
+        pointsUsedStore: Math.round(used.get(d.id)?.store ?? 0),
+        pointsUsedOnline: Math.round(used.get(d.id)?.online ?? 0),
       },
       { merge: true }
     );

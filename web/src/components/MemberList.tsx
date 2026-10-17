@@ -10,9 +10,12 @@ interface Row extends Shopper {
   birthDate?: string | null;
   spendStore12m?: number;
   spendOnline12m?: number;
+  pointsUsed?: number;
+  pointsUsedStore?: number;
+  pointsUsedOnline?: number;
 }
 
-type Sort = "spend" | "points" | "name";
+type Sort = "spend" | "points" | "used" | "name";
 
 /** 顧客名單：每 15 分鐘從 meepShop 同步的全部會員，可搜尋、篩選群組／等級、匯出 Excel。 */
 export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
@@ -29,7 +32,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
         setRows(
           s.docs.map((d) => {
             const x = d.data();
-            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0 };
+            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0, pointsUsed: x.pointsUsed ?? 0, pointsUsedStore: x.pointsUsedStore ?? 0, pointsUsedOnline: x.pointsUsedOnline ?? 0 };
           })
         )
       ),
@@ -46,7 +49,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
       .filter((r) => !group || r.group === group)
       .filter((r) => !tier || r.tier === tier)
       .filter((r) => !birthdayOnly || r.birthMonth === month)
-      .sort((a, b) => (sort === "spend" ? (b.spend12m ?? 0) - (a.spend12m ?? 0) : sort === "points" ? b.points - a.points : a.name.localeCompare(b.name, "zh-Hant")));
+      .sort((a, b) => (sort === "spend" ? (b.spend12m ?? 0) - (a.spend12m ?? 0) : sort === "points" ? b.points - a.points : sort === "used" ? (b.pointsUsed ?? 0) - (a.pointsUsed ?? 0) : a.name.localeCompare(b.name, "zh-Hant")));
   }, [rows, q, group, tier, sort, birthdayOnly, month]);
 
   return (
@@ -58,8 +61,8 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
           disabled={!list.length}
           onClick={() =>
             downloadCsv(`顧客名單_${todayStr()}.csv`, [
-              ["姓名", "手機", "Email", "meepShop 群組", "本系統等級", "購物金", "近12個月消費", "門市", "網店", "生日"],
-              ...list.map((r) => [r.name, r.mobile, r.email, r.group, r.tier, r.points, r.spend12m, r.spendStore12m, r.spendOnline12m, r.birthDate]),
+              ["姓名", "手機", "Email", "meepShop 群組", "本系統等級", "購物金", "已使用購物金", "門市已使用", "網店已使用", "近12個月消費", "門市", "網店", "生日"],
+              ...list.map((r) => [r.name, r.mobile, r.email, r.group, r.tier, r.points, r.pointsUsed, r.pointsUsedStore, r.pointsUsedOnline, r.spend12m, r.spendStore12m, r.spendOnline12m, r.birthDate]),
             ])
           }
         >
@@ -85,6 +88,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
         <select value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
           <option value="spend">依近 12 個月消費</option>
           <option value="points">依購物金</option>
+          <option value="used">依已使用購物金</option>
           <option value="name">依姓名</option>
         </select>
         <label className="check">
@@ -102,6 +106,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
                 <th>手機</th>
                 <th>群組／等級</th>
                 <th className="num">購物金</th>
+                <th className="num">已使用</th>
                 <th className="num">近 12 個月消費</th>
               </tr>
             </thead>
@@ -118,6 +123,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
                     {r.tier && <Badge>{r.tier}</Badge>}
                   </td>
                   <td className="num">{r.points}</td>
+                  <td className="num" title={`門市 ${r.pointsUsedStore ?? 0}／網店 ${r.pointsUsedOnline ?? 0}`}>{r.pointsUsed || "—"}</td>
                   <td className="num">{money(r.spend12m)}</td>
                 </tr>
               ))}
@@ -126,7 +132,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
           {list.length > 300 && <p className="muted center">只顯示前 300 位，請用搜尋縮小範圍（匯出 Excel 會包含全部）</p>}
         </div>
       )}
-      <p className="muted small">購物金數字是同步時的快取；點進會員會向 meepShop 查即時餘額。消費金額每天凌晨更新。</p>
+      <p className="muted small">購物金數字是同步時的快取；點進會員會向 meepShop 查即時餘額。「已使用」= 門市＋網店累計用掉的購物金（取消的單不算），和消費金額一樣每天凌晨更新。</p>
     </section>
   );
 }
