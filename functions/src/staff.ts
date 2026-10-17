@@ -5,7 +5,7 @@ import { requireRole, Role } from "./lib/auth";
 import { assert, db, FieldValue, HttpsError, str, Timestamp } from "./lib/util";
 
 /** The owner's Google email, set at deploy time (functions/.env). Only this account can become owner. */
-const OWNER_EMAIL = defineString("OWNER_EMAIL");
+const OWNER_EMAIL = defineString("OWNER_EMAIL", { default: "" });
 /** Engineers' Google emails, comma separated (functions/.env). Same rights as the owner. */
 const ENGINEER_EMAILS = defineString("ENGINEER_EMAILS", { default: "" });
 const ASSIGNABLE: Role[] = ["manager", "staff"];
@@ -26,7 +26,8 @@ export const claimOwner = onCall(async (req) => {
   const email = (req.auth.token.email || "").toLowerCase();
   assert(email && req.auth.token.email_verified, "請用已驗證的 Google 帳號登入", "permission-denied");
   const engineers = ENGINEER_EMAILS.value().split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
-  const role: Role | null = email === OWNER_EMAIL.value().trim().toLowerCase() ? "owner" : engineers.includes(email) ? "engineer" : null;
+  const owner = OWNER_EMAIL.value().trim().toLowerCase();
+  const role: Role | null = owner && email === owner ? "owner" : engineers.includes(email) ? "engineer" : null;
   assert(role, "這個帳號不是老闆或工程師帳號", "permission-denied");
   const existing = (await db.doc(`users/${req.auth.uid}`).get()).data();
   if (existing?.role === role && existing.active) return { role };
