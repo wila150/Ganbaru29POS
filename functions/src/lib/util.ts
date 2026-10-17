@@ -63,3 +63,13 @@ export function str(v: unknown, name: string, { max = 200, optional = false } = 
 export function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+
+/** 生日：接受 YYYY-MM-DD 或 YYYY/MM/DD，回傳 meepShop 要的 YYYY/MM/DD */
+export function birthDateInput(v: unknown): string {
+  const m = String(v ?? "").trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  assert(m, "請填生日（例：1995/08/20）");
+  const [y, mo, d] = [Number(m![1]), Number(m![2]), Number(m![3])];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  assert(dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d && y >= 1900 && dt.getTime() < Date.now(), "生日日期不正確");
+  return `${y}/${String(mo).padStart(2, "0")}/${String(d).padStart(2, "0")}`;
+}

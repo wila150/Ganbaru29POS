@@ -3,7 +3,7 @@ import { onCall } from "firebase-functions/v2/https";
 import { Actor, atLeast, requireRole } from "./lib/auth";
 import * as meep from "./lib/meepshop";
 import { createMovement, pushBulk } from "./lib/movements";
-import { assert, db, errMsg, FieldValue, HttpsError, int, num, str, taipeiDate, Timestamp } from "./lib/util";
+import { assert, birthDateInput, db, errMsg, FieldValue, HttpsError, int, num, str, taipeiDate, Timestamp } from "./lib/util";
 import { applyPromotions, taipeiClock, type Promotion } from "./shared/promo";
 import { claimOnlinePayment } from "./payments/index";
 import { invoiceAfterRefund, issueForOrder, parseInvoiceRequest } from "./payments/invoice";
@@ -852,9 +852,10 @@ export const createShopper = onCall(opts, async (req) => {
   const email = str(req.data?.email, "Email", { max: 120 }).toLowerCase();
   assert(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email), "Email 格式不正確");
   const mobile = str(req.data?.mobile, "手機", { optional: true, max: 20 });
+  const birthDate = birthDateInput(req.data?.birthDate);
   try {
-    const s = await meep.createShopper({ email, name: str(req.data?.name, "姓名", { optional: true, max: 40 }) || undefined, mobile: mobile || undefined });
-    await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? "", mobile: s.mobile ?? "", mobileKey: mobileKey(s.mobile), points: s.usableRewardPoints ?? 0, updatedAt: s.updatedAt ?? null });
+    const s = await meep.createShopper({ email, name: str(req.data?.name, "姓名", { optional: true, max: 40 }) || undefined, mobile: mobile || undefined, birthDate });
+    await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? "", mobile: s.mobile ?? "", mobileKey: mobileKey(s.mobile), points: s.usableRewardPoints ?? 0, birthDate: s.birthDate ?? birthDate, birthMonth: birthDate.slice(5, 7), updatedAt: s.updatedAt ?? null });
     await ensureMemberCodes([s.id]);
     return { id: s.id, name: s.name, email: s.email, mobile: s.mobile, points: s.usableRewardPoints ?? 0 };
   } catch (e) {

@@ -2,7 +2,7 @@ import { onCall } from "firebase-functions/v2/https";
 import { ensureMemberCodes } from "./cards";
 import { requireRole } from "./lib/auth";
 import { createShopper } from "./lib/meepshop";
-import { assert, db, errMsg, FieldValue, HttpsError, str, taipeiDate } from "./lib/util";
+import { assert, birthDateInput, db, errMsg, FieldValue, HttpsError, str, taipeiDate } from "./lib/util";
 import { mobileKey } from "./sync";
 
 /**
@@ -86,13 +86,14 @@ export const lineRegisterMember = onCall({ maxInstances: 10 }, async (req) => {
   assert(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email), "Email 格式不正確");
   const mobile = str(req.data?.mobile, "手機", { max: 20 });
   const name = str(req.data?.name, "姓名", { optional: true, max: 40 }) || lineName;
+  const birthDate = birthDateInput(req.data?.birthDate);
   let s;
   try {
-    s = await createShopper({ email, name, mobile });
+    s = await createShopper({ email, name, mobile, birthDate });
   } catch (e) {
     throw new HttpsError("failed-precondition", `註冊失敗：${errMsg(e)}（如果這個 Email 已經是會員，請改用「我已經是會員」綁定）`);
   }
-  await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? name, mobile: s.mobile ?? mobile, mobileKey: mobileKey(s.mobile ?? mobile), points: s.usableRewardPoints ?? 0, lineUserId: sub, lineBoundAt: FieldValue.serverTimestamp() }, { merge: true });
+  await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? name, mobile: s.mobile ?? mobile, mobileKey: mobileKey(s.mobile ?? mobile), points: s.usableRewardPoints ?? 0, birthDate: s.birthDate ?? birthDate, birthMonth: birthDate.slice(5, 7), lineUserId: sub, lineBoundAt: FieldValue.serverTimestamp() }, { merge: true });
   return { token: await cardFor(s.id) };
 });
 

@@ -314,7 +314,8 @@ export async function getShopper(id: string): Promise<MShopper | null> {
   return data.shopper;
 }
 
-export async function createShopper(input: { email: string; name?: string; mobile?: string }): Promise<MShopper> {
+/** birthDate：meepShop 規定 YYYY/MM/DD（這家店設定生日必填） */
+export async function createShopper(input: { email: string; name?: string; mobile?: string; birthDate?: string }): Promise<MShopper> {
   const data = await gql<{ createShopper: { __typename: string; message?: string } & Partial<MShopper> }>(
     `mutation C($input: CreateShopperInput) {
       createShopper(input: $input) { __typename ... on Shopper { ${SHOPPER_FIELDS} } ... on UserError { message } }

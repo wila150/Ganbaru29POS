@@ -577,7 +577,7 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
   const [q, setQ] = useState("");
   const [list, setList] = useState<(Shopper & { live?: boolean })[] | null>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ email: "", name: "", mobile: "" });
+  const [form, setForm] = useState({ email: "", name: "", mobile: "", birthDate: "" });
   const { busy, run } = useAction();
   const search = () =>
     run(async () => {
@@ -641,15 +641,17 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
         </>
       ) : (
         <>
-          <p className="muted small">會員會建立在 meepShop，Email 為必填（meepShop 規定）。</p>
+          <p className="muted small">會員會建立在 meepShop，Email 和生日為必填（meepShop 規定）。</p>
           <input placeholder="Email（必填）" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <input placeholder="姓名" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <input placeholder="手機" inputMode="tel" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
+          <label className="small muted">生日（必填，meepShop 規定）</label>
+          <input type="date" max={new Date().toISOString().slice(0, 10)} value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} />
           <div className="btn-row">
             <button className="btn" onClick={() => setCreating(false)}>
               返回
             </button>
-            <button className="btn btn-primary" disabled={busy || !form.email} onClick={() => run(async () => choose(await call<Shopper>("createShopper", form)), "已新增會員")}>
+            <button className="btn btn-primary" disabled={busy || !form.email || !form.birthDate} onClick={() => run(async () => choose(await call<Shopper>("createShopper", form)), "已新增會員")}>
               新增並帶入
             </button>
           </div>

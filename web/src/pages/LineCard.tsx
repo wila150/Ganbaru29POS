@@ -35,7 +35,7 @@ export function LineCard() {
   const [lineName, setLineName] = useState("");
   const [shopName, setShopName] = useState("ganbaru29");
   const [mode, setMode] = useState<"bind" | "register">("bind");
-  const [f, setF] = useState({ mobile: "", email: "", name: "" });
+  const [f, setF] = useState({ mobile: "", email: "", name: "", birthDate: "" });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -99,10 +99,16 @@ export function LineCard() {
             </div>
             <p className="mc-hint">{mode === "bind" ? "請輸入註冊網店時用的手機和 Email，兩個都正確才會綁定。" : "填寫後會建立網店會員，之後網店和門市共用購物金。"}</p>
             {mode === "register" && <input placeholder="姓名" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />}
+            {mode === "register" && (
+              <label className="small muted">
+                生日
+                <input type="date" max={new Date().toISOString().slice(0, 10)} value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} />
+              </label>
+            )}
             <input placeholder="手機號碼" inputMode="tel" value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} />
             <input placeholder="Email" type="email" inputMode="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
             {err && <p className="error small">{err}</p>}
-            <button className="btn btn-primary btn-lg block" disabled={busy || !f.mobile || !f.email} onClick={submit}>
+            <button className="btn btn-primary btn-lg block" disabled={busy || !f.mobile || !f.email || (mode === "register" && !f.birthDate)} onClick={submit}>
               {busy ? "處理中…" : mode === "bind" ? "綁定並顯示會員卡" : "註冊並顯示會員卡"}
             </button>
           </>
