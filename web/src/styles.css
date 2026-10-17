@@ -438,3 +438,4 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .rule-card { padding: 12px; margin: 8px 0; }
 .reward-rules { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 6px; }
 .label-pick { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
+.select-all { font-weight: 600; margin-bottom: 6px; }

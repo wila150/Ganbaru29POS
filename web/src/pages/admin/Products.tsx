@@ -100,6 +100,24 @@ export function Products() {
         ))}
       </div>
 
+      {(() => {
+        // 全選：目前搜尋／篩選結果裡的所有款式（不限畫面上顯示的前 200 個商品）
+        const visibleIds = groups.flatMap((g) => g.variants.map((v) => v.id));
+        const allOn = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+        return (
+          <label className="check select-all">
+            <input
+              type="checkbox"
+              checked={allOn}
+              ref={(el) => {
+                if (el) el.indeterminate = !allOn && visibleIds.some((id) => selected.has(id));
+              }}
+              onChange={(e) => toggle(visibleIds, e.target.checked)}
+            />
+            全選{q || onlyMissing ? "目前篩選的" : "全部"} {visibleIds.length} 款（{groups.length} 個商品）
+          </label>
+        );
+      })()}
       <div className="btn-row" style={{ marginBottom: 10 }}>
         <button
           className="btn btn-sm"
