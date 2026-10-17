@@ -5,6 +5,7 @@ import { useAuth } from "../../auth";
 import { useData } from "../../data";
 import { db } from "../../firebase";
 import { LocationSelect } from "../../components/LocationSelect";
+import { LogoutButton } from "../../components/LogoutButton";
 import { useDeviceLocation } from "../../lib/location";
 import { ROLE_LABEL, todayStr } from "../../lib/util";
 
@@ -47,7 +48,7 @@ export function useCurrentShift(): Shift | null | undefined {
 }
 
 export function PosLayout() {
-  const { profile, logout } = useAuth();
+  const { profile } = useAuth();
   const { ready, settings } = useData();
   const shift = useCurrentShift();
   const [now, setNow] = useState(new Date());
@@ -77,9 +78,9 @@ export function PosLayout() {
             {m.label}
           </NavLink>
         ))}
-        <button className="pos-menu-item" onClick={logout}>
+        <LogoutButton className="pos-menu-item">
           <span aria-hidden>⎋</span>登出
-        </button>
+        </LogoutButton>
       </nav>
       <main className="pos-main">{ready ? <Outlet /> : <div className="loading">載入商品資料…</div>}</main>
     </div>

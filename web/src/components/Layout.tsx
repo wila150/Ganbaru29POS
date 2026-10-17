@@ -3,6 +3,7 @@ import { useAuth } from "../auth";
 import { useData } from "../data";
 import { atLeast, fmtTime, ROLE_LABEL, type Role } from "../lib/util";
 import { LocationSelect } from "./LocationSelect";
+import { LogoutButton } from "./LogoutButton";
 
 const ADMIN_NAV: { to: string; label: string; icon: string; min: Role }[] = [
   { to: "/admin/scan", label: "進貨掃碼", icon: "⌁", min: "staff" },
@@ -19,7 +20,7 @@ const ADMIN_NAV: { to: string; label: string; icon: string; min: Role }[] = [
 ];
 
 export function AdminLayout() {
-  const { profile, logout } = useAuth();
+  const { profile } = useAuth();
   const { settings, ready } = useData();
   const nav = ADMIN_NAV.filter((n) => atLeast(profile?.role, n.min));
   return (
@@ -54,9 +55,7 @@ export function AdminLayout() {
             {profile?.name} · {profile && ROLE_LABEL[profile.role]}
           </div>
           <small className="muted">商品同步：{fmtTime(settings.lastIncrementalSyncAt ?? settings.lastCatalogSyncAt)}</small>
-          <button className="btn btn-ghost btn-sm" onClick={logout}>
-            登出
-          </button>
+          <LogoutButton className="btn btn-ghost btn-sm">登出</LogoutButton>
         </div>
       </aside>
       <main className="admin-main">{ready ? <Outlet /> : <div className="loading">載入商品資料…</div>}</main>
@@ -77,7 +76,7 @@ export function AdminLayout() {
 
 /** Phone "more" menu: everything that doesn't fit the bottom bar. */
 export function MoreMenu() {
-  const { profile, logout } = useAuth();
+  const { profile } = useAuth();
   const nav = ADMIN_NAV.filter((n) => atLeast(profile?.role, n.min)).slice(4);
   return (
     <div className="page">
@@ -92,9 +91,7 @@ export function MoreMenu() {
         <NavLink to="/pos" className="list-menu-item">
           ¤ POS 收銀
         </NavLink>
-        <button className="list-menu-item" onClick={logout}>
-          ⎋ 登出（{profile?.name}）
-        </button>
+        <LogoutButton className="list-menu-item">⎋ 登出（{profile?.name}）</LogoutButton>
       </div>
     </div>
   );
