@@ -7,6 +7,7 @@ import { call, db } from "../../firebase";
 import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
 import type { RewardRule, ShopSettings, TierDef } from "../../types";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
+import { QrImg } from "../../components/QrImg";
 
 export function Settings() {
   return (
@@ -752,7 +753,7 @@ function RewardRules() {
 
 /** LINE 會員卡（LIFF）設定 */
 function LineLoginSettings() {
-  const { form, set, save, busy } = useSettingsForm(["lineLogin"]);
+  const { form, set, save, busy } = useSettingsForm(["lineLogin", "shopName"]);
   const v = form.lineLogin ?? {};
   return (
     <section className="card">
@@ -769,13 +770,41 @@ function LineLoginSettings() {
         </Field>
       </div>
       {v.liffId && (
-        <p className="small">
-          圖文選單連結請設成：<code>https://liff.line.me/{v.liffId}</code>
-        </p>
+        <>
+          <p className="small">
+            圖文選單連結請設成：<code>https://liff.line.me/{v.liffId}</code>
+          </p>
+          <div className="card-handoff">
+            <QrImg value={`https://liff.line.me/${v.liffId}`} size={140} />
+            <div className="small">
+              <strong>門市立牌用 QR</strong>：客人用手機相機掃描 → 在 LINE 打開 → 綁定會員卡。
+              <br />
+              <button className="btn btn-sm" onClick={() => printLinePoster(`https://liff.line.me/${v.liffId}`, form.shopName ?? "ganbaru29")}>
+                列印立牌
+              </button>
+            </div>
+          </div>
+        </>
       )}
       <button className="btn btn-primary" disabled={busy} onClick={save}>
         儲存
       </button>
     </section>
   );
+}
+
+/** 門市立牌：掃 QR 用 LINE 綁定會員卡 */
+async function printLinePoster(url: string, shop: string) {
+  const QR = await import("qrcode");
+  const img = await QR.toDataURL(url, { margin: 1, width: 900 });
+  const w = window.open("", "_blank");
+  if (!w) return alert("請允許彈出式視窗");
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>LINE 會員卡</title><style>
+  body{font-family:"PingFang TC","Noto Sans TC",sans-serif;text-align:center;margin:0;padding:20mm}
+  h1{font-size:28pt;margin:0 0 4mm}h2{font-size:18pt;color:#06c755;margin:0 0 8mm}img{width:110mm}
+  ol{display:inline-block;text-align:left;font-size:14pt;line-height:1.8}</style></head><body>
+  <h1>${shop} 會員卡</h1><h2>用 LINE 掃描，加入／綁定會員</h2><img src="${img}"><ol>
+  <li>打開手機相機或 LINE，掃描上方 QR code</li><li>第一次請輸入手機和 Email 綁定（沒有會員可直接註冊）</li>
+  <li>結帳時出示會員條碼，累積購物金</li></ol><script>onload=()=>print()</script></body></html>`);
+  w.document.close();
 }

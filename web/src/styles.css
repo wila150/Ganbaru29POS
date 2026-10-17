@@ -479,3 +479,4 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .coupon-desc { font-size: 9pt; color: #9d174d; font-weight: 700; }
 .coupon-foot { font-size: 7.5pt; color: #444; }
 @media print { body * { visibility: hidden; } .coupon-print-overlay, .coupon-print-overlay * { visibility: visible; } .coupon-print-overlay { position: absolute; inset: 0; padding: 0; } }
+.card-handoff { display: flex; gap: 14px; align-items: center; justify-content: center; text-align: left; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; }

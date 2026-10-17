@@ -35,6 +35,14 @@ export function MemberCardDialog({ shopperId, name, onClose }: { shopperId: stri
             </button>
           </div>
           <p className="muted small">把網址用 LINE 傳給客人，客人手機打開就是會員卡（可加入主畫面）。</p>
+          <div className="card-handoff">
+            <QrImg value={url} size={150} />
+            <div className="small">
+              <strong>或請客人當場掃這個 QR</strong>
+              <br />
+              用手機相機掃描，就會打開他自己的會員卡。
+            </div>
+          </div>
           <div className="btn-row" style={{ justifyContent: "center" }}>
             <button className="btn" onClick={() => window.open(url, "_blank")}>
               開啟會員卡
