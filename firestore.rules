@@ -64,7 +64,7 @@ service cloud.firestore {
       return ['shopName', 'leadDays', 'expiryDays', 'lineTargets', 'rewardPercent', 'pointValue',
               'staffCanRefund', 'siteBaseUrl', 'receiptHeader', 'receiptFooter', 'serviceFeeDefault', 'shiftNames',
               'memberTiers', 'birthdayGiftPoints', 'birthdayPointMultiplier', 'tagTemplate', 'payment', 'invoice',
-              'locations', 'onlineLocationId'];
+              'locations', 'onlineLocationId', 'merchantId'];
     }
   }
 }

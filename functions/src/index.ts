@@ -11,3 +11,4 @@ export { memberTiersDaily, recomputeMemberTiers, birthdayGiftsMonthly } from "./
 export { createOnlinePayment, cancelOnlinePayment, checkOnlinePayment, payPage, payReturn, ecpayNotify, newebpayNotify, setPaymentCreds, paymentCredsStatus } from "./payments/index";
 export { reissueInvoice, invoicePrint } from "./payments/invoice";
 export { initLocationStock, requestTransfer, shipTransfer, receiveTransfer, cancelTransfer } from "./locations";
+export { merchantImagesDaily, syncImagesFromMerchant } from "./merchant";

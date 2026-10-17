@@ -108,6 +108,8 @@ export interface ShopSettings {
   locations?: { id: string; name: string; type: "store" | "warehouse" }[];
   onlineLocationId?: string | null;
   locationStockInitAt?: Timestamp;
+  merchantId?: string;
+  merchantSync?: { at?: Timestamp; trigger?: string; products?: number; done?: number; failed?: number; error?: string | null };
   tiersError?: string | null;
 }
 

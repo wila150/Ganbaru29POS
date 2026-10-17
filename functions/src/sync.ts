@@ -305,7 +305,11 @@ const FEED_IMAGE_HOSTS = ["img.meepshop.com", "storage.googleapis.com"];
 export const importImageFeed = onCall({ timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async (req) => {
   await requireRole(req, "manager");
   const rows = (Array.isArray(req.data?.rows) ? req.data.rows : []).slice(0, 3000) as { id: string; image: string }[];
-  const overwrite = req.data?.overwrite === true;
+  return importImageRows(rows, req.data?.overwrite === true);
+});
+
+/** [商品 ID, 圖片網址] → 從 meepShop 圖片主機下載、存進 Storage。已有圖或手動上傳的略過（overwrite 時官網換圖也會更新）。 */
+export async function importImageRows(rows: { id: string; image: string }[], overwrite = false) {
   const bucket = getStorage().bucket();
   const deadline = Date.now() + 500_000;
   let done = 0;
@@ -330,7 +334,7 @@ export const importImageFeed = onCall({ timeoutSeconds: 540, memory: "512MiB", m
     }
     const imgRef = db.doc(`productImages/${productId}`);
     const cur = (await imgRef.get()).data();
-    if (cur?.source === "manual" || (!overwrite && cur?.status === "ok" && cur?.url)) {
+    if (cur?.source === "manual" || (cur?.status === "ok" && cur?.url && (!overwrite || cur?.sourceUrl === url.toString()))) {
       skipped++;
       continue;
     }
@@ -358,4 +362,4 @@ export const importImageFeed = onCall({ timeoutSeconds: 540, memory: "512MiB", m
     await sleep(200);
   }
   return { done, skipped, failed: failed.slice(0, 20), failedCount: failed.length };
-});
+}

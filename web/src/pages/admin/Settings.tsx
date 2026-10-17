@@ -18,6 +18,7 @@ export function Settings() {
       <MemberSettings />
       <PaymentSettings />
       <LocationSettings />
+      <MerchantSettings />
     </div>
   );
 }
@@ -558,6 +559,47 @@ function LocationSettings() {
         )}
       </div>
       {settings.locationStockInitAt && <p className="muted small">起始庫存設定於 {fmtTime(settings.locationStockInitAt)}。各店實際數量請到該店用「盤點」（選該門市）校正。</p>}
+    </section>
+  );
+}
+
+/** 商品圖自動補齊：Google Merchant Center 每天抓 meepShop Feed，系統每天 08:00 從 Merchant Center 讀主圖。 */
+function MerchantSettings() {
+  const { settings } = useData();
+  const { form, set, save, busy } = useSettingsForm(["merchantId"]);
+  const { busy: b2, run } = useAction();
+  const m = settings.merchantSync;
+  return (
+    <section className="card">
+      <h2>商品圖自動補齊（Google Merchant Center）</h2>
+      <p className="muted small">
+        官網有 Cloudflare 驗證，系統不能直接抓圖；改由 Google Merchant Center 每天讀 meepShop 的商品 Feed，系統每天 08:00 從 Merchant Center 取得主圖網址並下載。
+        新商品隔天會自動有圖；手動上傳的圖不會被覆蓋。
+      </p>
+      <div className="inline-form">
+        <input placeholder="Merchant Center ID（網址 a= 後面的數字）" value={form.merchantId ?? ""} onChange={(e) => set("merchantId", e.target.value.trim())} />
+        <button className="btn" disabled={busy} onClick={save}>
+          儲存
+        </button>
+        <button
+          className="btn btn-primary"
+          disabled={b2 || !settings.merchantId}
+          onClick={() =>
+            run(async () => {
+              const r = await call<{ products: number; done: number; skipped: number; failedCount: number }>("syncImagesFromMerchant");
+              alert(`Merchant Center 共 ${r.products} 個商品，補上 ${r.done} 張圖${r.failedCount ? `，${r.failedCount} 張失敗` : ""}`);
+            })
+          }
+        >
+          {b2 ? "補圖中（約 1～3 分鐘）…" : "立即補圖"}
+        </button>
+      </div>
+      {m && (
+        <p className={`small ${m.error ? "error" : "muted"}`}>
+          上次執行：{fmtTime(m.at)}（{m.trigger === "daily" ? "每日自動" : "手動"}）
+          {m.error ? `　失敗：${m.error}` : `　Merchant Center ${m.products ?? 0} 個商品，補上 ${m.done ?? 0} 張`}
+        </p>
+      )}
     </section>
   );
 }
