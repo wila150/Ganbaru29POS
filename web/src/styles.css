@@ -422,3 +422,9 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .bar { display: block; height: 10px; border-radius: 5px; background: #60a5fa; min-width: 2px; }
 .matrix.heat td { min-width: 44px; height: 34px; border-radius: 6px; font-variant-numeric: tabular-nums; }
 .pl tr.strong td { border-top: 2px solid var(--border); }
+
+.update-bar { position: fixed; top: env(safe-area-inset-top); left: 50%; transform: translateX(-50%); z-index: 200; background: #1d4ed8; color: #fff; padding: 8px 14px; border-radius: 0 0 10px 10px; display: flex; gap: 10px; align-items: center; box-shadow: var(--shadow); }
+/* iPad 主畫面 App：避開瀏海與 Home 指示條 */
+.pos { padding-top: env(safe-area-inset-top); height: 100dvh; }
+.pos-menu { padding-bottom: env(safe-area-inset-bottom); }
+.reg-cart { padding-bottom: env(safe-area-inset-bottom); }

@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { AuthProvider, useAuth } from "./auth";
 import { AdminLayout, MoreMenu } from "./components/Layout";
 import { ToastProvider } from "./components/ui";
+import { UpdateChecker } from "./components/UpdateChecker";
 import { DataProvider } from "./data";
 import { atLeast, type Role } from "./lib/util";
 import { AcceptInvite, Login } from "./pages/Login";
@@ -37,6 +38,7 @@ export function App() {
     <AuthProvider>
       <DataProvider>
         <ToastProvider>
+          <UpdateChecker />
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<Login />} />

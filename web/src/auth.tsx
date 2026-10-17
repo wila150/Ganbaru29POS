@@ -1,7 +1,7 @@
-import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
+import { onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, type User } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { auth, call, db, googleProvider } from "./firebase";
+import { auth, call, db, googleProvider, isStandalone } from "./firebase";
 import type { Role } from "./lib/util";
 
 interface Profile {
@@ -74,7 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     profile,
     login: async () => {
-      await signInWithPopup(auth, googleProvider);
+      if (isStandalone) await signInWithRedirect(auth, googleProvider);
+      else await signInWithPopup(auth, googleProvider);
     },
     logout: () => signOut(auth),
   };

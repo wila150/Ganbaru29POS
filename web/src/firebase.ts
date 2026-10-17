@@ -6,9 +6,13 @@ import { connectStorageEmulator, getStorage } from "firebase/storage";
 
 const env = import.meta.env;
 
+/** 從主畫面開啟的 App（iPad / iPhone）—— 沒有彈出視窗，Google 登入改用同網域的轉址登入。 */
+export const isStandalone = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true);
+const sameOriginAuth = isStandalone && /\.(web\.app|firebaseapp\.com)$/.test(location.hostname);
+
 export const app = initializeApp({
   apiKey: env.VITE_FIREBASE_API_KEY,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
+  authDomain: sameOriginAuth ? location.hostname : env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
   appId: env.VITE_FIREBASE_APP_ID,
