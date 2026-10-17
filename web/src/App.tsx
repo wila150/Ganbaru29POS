@@ -51,6 +51,7 @@ export function App() {
                 <Route path="stocktake/:id" element={<StocktakeDetail />} />
                 <Route path="transfers" element={<Transfers />} />
                 <Route path="attendance" element={<Attendance />} />
+                <Route path="members" element={<Members />} />
                 <Route path="expenses" element={<Guard min="manager"><Expenses /></Guard>} />
                 <Route path="products" element={<Guard min="manager"><Products /></Guard>} />
                 <Route path="labels" element={<Guard min="manager"><Labels /></Guard>} />

@@ -11,6 +11,7 @@ import { atLeast, fmtTime, money, newId, PAY_LABEL, PAY_NAME, todayStr } from ".
 import type { PosOrder, Shopper } from "../../types";
 import { InvoiceInfo } from "./Checkout";
 import { getDeviceLocationId } from "../../lib/location";
+import { MemberList } from "../../components/MemberList";
 import { MemberPicker } from "./Register";
 
 const ORDER_BADGE: Record<PosOrder["status"], React.ReactNode> = {
@@ -327,7 +328,7 @@ function RefundDialog({ order: o, onClose }: { order: PosOrder; onClose: () => v
 
 export function Members() {
   const [shopper, setShopper] = useState<Shopper | null>(null);
-  const [picking, setPicking] = useState(true);
+  const [picking, setPicking] = useState(false);
   const [orders, setOrders] = useState<PosOrder[]>([]);
   const nav = useNavigate();
 
@@ -347,7 +348,19 @@ export function Members() {
         </button>
       </div>
       {!shopper ? (
-        <Empty>用手機號碼或 Email 查詢 meepShop 會員</Empty>
+        <MemberList
+          onPick={(s) => {
+            setShopper(s);
+            // 名單上的購物金是快取，點進來再向 meepShop 查即時餘額
+            if (s.email)
+              call<{ shoppers: Shopper[] }>("searchShopper", { q: s.email })
+                .then((r) => {
+                  const live = r.shoppers.find((x) => x.id === s.id);
+                  if (live) setShopper((cur) => (cur?.id === s.id ? { ...cur, ...live } : cur));
+                })
+                .catch(() => undefined);
+          }}
+        />
       ) : (
         <>
           <div className="card">
@@ -368,6 +381,9 @@ export function Members() {
               </div>
             </div>
             <div className="btn-row">
+              <button className="btn" onClick={() => setShopper(null)}>
+                ← 回顧客名單
+              </button>
               <button className="btn btn-primary" onClick={() => nav("/pos", { state: { shopper } })}>
                 帶入收銀
               </button>

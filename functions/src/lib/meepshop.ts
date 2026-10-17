@@ -23,6 +23,7 @@ const ENDPOINT = "https://open-api.meepshop.com/graphql";
 const BUDGET = 5000; // official limit is 6000 points / 60 s; we queue above 5000
 const WINDOW_MS = 60_000;
 const TIMEOUT_MS = 20_000;
+const READ_TIMEOUT_MS = 60_000;
 
 // Per-instance complexity window. Functions that hit meepShop heavily run with low maxInstances.
 let windowStart = Date.now();
@@ -44,14 +45,35 @@ async function reserve(estimate: number) {
 
 const NOT_SENT_CODES = new Set(["ENOTFOUND", "ECONNREFUSED", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "EHOSTUNREACH", "ENETUNREACH"]);
 
-export async function gql<T>(query: string, variables: Record<string, unknown> = {}, opts: { key?: string; estimate?: number } = {}): Promise<T> {
+/**
+ * opts.read = true：純查詢（不改資料），逾時或斷線時自動重試 2 次，並給較長的等待時間。
+ * 會改資料的呼叫（加減庫存、購物金）絕不自動重試，結果不明時交給人工確認。
+ */
+export async function gql<T>(query: string, variables: Record<string, unknown> = {}, opts: { key?: string; estimate?: number; read?: boolean } = {}): Promise<T> {
+  if (!opts.read) return gqlOnce<T>(query, variables, opts, TIMEOUT_MS);
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await gqlOnce<T>(query, variables, opts, READ_TIMEOUT_MS);
+    } catch (e) {
+      last = e;
+      const retryable = e instanceof MeepError && (e.kind === "unknown" || (e.kind === "not-sent" && !/金鑰/.test(e.message)));
+      if (!retryable) throw e;
+      logger.warn(`meepShop read retry ${attempt + 1}: ${(e as Error).message}`);
+      await sleep(3000 * (attempt + 1));
+    }
+  }
+  throw last;
+}
+
+async function gqlOnce<T>(query: string, variables: Record<string, unknown>, opts: { key?: string; estimate?: number }, timeoutMs: number): Promise<T> {
   const key = opts.key ?? (await getSecret("MEEPSHOP_API_KEY"));
   if (!key) throw new MeepError("not-sent", "尚未設定 meepShop API 金鑰");
   const estimate = opts.estimate ?? 1;
   await reserve(estimate);
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(ENDPOINT, {
@@ -195,7 +217,7 @@ export async function productsPage(after: string | null, updatedSince?: Date, fi
       }
     }`,
     { first, after, query: updatedSince ? { updatedAt: { start: updatedSince.toISOString() } } : null },
-    { estimate: 150 }
+    { read: true, estimate: 150 }
   );
   return data.products;
 }
@@ -208,7 +230,7 @@ export async function variantStocks(ids: string[]): Promise<Map<string, number>>
       variants(first: $first, query: $query) { edges { node { id stock } } }
     }`,
     { first: ids.length, query: { id: ids } },
-    { estimate: 150 }
+    { read: true, estimate: 150 }
   );
   for (const e of data.variants.edges) if (e.node) out.set(e.node.id, e.node.stock ?? 0);
   return out;
@@ -218,7 +240,7 @@ export async function getVariant(id: string) {
   const data = await gql<{ variant: (MVariant & { product: { id: string; title: string | null } }) | null }>(
     `query V($id: ID!) { variant(id: $id) { ${VARIANT_FIELDS} product { id title } } }`,
     { id },
-    { estimate: 5 }
+    { read: true, estimate: 5 }
   );
   return data.variant;
 }
@@ -241,7 +263,7 @@ export async function ordersPage(args: { first?: number; after?: string | null; 
       }
     }`,
     { first: args.first ?? 50, after: args.after ?? null, query: args.query ?? null },
-    { estimate: 150 }
+    { read: true, estimate: 150 }
   );
   return data.orders;
 }
@@ -270,8 +292,8 @@ export async function shoppersPage(after: string | null, updatedSince?: Date) {
         edges { node { ${SHOPPER_FIELDS} } }
       }
     }`,
-    { first: 50, after, query: updatedSince ? { updatedAt: { start: updatedSince.toISOString() } } : null },
-    { estimate: 150 }
+    { first: 25, after, query: updatedSince ? { updatedAt: { start: updatedSince.toISOString() } } : null },
+    { read: true, estimate: 80 }
   );
   return data.shoppers;
 }
@@ -280,13 +302,13 @@ export async function shoppersByEmail(email: string): Promise<MShopper[]> {
   const data = await gql<{ shoppers: Connection<MShopper> }>(
     `query S($query: ShopperQueryTermsInput) { shoppers(first: 5, query: $query) { edges { node { ${SHOPPER_FIELDS} } } } }`,
     { query: { emails: [email] } },
-    { estimate: 20 }
+    { read: true, estimate: 20 }
   );
   return data.shoppers.edges.flatMap((e) => (e.node ? [e.node] : []));
 }
 
 export async function getShopper(id: string): Promise<MShopper | null> {
-  const data = await gql<{ shopper: MShopper | null }>(`query S($id: ID!) { shopper(id: $id) { ${SHOPPER_FIELDS} } }`, { id }, { estimate: 5 });
+  const data = await gql<{ shopper: MShopper | null }>(`query S($id: ID!) { shopper(id: $id) { ${SHOPPER_FIELDS} } }`, { id }, { read: true, estimate: 5 });
   return data.shopper;
 }
 
