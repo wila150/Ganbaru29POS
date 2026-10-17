@@ -5,23 +5,27 @@ import { requireRole } from "./lib/auth";
 import { notifyOwner } from "./lib/line";
 import { ordersPage, sendRewardPoints } from "./lib/meepshop";
 import { db, errMsg, FieldValue, sleep, taipeiDate, Timestamp, TZ } from "./lib/util";
-import type { TierDef } from "./pos";
+import { normalizeTier, type TierCond, type TierDef } from "./pos";
+
+const MONTH = 30.44 * 86400_000;
 
 /**
- * 會員等級：近 12 個月消費（門市 POS 淨額 + 網店訂單）達門檻自動升降級。
- * meepShop API 不能改會員等級，所以等級存在本系統的 shoppers/{id}.tier。
+ * 會員等級（門市 POS 淨額 + 網店已結案訂單），規則同 meepShop 顧客群組：升級資格、使用期限、續會資格。
+ * meepShop API 不能改會員群組，所以等級存在本系統的 shoppers/{id}.tier（tierSince / tierUntil）。
  */
 export async function recomputeTiers() {
   const settings = (await db.doc("settings/shop").get()).data() ?? {};
-  // 高等級優先判斷（依累計門檻、再依單次門檻排序）
-  const tiers = [...((settings.memberTiers ?? []) as TierDef[])].sort((a, b) => b.minSpend - a.minSpend || (b.minSingle ?? 0) - (a.minSingle ?? 0));
-  // 達到「累計」或「單次」任一門檻即升級（與 meepShop 群組的升級資格相同邏輯）
-  const qualifies = (t: TierDef, total: number, single: number) => {
-    const byTotal = t.minSpend > 0 ? total >= t.minSpend : !t.minSingle;
-    const bySingle = !!t.minSingle && single >= t.minSingle;
-    return byTotal || bySingle;
-  };
+  // 設定順序 = 由低到高；第一個沒有升級條件的是基本等級
+  const all = ((settings.memberTiers ?? []) as TierDef[]).map(normalizeTier);
+  const base = all.find((t) => !t.upgrade?.length) ?? null;
+  const ranked = all.filter((t) => t.enabled !== false && t.upgrade?.length);
+  const rank = (name: string | null | undefined) => ranked.findIndex((t) => t.name === name);
   const now = Date.now();
+  const purchases = new Map<string, { at: number; amount: number }[]>();
+  const met = (c: TierCond, list: { at: number; amount: number }[], from: number, to: number) => {
+    const inRange = list.filter((p) => p.at >= from && p.at <= to);
+    return c.kind === "single" ? inRange.some((p) => p.amount >= c.amount) : inRange.reduce((s, p) => s + p.amount, 0) >= c.amount;
+  };
   /**
    * 每位會員：近 12 個月（等級用）＋全部歷史（顧客分眾用：消費次數、首購／最後消費日、累計金額）。
    */
@@ -39,6 +43,7 @@ export async function recomputeTiers() {
   }
   const spend = new Map<string, Stat>();
   const add = (id: string, k: "store" | "online", v: number, at: number) => {
+    (purchases.get(id) ?? purchases.set(id, []).get(id)!).push({ at, amount: v });
     const cur = spend.get(id) ?? { store: 0, online: 0, maxSingle: 0, orders: 0, total: 0, first: at, last: at, orders12m: 0, orders6m: 0, orders3m: 0 };
     cur.orders++;
     cur.total += v;
@@ -89,42 +94,68 @@ export async function recomputeTiers() {
     return { updated: 0, error: onlineError };
   }
 
+  /** 一位會員的等級：先處理目前等級的到期／續會，再看能不能升到更高等級 */
+  const decide = (list: { at: number; amount: number }[], curTier: string | null, curUntil: number | null, curSince: number | null) => {
+    let tier: TierDef | null = null;
+    let until: number | null = null;
+    let since: number | null = curSince;
+    const cur = ranked.find((t) => t.name === curTier);
+    if (cur) {
+      const v = cur.validityMonths ? cur.validityMonths * MONTH : 0;
+      if (!v) tier = cur; // 永久
+      else {
+        let u = curUntil ?? now;
+        // 到期：期限內達成續會資格就延一期（可能連續延好幾期）
+        while (u <= now && cur.renew?.some((c) => met(c, list, u - v, u))) u += v;
+        if (u > now) {
+          tier = cur;
+          until = u;
+        }
+      }
+    }
+    for (let i = ranked.length - 1; i >= 0 && i > rank(tier?.name); i--) {
+      const t = ranked[i];
+      if (t.upgrade?.some((c) => met(c, list, now - (c.months || 12) * MONTH, now))) {
+        tier = t;
+        since = now;
+        until = t.validityMonths ? now + t.validityMonths * MONTH : null;
+        break;
+      }
+    }
+    if (!tier) return { tier: base?.name ?? null, since: null, until: null };
+    return { tier: tier.name, since: tier.name === curTier ? curSince ?? now : since, until };
+  };
+
+  const shoppers = await db.collection("shoppers").select("tier", "tierUntil", "tierSince").get();
   const writer = db.bulkWriter();
   let updated = 0;
-  const seen = new Set<string>();
-  for (const [id, s] of spend) {
-    seen.add(id);
-    const total = Math.round(s.store + s.online);
-    const tier = total > 0 || s.maxSingle > 0 ? tiers.find((t) => qualifies(t, total, s.maxSingle))?.name ?? null : null;
+  for (const d of shoppers.docs) {
+    const s = spend.get(d.id);
+    const cur = d.data();
+    const t = decide(purchases.get(d.id) ?? [], cur.tier ?? null, cur.tierUntil?.toMillis?.() ?? null, cur.tierSince?.toMillis?.() ?? null);
     writer.set(
-      db.doc(`shoppers/${id}`),
+      d.ref,
       {
-        spend12m: total,
-        spendStore12m: Math.round(s.store),
-        spendOnline12m: Math.round(s.online),
-        maxSingle12m: Math.round(s.maxSingle),
-        tier,
+        spend12m: s ? Math.round(s.store + s.online) : 0,
+        spendStore12m: s ? Math.round(s.store) : 0,
+        spendOnline12m: s ? Math.round(s.online) : 0,
+        maxSingle12m: s ? Math.round(s.maxSingle) : 0,
+        tier: t.tier,
+        tierSince: t.since ? Timestamp.fromMillis(t.since) : null,
+        tierUntil: t.until ? Timestamp.fromMillis(t.until) : null,
         tierAt: Timestamp.now(),
-        ordersTotal: s.orders,
-        spendTotal: Math.round(s.total),
-        firstOrderAt: Timestamp.fromMillis(s.first),
-        lastOrderAt: Timestamp.fromMillis(s.last),
-        orders12m: s.orders12m,
-        orders6m: s.orders6m,
-        orders3m: s.orders3m,
+        ordersTotal: s?.orders ?? 0,
+        spendTotal: s ? Math.round(s.total) : 0,
+        firstOrderAt: s ? Timestamp.fromMillis(s.first) : null,
+        lastOrderAt: s ? Timestamp.fromMillis(s.last) : null,
+        orders12m: s?.orders12m ?? 0,
+        orders6m: s?.orders6m ?? 0,
+        orders3m: s?.orders3m ?? 0,
       },
       { merge: true }
     );
     updated++;
   }
-  // Members with no purchases in 12 months drop to the base tier.
-  const lowest = [...tiers].sort((a, b) => a.minSpend - b.minSpend)[0];
-  const baseTier = lowest && lowest.minSpend <= 0 ? lowest.name : null;
-  // 不再有任何消費紀錄的會員（例如訂單被取消）：數字歸零
-  const [withSpend, withOrders] = await Promise.all([db.collection("shoppers").where("spend12m", ">", 0).select().get(), db.collection("shoppers").where("ordersTotal", ">", 0).select().get()]);
-  const stale = new Map([...withSpend.docs, ...withOrders.docs].filter((d) => !seen.has(d.id)).map((d) => [d.id, d.ref]));
-  for (const ref of stale.values())
-    writer.set(ref, { spend12m: 0, spendStore12m: 0, spendOnline12m: 0, maxSingle12m: 0, ordersTotal: 0, spendTotal: 0, orders12m: 0, orders6m: 0, orders3m: 0, firstOrderAt: null, lastOrderAt: null, tier: baseTier, tierAt: Timestamp.now() }, { merge: true });
   await writer.close();
   await db.doc("settings/shop").set({ tiersAt: Timestamp.now(), tiersError: null }, { merge: true });
   return { updated, error: null };

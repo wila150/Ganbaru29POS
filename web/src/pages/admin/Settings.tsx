@@ -5,7 +5,7 @@ import { Badge, Field, useAction, useToast } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
-import type { RewardRule, ShopSettings, TierDef } from "../../types";
+import type { RewardRule, ShopSettings, TierCond, TierDef } from "../../types";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
 import { QrImg } from "../../components/QrImg";
 
@@ -308,91 +308,196 @@ function PosSettings() {
   );
 }
 
-const TIER_EXAMPLE: TierDef[] = [
-  { name: "一般會員", minSpend: 0, discountPct: 0, pointMultiplier: 1 },
-  { name: "黃金會員", minSpend: 10000, discountPct: 5, pointMultiplier: 1.5 },
-  { name: "鑽石會員", minSpend: 30000, discountPct: 10, pointMultiplier: 2 },
-];
 
+
+/** 舊版設定（累計滿／單次滿）轉成新格式 */
+function normalizeTier(t: TierDef): TierDef {
+  if (t.upgrade) return { enabled: true, ...t };
+  const conds: TierCond[] = [];
+  if (t.minSingle) conds.push({ kind: "single", amount: t.minSingle, months: 12 });
+  if (t.minSpend) conds.push({ kind: "cumulative", amount: t.minSpend, months: 12 });
+  return { ...t, enabled: true, validityMonths: conds.length ? 12 : null, upgrade: conds, renew: conds.map((c) => ({ kind: c.kind, amount: c.amount })) };
+}
+
+/** 一列條件：（在 N 年／月 內）[單次購物｜累計購物] 消費金額 X 元 */
+function CondRow({ c, withPeriod, onChange, onRemove, onAdd }: { c: TierCond; withPeriod: boolean; onChange: (c: TierCond) => void; onRemove: () => void; onAdd?: () => void }) {
+  const months = c.months ?? 12;
+  const unit = months % 12 === 0 ? "year" : "month";
+  return (
+    <div className="cond-row">
+      {withPeriod && (
+        <>
+          <span className="muted">在</span>
+          <input type="number" min={1} value={unit === "year" ? months / 12 : months} onChange={(e) => onChange({ ...c, months: (Number(e.target.value) || 1) * (unit === "year" ? 12 : 1) })} style={{ width: 64 }} />
+          <select value={unit} onChange={(e) => onChange({ ...c, months: e.target.value === "year" ? Math.max(1, Math.round(months / 12)) * 12 : months })}>
+            <option value="year">年</option>
+            <option value="month">個月</option>
+          </select>
+          <span className="muted">內</span>
+        </>
+      )}
+      <select value={c.kind} onChange={(e) => onChange({ ...c, kind: e.target.value as TierCond["kind"] })}>
+        <option value="single">單次購物</option>
+        <option value="cumulative">累計購物</option>
+      </select>
+      <span className="muted">消費金額</span>
+      <input type="number" min={0} value={c.amount} onChange={(e) => onChange({ ...c, amount: Number(e.target.value) })} style={{ width: 130 }} />
+      <span className="muted">元</span>
+      <button type="button" className="btn-icon" onClick={onRemove} title="刪除條件">
+        ⊗
+      </button>
+      {onAdd && (
+        <button type="button" className="btn-icon add" onClick={onAdd} title="新增條件（任一達成即可）">
+          ⊕
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 會員等級：與 meepShop「顧客群組」相同的設定方式 */
 export function MemberSettings() {
   const { settings } = useData();
   const { form, set, save, busy } = useSettingsForm(["memberTiers"]);
   const { busy: b2, run } = useAction();
-  const tiers = form.memberTiers ?? [];
+  const tiers = (form.memberTiers ?? []).map(normalizeTier);
   const setTier = (i: number, patch: Partial<TierDef>) => set("memberTiers", tiers.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+  const baseIdx = tiers.findIndex((t) => !t.upgrade?.length);
+  const conds = (i: number, key: "upgrade" | "renew") => tiers[i][key] ?? [];
+  const setConds = (i: number, key: "upgrade" | "renew", list: TierCond[]) => setTier(i, { [key]: list } as Partial<TierDef>);
+
   return (
-    <section className="card">
-      <h2>會員等級</h2>
-      <p className="muted small">
-        依「近 12 個月消費（門市＋網店）」每天凌晨自動升降級，累計或單次任一達標即升級；結帳時自動套用等級折扣，回饋購物金乘上倍數。meepShop 不能改會員等級，等級只存在本系統。
-        {settings.tiersAt && ` 上次計算：${fmtTime(settings.tiersAt)}`}
-        {settings.tiersError && <span className="error"> 計算失敗：{settings.tiersError}</span>}
-      </p>
-      <div className="table-wrap">
-        <table className="table table-compact">
-          <thead>
-            <tr>
-              <th>等級名稱</th>
-              <th className="num">12 個月累計滿（元）</th>
-              <th className="num">或單次購物滿（元）</th>
-              <th className="num">結帳折扣 %</th>
-              <th className="num">購物金回饋倍數</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {tiers.map((t, i) => (
-              <tr key={i}>
-                <td>
-                  <input value={t.name} onChange={(e) => setTier(i, { name: e.target.value })} />
-                </td>
-                <td>
-                  <input type="number" min={0} value={t.minSpend} onChange={(e) => setTier(i, { minSpend: Number(e.target.value) })} />
-                </td>
-                <td>
-                  <input type="number" min={0} value={t.minSingle ?? ""} placeholder="不限" onChange={(e) => setTier(i, { minSingle: e.target.value === "" ? undefined : Number(e.target.value) })} />
-                </td>
-                <td>
-                  <input type="number" min={0} max={100} value={t.discountPct} onChange={(e) => setTier(i, { discountPct: Number(e.target.value) })} />
-                </td>
-                <td>
-                  <input type="number" min={1} step={0.1} value={t.pointMultiplier} onChange={(e) => setTier(i, { pointMultiplier: Number(e.target.value) })} />
-                </td>
-                <td>
-                  <button className="btn btn-sm btn-ghost" onClick={() => set("memberTiers", tiers.filter((_, j) => j !== i))}>
-                    刪除
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <section>
+      <div className="page-head">
+        <div>
+          <h1>會員等級</h1>
+          <div className="muted small">
+            規則與 meepShop「顧客群組」相同，但同時計算門市＋網店（已結案）消費；每天凌晨自動升級、到期判斷續會。meepShop 的群組不會被改動。
+            {settings.tiersAt && ` 上次計算：${fmtTime(settings.tiersAt)}`}
+            {settings.tiersError && <span className="error"> 計算失敗：{settings.tiersError}</span>}
+          </div>
+        </div>
       </div>
+
+      {tiers.map((t, i) =>
+        i === baseIdx ? (
+          <div key={i} className="card tier-card">
+            <div className="tier-head">
+              <span className="tier-switch on" title="基本等級：所有會員預設" />
+              <label className="tier-name">
+                <small>群組名稱（基本等級）</small>
+                <input value={t.name} onChange={(e) => setTier(i, { name: e.target.value })} />
+              </label>
+              <span className="muted small">所有會員預設在這個等級；高等級到期沒續會也會回到這裡。</span>
+            </div>
+          </div>
+        ) : (
+          <div key={i} className={`card tier-card ${t.enabled === false ? "off" : ""}`}>
+            <div className="tier-head">
+              <button type="button" className={`tier-switch ${t.enabled === false ? "" : "on"}`} onClick={() => setTier(i, { enabled: t.enabled === false })} aria-label="啟用" />
+              <label className="tier-name">
+                <small>群組名稱</small>
+                <input value={t.name} onChange={(e) => setTier(i, { name: e.target.value })} />
+              </label>
+              <label className="tier-validity">
+                <small>使用期限</small>
+                <select value={t.validityMonths ? String(t.validityMonths) : "0"} onChange={(e) => setTier(i, { validityMonths: Number(e.target.value) || null })}>
+                  <option value="0">永久</option>
+                  <option value="3">3 個月</option>
+                  <option value="6">6 個月</option>
+                  <option value="12">1 年</option>
+                  <option value="24">2 年</option>
+                </select>
+              </label>
+              <button className="btn btn-sm btn-ghost" onClick={() => confirm(`刪除「${t.name}」？`) && set("memberTiers", tiers.filter((_, j) => j !== i))}>
+                刪除
+              </button>
+            </div>
+            <div className="tier-body">
+              <div className="tier-label">升級資格</div>
+              <div>
+                {conds(i, "upgrade").map((c, k, arr) => (
+                  <CondRow
+                    key={k}
+                    c={c}
+                    withPeriod
+                    onChange={(n) => setConds(i, "upgrade", arr.map((x, j) => (j === k ? n : x)))}
+                    onRemove={() => setConds(i, "upgrade", arr.filter((_, j) => j !== k))}
+                    onAdd={k === 0 ? () => setConds(i, "upgrade", [...arr, { kind: "cumulative", amount: 0, months: 12 }]) : undefined}
+                  />
+                ))}
+                {!conds(i, "upgrade").length && (
+                  <button className="btn btn-sm" onClick={() => setConds(i, "upgrade", [{ kind: "single", amount: 0, months: 12 }])}>
+                    ＋ 新增升級條件
+                  </button>
+                )}
+              </div>
+              {t.validityMonths ? (
+                <>
+                  <div className="tier-label">續會資格</div>
+                  <div>
+                    {conds(i, "renew").map((c, k, arr) => (
+                      <CondRow
+                        key={k}
+                        c={c}
+                        withPeriod={false}
+                        onChange={(n) => setConds(i, "renew", arr.map((x, j) => (j === k ? n : x)))}
+                        onRemove={() => setConds(i, "renew", arr.filter((_, j) => j !== k))}
+                        onAdd={k === 0 ? () => setConds(i, "renew", [...arr, { kind: "cumulative", amount: 0 }]) : undefined}
+                      />
+                    ))}
+                    {!conds(i, "renew").length && (
+                      <button className="btn btn-sm" onClick={() => setConds(i, "renew", [{ kind: "single", amount: 0 }])}>
+                        ＋ 新增續會條件
+                      </button>
+                    )}
+                    <div className="muted small">使用期限內達成任一條件，到期就自動續一期；沒達成就回到基本等級。</div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+            <div className="muted small">升級資格任一達成即升級。</div>
+          </div>
+        )
+      )}
+
       <div className="btn-row">
-        <button className="btn btn-sm" onClick={() => set("memberTiers", [...tiers, { name: "", minSpend: 0, discountPct: 0, pointMultiplier: 1 }])}>
-          ＋ 新增等級
-        </button>
-        {!tiers.length && (
-          <button className="btn btn-sm btn-ghost" onClick={() => set("memberTiers", TIER_EXAMPLE)}>
-            套用範例（一般／黃金／鑽石）
+        {baseIdx < 0 && (
+          <button className="btn btn-sm" onClick={() => set("memberTiers", [{ name: "尊貴的客人", enabled: true, upgrade: [] }, ...tiers])}>
+            ＋ 新增基本等級
           </button>
         )}
+        <button className="btn btn-sm" onClick={() => set("memberTiers", [...tiers, { name: "", enabled: true, validityMonths: 12, upgrade: [{ kind: "single", amount: 0, months: 12 }], renew: [{ kind: "single", amount: 0 }] }])}>
+          ＋ 新增等級
+        </button>
       </div>
-      <div className="btn-row">
-        <button className="btn btn-primary" disabled={busy} onClick={() => {
-          if (tiers.some((t) => !t.name.trim())) return alert("等級名稱不能空白");
-          save();
-        }}>
+      <div className="btn-row" style={{ marginTop: 12 }}>
+        <button
+          className="btn btn-primary"
+          disabled={busy}
+          onClick={() => {
+            if (tiers.some((t) => !t.name.trim())) return alert("等級名稱不能空白");
+            set("memberTiers", tiers);
+            save();
+          }}
+        >
           儲存會員等級
         </button>
-        <button className="btn" disabled={b2} onClick={() => run(async () => {
-          const r = await call<{ updated: number; error: string | null }>("recomputeMemberTiers");
-          if (r.error) throw new Error(r.error);
-          return r;
-        }, "會員等級已重新計算")}>
+        <button
+          className="btn"
+          disabled={b2}
+          onClick={() =>
+            run(async () => {
+              const r = await call<{ updated: number; error: string | null }>("recomputeMemberTiers");
+              if (r.error) throw new Error(r.error);
+              return r;
+            }, "會員等級已重新計算")
+          }
+        >
           {b2 ? "計算中…" : "立即重算等級"}
         </button>
       </div>
+      <p className="muted small">會員的結帳折扣（例：甘爹 85 折）請在「行銷 → 促銷活動」設定，可以指定 meepShop 群組或本系統等級。</p>
     </section>
   );
 }

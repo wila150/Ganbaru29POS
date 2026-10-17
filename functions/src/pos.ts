@@ -72,14 +72,38 @@ export function rewardFor(settings: FirebaseFirestore.DocumentData, total: numbe
   return { points: calc(best), rule: best.name, expiryDays: best.expiryDays || undefined };
 }
 
+/** 升級／續會條件：在 months 個月內「單次購物」或「累計購物」滿 amount 元 */
+export interface TierCond {
+  kind: "single" | "cumulative";
+  amount: number;
+  months?: number;
+}
+/**
+ * 會員等級（與 meepShop 顧客群組相同的規則）：
+ *  - 沒有升級條件的是「基本等級」（例：尊貴的客人），所有會員預設都在這裡
+ *  - 升級資格任一達成即升級，使用期限 validityMonths 個月（0 / 空 = 永久）
+ *  - 到期時，期限內達成任一續會資格就再延一期，否則回到基本等級
+ */
 export interface TierDef {
   name: string;
-  /** 近 12 個月累計消費滿（元）；0 = 不看累計 */
-  minSpend: number;
-  /** 近 12 個月內「單次購物」滿（元）；不填 = 不看單次 */
+  enabled?: boolean;
+  validityMonths?: number | null;
+  upgrade?: TierCond[];
+  renew?: TierCond[];
+  /** 舊版欄位（相容） */
+  minSpend?: number;
   minSingle?: number;
-  discountPct: number;
-  pointMultiplier: number;
+  discountPct?: number;
+  pointMultiplier?: number;
+}
+
+/** 舊版設定（累計滿／單次滿）轉成新格式 */
+export function normalizeTier(t: TierDef): TierDef {
+  if (t.upgrade) return { enabled: true, ...t };
+  const conds: TierCond[] = [];
+  if (t.minSingle) conds.push({ kind: "single", amount: t.minSingle, months: 12 });
+  if (t.minSpend) conds.push({ kind: "cumulative", amount: t.minSpend, months: 12 });
+  return { ...t, enabled: true, validityMonths: conds.length ? 12 : null, upgrade: conds, renew: conds.map((c) => ({ kind: c.kind, amount: c.amount })) };
 }
 export function memberTier(settings: FirebaseFirestore.DocumentData, name: string | undefined | null): TierDef | null {
   if (!name) return null;

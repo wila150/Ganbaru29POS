@@ -224,10 +224,22 @@ export interface RewardRule {
   expiryDays?: number;
 }
 
+export interface TierCond {
+  kind: "single" | "cumulative";
+  amount: number;
+  months?: number;
+}
+
 export interface TierDef {
   name: string;
-  minSpend: number;
+  enabled?: boolean;
+  /** 使用期限（月）；0 / 空 = 永久 */
+  validityMonths?: number | null;
+  upgrade?: TierCond[];
+  renew?: TierCond[];
+  /** 舊版欄位（相容） */
+  minSpend?: number;
   minSingle?: number;
-  discountPct: number;
-  pointMultiplier: number;
+  discountPct?: number;
+  pointMultiplier?: number;
 }
