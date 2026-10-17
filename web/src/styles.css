@@ -439,3 +439,18 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .reward-rules { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 6px; }
 .label-pick { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
 .select-all { font-weight: 600; margin-bottom: 6px; }
+
+.filters .check input { flex: none; width: auto; }
+.filters .check { white-space: nowrap; }
+.kpis-split .kpi:first-child { border-color: var(--primary); }
+.bar-stack { display: flex; height: 10px; }
+.bar-stack .bar { border-radius: 0; }
+.bar-stack .bar:first-child { border-radius: 5px 0 0 5px; }
+.bar-stack .bar:last-child { border-radius: 0 5px 5px 0; }
+.bar-online { background: #f59e0b; }
+
+.nav-group-head { width: 100%; font: inherit; border: 0; background: none; cursor: pointer; text-align: left; }
+.nav-group-head.inside { font-weight: 700; }
+.nav-caret { margin-left: auto; transition: transform 0.15s; color: var(--muted); }
+.nav-group:not(.open) .nav-caret { transform: rotate(-90deg); }
+.nav-sub { padding-left: 44px; font-size: 14px; }

@@ -28,7 +28,7 @@ interface Report {
     itemsPerOrder: number;
     perGuest: number | null;
   };
-  daily: { date: string; orders: number; sales: number; refunds: number; items: number; guests: number }[];
+  daily: { date: string; orders: number; sales: number; refunds: number; items: number; guests: number; onlineOrders: number; onlineSales: number }[];
   byHour: { hour: number; orders: number; sales: number }[];
   byWeekday: { weekday: number; orders: number; sales: number }[];
   payments: { method: string; sales: number; refunds: number; net: number; count: number }[];
@@ -37,7 +37,8 @@ interface Report {
   colors: { value: string; qty: number; sales: number; online: number }[];
   sizeColor: { color: string; size: string; qty: number }[];
   brokenSizes: { productId: string; title: string; out: string[]; inStock: number; total: number; sold: number }[];
-  online: { included: boolean; orders: number; error: string | null };
+  online: { included: boolean; orders: number; sales: number; items: number; returned: number; avgTicket: number; error: string | null };
+  combined: { sales: number; orders: number };
   staff: { uid: string; name: string; orders: number; sales: number; items: number; refunds: number; net: number; avgTicket: number; commissionPct: number; commission: number }[];
   members: {
     memberOrders: number;
@@ -225,11 +226,21 @@ function Section({ title, onExport, children }: { title: string; onExport?: () =
 function RevenueTab({ r }: { r: Report }) {
   const v = r.revenue;
   const d = v.discounts;
-  const maxDay = Math.max(1, ...r.daily.map((x) => x.sales));
+  const on = r.online;
+  const maxDay = Math.max(1, ...r.daily.map((x) => x.sales - x.refunds + (on.included ? x.onlineSales : 0)));
   return (
     <>
+      <div className="kpis kpis-split">
+        <Kpi label="總營收（門市＋網店）" value={money(r.combined.sales)} hint={`${num(r.combined.orders)} 筆`} />
+        <Kpi label="門市淨營收" value={money(v.net)} hint={`銷售 ${money(v.sales)} − 退貨 ${money(v.refunds)}`} />
+        <Kpi
+          label="網店營收"
+          value={on.included ? money(on.sales) : "—"}
+          hint={on.included ? `${num(on.orders)} 筆 · 客單價 ${money(on.avgTicket)}${on.returned ? ` · 退貨單 ${money(on.returned)}` : ""}` : "勾選「含網店銷量」才會統計"}
+        />
+      </div>
+      <h3>門市</h3>
       <div className="kpis">
-        <Kpi label="淨營收" value={money(v.net)} hint={`銷售 ${money(v.sales)} − 退貨 ${money(v.refunds)}`} />
         <Kpi label="交易筆數" value={num(v.orders)} hint={`退貨 ${v.refundCount} 筆`} />
         <Kpi label="客單價" value={money(v.avgTicket)} hint={`每單 ${v.itemsPerOrder} 件`} />
         <Kpi label="來客數" value={num(v.guests)} hint={v.perGuest != null ? `每人 ${money(v.perGuest)}` : "結帳時輸入人數才會統計"} />
@@ -257,7 +268,16 @@ function RevenueTab({ r }: { r: Report }) {
           </tbody>
         </table>
       </Section>
-      <Section title="每日營收" onExport={() => downloadCsv(`每日營收_${r.from}_${r.to}.csv`, [["日期", "筆數", "銷售", "退貨", "淨額", "件數", "來客"], ...r.daily.map((x) => [x.date, x.orders, x.sales, x.refunds, x.sales - x.refunds, x.items, x.guests])])}>
+      <p className="muted small">網店營收來自 meepShop 訂單金額（含運費、已扣網店折扣；不含已取消、退貨的訂單），依下單日期計算。</p>
+      <Section
+        title="每日營收"
+        onExport={() =>
+          downloadCsv(`每日營收_${r.from}_${r.to}.csv`, [
+            ["日期", "門市筆數", "門市銷售", "門市退貨", "門市淨額", "網店筆數", "網店營收", "合計"],
+            ...r.daily.map((x) => [x.date, x.orders, x.sales, x.refunds, x.sales - x.refunds, x.onlineOrders, x.onlineSales, x.sales - x.refunds + x.onlineSales]),
+          ])
+        }
+      >
         {r.daily.length === 0 ? (
           <Empty>這段期間沒有交易</Empty>
         ) : (
@@ -266,10 +286,10 @@ function RevenueTab({ r }: { r: Report }) {
               <thead>
                 <tr>
                   <th>日期</th>
-                  <th className="num">筆數</th>
-                  <th className="num">銷售</th>
-                  <th className="num">退貨</th>
-                  <th className="num">淨額</th>
+                  <th className="num">門市</th>
+                  <th className="num">門市退貨</th>
+                  <th className="num">網店</th>
+                  <th className="num">合計</th>
                   <th className="bar-col" />
                 </tr>
               </thead>
@@ -279,12 +299,21 @@ function RevenueTab({ r }: { r: Report }) {
                     <td>
                       {x.date}（{WEEKDAY[new Date(`${x.date}T12:00:00+08:00`).getUTCDay()]}）
                     </td>
-                    <td className="num">{x.orders}</td>
-                    <td className="num">{money(x.sales)}</td>
+                    <td className="num">
+                      {money(x.sales)}
+                      <div className="muted small">{x.orders} 筆</div>
+                    </td>
                     <td className="num">{x.refunds ? `-${money(x.refunds)}` : "—"}</td>
-                    <td className="num strong">{money(x.sales - x.refunds)}</td>
+                    <td className="num">
+                      {on.included ? money(x.onlineSales) : "—"}
+                      {on.included && <div className="muted small">{x.onlineOrders} 筆</div>}
+                    </td>
+                    <td className="num strong">{money(x.sales - x.refunds + (on.included ? x.onlineSales : 0))}</td>
                     <td className="bar-col">
-                      <span className="bar" style={{ width: `${(x.sales / maxDay) * 100}%` }} />
+                      <span className="bar-stack">
+                        <span className="bar" style={{ width: `${(Math.max(0, x.sales - x.refunds) / maxDay) * 100}%` }} title="門市" />
+                        {on.included && <span className="bar bar-online" style={{ width: `${(x.onlineSales / maxDay) * 100}%` }} title="網店" />}
+                      </span>
                     </td>
                   </tr>
                 ))}

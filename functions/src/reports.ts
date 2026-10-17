@@ -58,8 +58,8 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
 
   // ---- 營收 ----
   const sum = { orders: 0, items: 0, guests: 0, gross: 0, promo: 0, member: 0, orderDiscount: 0, allowance: 0, reward: 0, serviceFee: 0, sales: 0, refunds: 0, refundCount: 0, cogs: 0, refundCogs: 0 };
-  const daily = new Map<string, { date: string; orders: number; sales: number; refunds: number; items: number; guests: number }>();
-  const dayRow = (date: string) => daily.get(date) ?? daily.set(date, { date, orders: 0, sales: 0, refunds: 0, items: 0, guests: 0 }).get(date)!;
+  const daily = new Map<string, { date: string; orders: number; sales: number; refunds: number; items: number; guests: number; onlineOrders: number; onlineSales: number }>();
+  const dayRow = (date: string) => daily.get(date) ?? daily.set(date, { date, orders: 0, sales: 0, refunds: 0, items: 0, guests: 0, onlineOrders: 0, onlineSales: 0 }).get(date)!;
   const pay = new Map<string, { sales: number; refunds: number; count: number }>();
   const payRow = (m: string) => pay.get(m) ?? pay.set(m, { sales: 0, refunds: 0, count: 0 }).get(m)!;
   const byHour = new Array(24).fill(0).map((_, h) => ({ hour: h, orders: 0, sales: 0 }));
@@ -200,6 +200,9 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
 
   // 網店銷量（尺寸／顏色／排行用）
   let onlineOrders = 0;
+  let onlineSales = 0;
+  let onlineItems = 0;
+  let onlineReturned = 0;
   let onlineError: string | null = null;
   if (includeOnline) {
     try {
@@ -209,8 +212,20 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
         for (const e of p.edges) {
           const o = e.node;
           if (!o || o.status === "CANCELED") continue;
+          if (o.status === "RETURN") {
+            onlineReturned += o.totalPrice;
+            continue;
+          }
           onlineOrders++;
-          for (const li of o.lineItems ?? []) if (li.variant?.id) addItem(li.variant.id, li.quantity, li.totalPrice, true);
+          onlineSales += o.totalPrice;
+          const date = new Date(new Date(o.createdAt).getTime() + 8 * 3600_000).toISOString().slice(0, 10);
+          const dr = dayRow(date);
+          dr.onlineOrders++;
+          dr.onlineSales += o.totalPrice;
+          for (const li of o.lineItems ?? []) {
+            onlineItems += li.quantity;
+            if (li.variant?.id) addItem(li.variant.id, li.quantity, li.totalPrice, true);
+          }
         }
         if (!p.pageInfo.hasNextPage || !p.pageInfo.endCursor) break;
         after = p.pageInfo.endCursor;
@@ -304,7 +319,16 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
     colors: [...color.values()].sort((a, b) => b.qty + b.online - (a.qty + a.online)),
     sizeColor: [...sizeColor].map(([k, qty]) => ({ color: k.split("|")[0], size: k.split("|")[1], qty })),
     brokenSizes,
-    online: { included: includeOnline, orders: onlineOrders, error: onlineError },
+    online: {
+      included: includeOnline,
+      orders: onlineOrders,
+      sales: Math.round(onlineSales),
+      items: onlineItems,
+      returned: Math.round(onlineReturned),
+      avgTicket: onlineOrders ? Math.round(onlineSales / onlineOrders) : 0,
+      error: onlineError,
+    },
+    combined: { sales: Math.round(net + (includeOnline ? onlineSales : 0)), orders: sum.orders + (includeOnline ? onlineOrders : 0) },
     staff: [...staff.values()]
       .map((s) => {
         const pct = commissionByUser[s.uid] ?? commissionPct;

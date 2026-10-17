@@ -1,16 +1,35 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth";
 import { useData } from "../data";
 import { atLeast, fmtTime, ROLE_LABEL, type Role } from "../lib/util";
 import { LocationSelect } from "./LocationSelect";
 import { LogoutButton } from "./LogoutButton";
 
-const ADMIN_NAV: { to: string; label: string; icon: string; min: Role }[] = [
+interface NavItem {
+  to: string;
+  label: string;
+  icon: string;
+  min: Role;
+  /** 有子項目 = 側邊欄下拉選單 */
+  children?: { to: string; label: string; min: Role }[];
+}
+
+const ADMIN_NAV: NavItem[] = [
   { to: "/admin/scan", label: "進貨掃碼", icon: "⌁", min: "staff" },
   { to: "/admin/inventory", label: "庫存查詢", icon: "▤", min: "staff" },
   { to: "/admin/stocktake", label: "盤點", icon: "✓", min: "staff" },
   { to: "/admin/transfers", label: "調貨", icon: "⇄", min: "staff" },
-  { to: "/admin/members", label: "顧客管理", icon: "☺", min: "staff" },
+  {
+    to: "/admin/members",
+    label: "顧客管理",
+    icon: "☺",
+    min: "staff",
+    children: [
+      { to: "/admin/members", label: "顧客名單", min: "staff" },
+      { to: "/admin/member-rules", label: "會員等級與購物金", min: "owner" },
+    ],
+  },
   { to: "/admin/products", label: "商品與條碼", icon: "▦", min: "manager" },
   { to: "/admin/promotions", label: "促銷活動", icon: "%", min: "manager" },
   { to: "/admin/movements", label: "異動紀錄", icon: "≡", min: "manager" },
@@ -35,14 +54,19 @@ export function AdminLayout() {
           </div>
         </div>
         <nav>
-          {nav.map((n) => (
-            <NavLink key={n.to} to={n.to} className="nav-item">
-              <span className="nav-icon" aria-hidden>
-                {n.icon}
-              </span>
-              {n.label}
-            </NavLink>
-          ))}
+          {nav.map((n) => {
+            const kids = n.children?.filter((c) => atLeast(profile?.role, c.min));
+            return kids && kids.length > 1 ? (
+              <NavGroup key={n.to} item={n} kids={kids} />
+            ) : (
+              <NavLink key={n.to} to={n.to} className="nav-item">
+                <span className="nav-icon" aria-hidden>
+                  {n.icon}
+                </span>
+                {n.label}
+              </NavLink>
+            );
+          })}
           <NavLink to="/pos" className="nav-item nav-pos">
             <span className="nav-icon" aria-hidden>
               ¤
@@ -78,7 +102,9 @@ export function AdminLayout() {
 /** Phone "more" menu: everything that doesn't fit the bottom bar. */
 export function MoreMenu() {
   const { profile } = useAuth();
-  const nav = ADMIN_NAV.filter((n) => atLeast(profile?.role, n.min)).slice(4);
+  const nav = ADMIN_NAV.filter((n) => atLeast(profile?.role, n.min))
+    .flatMap((n) => (n.children ? n.children.filter((c) => atLeast(profile?.role, c.min)).map((c) => ({ ...n, to: c.to, label: c.label })) : [n]))
+    .slice(4);
   return (
     <div className="page">
       <h1>更多</h1>
@@ -94,6 +120,33 @@ export function MoreMenu() {
         </NavLink>
         <LogoutButton className="list-menu-item">⎋ 登出（{profile?.name}）</LogoutButton>
       </div>
+    </div>
+  );
+}
+
+/** 側邊欄下拉：點標題展開／收合，所在頁面屬於這一組時自動展開 */
+function NavGroup({ item, kids }: { item: NavItem; kids: { to: string; label: string }[] }) {
+  const loc = useLocation();
+  const inside = kids.some((k) => loc.pathname.startsWith(k.to));
+  const [open, setOpen] = useState(inside);
+  const expanded = open || inside;
+  return (
+    <div className={`nav-group ${expanded ? "open" : ""}`}>
+      <button type="button" className={`nav-item nav-group-head ${inside ? "inside" : ""}`} onClick={() => setOpen(!expanded)} aria-expanded={expanded}>
+        <span className="nav-icon" aria-hidden>
+          {item.icon}
+        </span>
+        {item.label}
+        <span className="nav-caret" aria-hidden>
+          ▾
+        </span>
+      </button>
+      {expanded &&
+        kids.map((k) => (
+          <NavLink key={k.to} to={k.to} end className="nav-item nav-sub">
+            {k.label}
+          </NavLink>
+        ))}
     </div>
   );
 }
