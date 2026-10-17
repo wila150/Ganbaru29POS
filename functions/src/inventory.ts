@@ -210,6 +210,8 @@ export const updateVariantMeta = onCall(opts, async (req) => {
   }
   if ("posSort" in p) patch.posSort = int(p.posSort, "排序", { min: -99999, max: 99999 });
   if ("posHidden" in p) patch.posHidden = p.posHidden === true;
+  if ("material" in p) patch.material = str(p.material, "材質", { optional: true, max: 100 }) || null;
+  if ("careText" in p) patch.careText = str(p.careText, "洗滌標示", { optional: true, max: 300 }) || null;
   assert(Object.keys(patch).length, "沒有要更新的欄位");
   const batch = db.batch();
   for (const id of ids) batch.update(db.doc(`variants/${id}`), patch);

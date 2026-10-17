@@ -102,7 +102,7 @@ export function Products() {
             批次設定
           </button>
           <button className="btn btn-sm btn-primary" onClick={() => nav("/admin/labels", { state: { ids: [...selected] } })}>
-            列印 QR 標籤
+            列印吊牌／標籤
           </button>
           <button className="btn btn-sm btn-ghost" onClick={() => setSelected(new Set())}>
             清除
@@ -167,6 +167,9 @@ function EditVariant({ variant, onClose }: { variant: Variant; onClose: () => vo
   const [posCategory, setPosCategory] = useState(v.posCategory ?? "");
   const [posSort, setPosSort] = useState(String(v.posSort ?? 0));
   const [posHidden, setPosHidden] = useState(!!v.posHidden);
+  const [material, setMaterial] = useState(v.material ?? "");
+  const [careText, setCareText] = useState(v.careText ?? "");
+  const siblings = useMemo(() => variants.filter((x) => x.productId === v.productId).map((x) => x.id), [variants, v.productId]);
   const [newCode, setNewCode] = useState("");
   const { busy, run } = useAction();
   const categories = useMemo(() => [...new Set(variants.flatMap((x) => [x.posCategory, ...(x.tags ?? [])]).filter(Boolean) as string[])].sort(), [variants]);
@@ -190,7 +193,11 @@ function EditVariant({ variant, onClose }: { variant: Variant; onClose: () => vo
           className="btn btn-primary"
           disabled={busy}
           onClick={() =>
-            run(() => call("updateVariantMeta", { variantId: v.id, patch: { location, safety: Number(safety) || 0, posCategory, posSort: Number(posSort) || 0, posHidden } }), "已儲存").then(onClose)
+            run(async () => {
+              await call("updateVariantMeta", { variantId: v.id, patch: { location, safety: Number(safety) || 0, posCategory, posSort: Number(posSort) || 0, posHidden } });
+              // 材質、洗滌標示是整個款式共用的，套用到同款所有規格
+              await call("updateVariantMeta", { variantIds: siblings, patch: { material, careText } });
+            }, "已儲存").then(onClose)
           }
         >
           儲存設定
@@ -219,6 +226,12 @@ function EditVariant({ variant, onClose }: { variant: Variant; onClose: () => vo
           <label className="check">
             <input type="checkbox" checked={posHidden} onChange={(e) => setPosHidden(e.target.checked)} /> 不在 POS 商品區顯示
           </label>
+          <Field label="材質（吊牌用，同款共用）">
+            <input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="例：棉 100%" />
+          </Field>
+          <Field label="洗滌標示（吊牌用，同款共用）">
+            <textarea rows={2} value={careText} onChange={(e) => setCareText(e.target.value)} placeholder="例：手洗、不可漂白、低溫熨燙、陰乾" />
+          </Field>
         </div>
         <div className="center">
           <QrImg value={v.id} size={120} />

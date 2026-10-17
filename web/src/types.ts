@@ -34,6 +34,8 @@ export interface Variant {
   posCategory: string | null;
   posSort: number;
   posHidden?: boolean;
+  material?: string | null;
+  careText?: string | null;
   imageUrl: string | null;
   imageSource: "auto" | "manual" | null;
   searchText: string;

@@ -391,3 +391,15 @@ button.matrix-cell:hover { border-color: #6b7280; }
 
 .exchange-banner { background: #ede9fe; color: #4c1d95; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--border); }
 .exchange-banner select { min-height: 32px; padding: 4px 8px; }
+
+/* ---------- garment hang tags ---------- */
+.tag { background: #fff; color: #000; border: 1px dashed #d1d5db; padding: 2.5mm; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1mm; overflow: hidden; break-inside: avoid; font-size: 7.5pt; line-height: 1.25; }
+.tag-shop { font-weight: 800; letter-spacing: 0.08em; font-size: 9pt; }
+.tag-title { font-weight: 700; font-size: 8.5pt; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tag-opts { display: flex; flex-direction: column; }
+.tag-price { font-size: 13pt; font-weight: 800; }
+.tag-code { width: 100%; display: flex; justify-content: center; }
+.tag-barcode { max-width: 100%; height: auto; }
+.tag-sku { font-size: 6.5pt; color: #333; }
+.tag-care { font-size: 6pt; color: #333; border-top: 0.2mm solid #999; padding-top: 1mm; width: 100%; text-align: left; }
+@media print { .tag { border-color: transparent; } }
