@@ -35,6 +35,17 @@ interface Line {
   refundedQty: number;
 }
 
+export interface TierDef {
+  name: string;
+  minSpend: number;
+  discountPct: number;
+  pointMultiplier: number;
+}
+export function memberTier(settings: FirebaseFirestore.DocumentData, name: string | undefined | null): TierDef | null {
+  if (!name) return null;
+  return ((settings.memberTiers ?? []) as TierDef[]).find((t) => t.name === name) ?? null;
+}
+
 async function shopSettings() {
   return (await db.doc("settings/shop").get()).data() ?? {};
 }
@@ -134,15 +145,24 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
 
   const subtotal = lines.reduce((s, l) => s + l.total, 0);
   const promoTotal = promo.total;
-  const orderDiscountPct = num(d.orderDiscountPct ?? 0, "整單折扣", { min: 0, max: 100 });
-  const orderDiscount = Math.round((subtotal * orderDiscountPct) / 100);
-  const serviceFeePct = num(d.serviceFeePct ?? 0, "服務費", { min: 0, max: 100 });
-  const serviceFee = Math.round(((subtotal - orderDiscount) * serviceFeePct) / 100);
-  const allowance = num(d.allowance ?? 0, "折讓", { min: 0, max: 1e7 });
   const shopperId = d.shopperId ? str(d.shopperId, "會員", { max: 64 }) : null;
+  const shopperDoc = shopperId ? (await db.doc(`shoppers/${shopperId}`).get()).data() : undefined;
+
+  // --- 會員等級折扣、生日月（以伺服器上的會員資料為準） ---
+  const tier = memberTier(settings, shopperDoc?.tier);
+  const birthdayMonth = !!shopperDoc?.birthMonth && shopperDoc.birthMonth === taipeiDate().slice(5, 7);
+  const memberDiscountPct = tier?.discountPct ?? 0;
+  const memberDiscount = Math.round((subtotal * memberDiscountPct) / 100);
+  const afterMember = subtotal - memberDiscount;
+
+  const orderDiscountPct = num(d.orderDiscountPct ?? 0, "整單折扣", { min: 0, max: 100 });
+  const orderDiscount = Math.round((afterMember * orderDiscountPct) / 100);
+  const serviceFeePct = num(d.serviceFeePct ?? 0, "服務費", { min: 0, max: 100 });
+  const serviceFee = Math.round(((afterMember - orderDiscount) * serviceFeePct) / 100);
+  const allowance = num(d.allowance ?? 0, "折讓", { min: 0, max: 1e7 });
   const rewardPoints = shopperId ? int(d.rewardPoints ?? 0, "購物金折抵", { min: 0, max: 1e7 }) : 0;
   const rewardDiscount = rewardPoints * pointValue;
-  const total = subtotal - orderDiscount + serviceFee - allowance - rewardDiscount;
+  const total = afterMember - orderDiscount + serviceFee - allowance - rewardDiscount;
   assert(total >= 0, "折扣超過應收金額");
 
   const payments = (Array.isArray(d.payments) ? d.payments : []).map((p: Record<string, unknown>) => {
@@ -170,11 +190,8 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   assert(nonCash <= total, "非現金付款不能超過應收金額（不能找零）");
   const change = paid - total;
 
-  let shopper: { id: string; name: string; email: string; mobile: string } | null = null;
-  if (shopperId) {
-    const s = (await db.doc(`shoppers/${shopperId}`).get()).data();
-    shopper = { id: shopperId, name: s?.name ?? "", email: s?.email ?? "", mobile: s?.mobile ?? "" };
-  }
+  const shopper = shopperId ? { id: shopperId, name: shopperDoc?.name ?? "", email: shopperDoc?.email ?? "", mobile: shopperDoc?.mobile ?? "", tier: tier?.name ?? null } : null;
+  const pointMultiplier = (tier?.pointMultiplier || 1) * (birthdayMonth ? Number(settings.birthdayPointMultiplier || 1) : 1);
 
   // --- 1. pending record (idempotent) ---
   if (!existing) {
@@ -197,6 +214,11 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
         promoTotal,
         itemCount: lines.reduce((s, l) => s + l.qty, 0),
         subtotal,
+        memberTier: tier?.name ?? null,
+        memberDiscountPct,
+        memberDiscount,
+        birthdayMonth,
+        pointMultiplier,
         orderDiscountPct,
         orderDiscount,
         serviceFeePct,
@@ -257,7 +279,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   // --- 4. 回饋購物金 ---
   const rewardPercent = Number(settings.rewardPercent ?? 0);
   if (order.shopper && rewardPercent > 0 && order.total > 0) {
-    const earned = Math.floor((order.total * rewardPercent) / 100 / pointValue);
+    const earned = Math.floor(((order.total * rewardPercent) / 100 / pointValue) * (order.pointMultiplier || 1));
     if (earned > 0) {
       try {
         await meep.sendRewardPoints(order.shopper.id, earned, `門市消費回饋 ${order.orderNo}`);
@@ -710,7 +732,7 @@ export const searchShopper = onCall(opts, async (req) => {
       // fall back to cached points
     }
     const s = (await db.doc(`shoppers/${id}`).get()).data()!;
-    out.push({ id, name: s.name, email: s.email, mobile: s.mobile, points: points ?? s.points ?? 0, live: points !== null });
+    out.push({ id, name: s.name, email: s.email, mobile: s.mobile, points: points ?? s.points ?? 0, live: points !== null, tier: s.tier ?? null, birthMonth: s.birthMonth ?? null, spend12m: s.spend12m ?? 0 });
   }
   return { shoppers: out };
 });

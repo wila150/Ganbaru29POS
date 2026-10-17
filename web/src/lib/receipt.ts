@@ -43,6 +43,7 @@ ${o.shopper ? `<div>會員：${esc(o.shopper.name || o.shopper.mobile || o.shopp
 <table>
 ${(o.promotions ?? []).map((p) => line(esc(p.name), `-${money(p.discount)}`)).join("")}
 ${line("小計", money(o.subtotal))}
+${o.memberDiscount ? line(`會員折扣 ${esc(o.memberTier ?? "")} ${o.memberDiscountPct}%`, `-${money(o.memberDiscount)}`) : ""}
 ${o.orderDiscount ? line(`整單折扣 ${o.orderDiscountPct}%`, `-${money(o.orderDiscount)}`) : ""}
 ${o.serviceFee ? line(`服務費 ${o.serviceFeePct}%`, money(o.serviceFee)) : ""}
 ${o.allowance ? line("折讓", `-${money(o.allowance)}`) : ""}

@@ -120,6 +120,7 @@ export interface MShopper {
   name: string | null;
   mobile: string | null;
   usableRewardPoints: number;
+  birthDate: string | null;
   updatedAt: string;
 }
 
@@ -257,7 +258,7 @@ export async function updateOrderShipmentStatus(orderNumber: string, shipmentSta
 
 // ---------- Shoppers ----------
 
-const SHOPPER_FIELDS = `id email name mobile usableRewardPoints updatedAt`;
+const SHOPPER_FIELDS = `id email name mobile birthDate usableRewardPoints updatedAt`;
 
 export async function shoppersPage(after: string | null, updatedSince?: Date) {
   const data = await gql<{ shoppers: Connection<MShopper> }>(

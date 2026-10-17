@@ -180,6 +180,12 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
         ))}
         <dt>小計</dt>
         <dd>{money(o.subtotal)}</dd>
+        {(o.memberDiscount ?? 0) > 0 && (
+          <>
+            <dt>會員折扣 {o.memberTier} {o.memberDiscountPct}%</dt>
+            <dd>-{money(o.memberDiscount)}</dd>
+          </>
+        )}
         {o.orderDiscount > 0 && (
           <>
             <dt>整單折扣 {o.orderDiscountPct}%</dt>
@@ -344,10 +350,14 @@ export function Members() {
           <div className="card">
             <div className="row-between">
               <div>
-                <h2>{shopper.name || "(未填姓名)"}</h2>
+                <h2>
+                  {shopper.name || "(未填姓名)"} {shopper.tier && <Badge tone="info">{shopper.tier}</Badge>}
+                  {shopper.birthMonth === todayStr().slice(5, 7) && <Badge tone="warn">🎂 本月壽星</Badge>}
+                </h2>
                 <div className="muted">
                   {shopper.mobile} · {shopper.email}
                 </div>
+                <div className="small">近 12 個月消費 {money(shopper.spend12m ?? 0)}（門市＋網店，每天凌晨更新）</div>
               </div>
               <div className="center">
                 <div className="kpi-value">{shopper.points}</div>

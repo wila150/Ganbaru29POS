@@ -11,7 +11,7 @@ import { call, db } from "../../firebase";
 import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
 import { resolveCode, searchVariants } from "../../lib/lookup";
 import { printReceipt } from "../../lib/receipt";
-import { beep, deviceId, money, newId, PAY_LABEL } from "../../lib/util";
+import { beep, deviceId, money, newId, PAY_LABEL, todayStr } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useCurrentShift } from "./PosLayout";
 
@@ -81,7 +81,9 @@ export function Register() {
 
   const pointValue = settings.pointValue ?? 1;
   const promo = useMemo(() => cartPromos(cart, byId, promotions), [cart, byId, promotions]);
-  const t = totals(cart, disc, pointValue, promo);
+  const tier = shopper?.tier ? (settings.memberTiers ?? []).find((x) => x.name === shopper.tier) : undefined;
+  const isBirthday = !!shopper?.birthMonth && shopper.birthMonth === todayStr().slice(5, 7);
+  const t = totals(cart, disc, pointValue, promo, tier?.discountPct ?? 0);
   const credit = exchange?.credit ?? 0;
   const due = Math.max(0, t.total - credit);
   const refundDue = Math.max(0, credit - t.total);
@@ -241,7 +243,9 @@ export function Register() {
           <button className={`member-btn ${shopper ? "has" : ""}`} onClick={() => setMemberOpen(true)}>
             {shopper ? (
               <>
-                {shopper.name || shopper.mobile} <small>購物金 {shopper.points}</small>
+                {isBirthday && "🎂 "}
+                {shopper.name || shopper.mobile} {shopper.tier && <span className="tag">{shopper.tier}</span>}
+                <small>購物金 {shopper.points}</small>
               </>
             ) : (
               "＋會員"
@@ -318,6 +322,14 @@ export function Register() {
             <span>小計</span>
             <span>{money(t.subtotal)}</span>
           </div>
+          {t.memberDiscount > 0 && (
+            <div className="promo-row">
+              <span>
+                會員折扣（{tier?.name} {tier?.discountPct}%）
+              </span>
+              <span>-{money(t.memberDiscount)}</span>
+            </div>
+          )}
           {t.orderDiscount + disc.allowance + t.rewardDiscount > 0 && (
             <div>
               <span>折扣</span>

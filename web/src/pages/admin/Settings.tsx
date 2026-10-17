@@ -5,7 +5,7 @@ import { Badge, Field, useAction, useToast } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
-import type { ShopSettings } from "../../types";
+import type { ShopSettings, TierDef } from "../../types";
 
 export function Settings() {
   return (
@@ -15,6 +15,7 @@ export function Settings() {
       <ApiKey />
       <Alerts />
       <PosSettings />
+      <MemberSettings />
     </div>
   );
 }
@@ -297,6 +298,99 @@ function PosSettings() {
       <button className="btn btn-primary" disabled={busy} onClick={save}>
         儲存 POS 設定
       </button>
+    </section>
+  );
+}
+
+const TIER_EXAMPLE: TierDef[] = [
+  { name: "一般會員", minSpend: 0, discountPct: 0, pointMultiplier: 1 },
+  { name: "黃金會員", minSpend: 10000, discountPct: 5, pointMultiplier: 1.5 },
+  { name: "鑽石會員", minSpend: 30000, discountPct: 10, pointMultiplier: 2 },
+];
+
+function MemberSettings() {
+  const { settings } = useData();
+  const { form, set, save, busy } = useSettingsForm(["memberTiers", "birthdayGiftPoints", "birthdayPointMultiplier"]);
+  const { busy: b2, run } = useAction();
+  const tiers = form.memberTiers ?? [];
+  const setTier = (i: number, patch: Partial<TierDef>) => set("memberTiers", tiers.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+  return (
+    <section className="card">
+      <h2>會員等級與生日禮</h2>
+      <p className="muted small">
+        依「近 12 個月消費（門市＋網店）」每天凌晨自動升降級；結帳時自動套用等級折扣，回饋購物金乘上倍數。meepShop 不能改會員等級，等級只存在本系統。
+        {settings.tiersAt && ` 上次計算：${fmtTime(settings.tiersAt)}`}
+        {settings.tiersError && <span className="error"> 計算失敗：{settings.tiersError}</span>}
+      </p>
+      <div className="table-wrap">
+        <table className="table table-compact">
+          <thead>
+            <tr>
+              <th>等級名稱</th>
+              <th className="num">12 個月消費滿（元）</th>
+              <th className="num">結帳折扣 %</th>
+              <th className="num">購物金回饋倍數</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {tiers.map((t, i) => (
+              <tr key={i}>
+                <td>
+                  <input value={t.name} onChange={(e) => setTier(i, { name: e.target.value })} />
+                </td>
+                <td>
+                  <input type="number" min={0} value={t.minSpend} onChange={(e) => setTier(i, { minSpend: Number(e.target.value) })} />
+                </td>
+                <td>
+                  <input type="number" min={0} max={100} value={t.discountPct} onChange={(e) => setTier(i, { discountPct: Number(e.target.value) })} />
+                </td>
+                <td>
+                  <input type="number" min={1} step={0.1} value={t.pointMultiplier} onChange={(e) => setTier(i, { pointMultiplier: Number(e.target.value) })} />
+                </td>
+                <td>
+                  <button className="btn btn-sm btn-ghost" onClick={() => set("memberTiers", tiers.filter((_, j) => j !== i))}>
+                    刪除
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="btn-row">
+        <button className="btn btn-sm" onClick={() => set("memberTiers", [...tiers, { name: "", minSpend: 0, discountPct: 0, pointMultiplier: 1 }])}>
+          ＋ 新增等級
+        </button>
+        {!tiers.length && (
+          <button className="btn btn-sm btn-ghost" onClick={() => set("memberTiers", TIER_EXAMPLE)}>
+            套用範例（一般／黃金／鑽石）
+          </button>
+        )}
+      </div>
+      <div className="grid-fields" style={{ marginTop: 12 }}>
+        <Field label="生日禮購物金（點）" hint="每月 1 日送給當月壽星，一年一次；0 = 不送">
+          <input type="number" min={0} value={form.birthdayGiftPoints ?? 0} onChange={(e) => set("birthdayGiftPoints", Number(e.target.value))} />
+        </Field>
+        <Field label="生日當月回饋倍數" hint="例：2 = 當月門市消費購物金加倍">
+          <input type="number" min={1} step={0.5} value={form.birthdayPointMultiplier ?? 1} onChange={(e) => set("birthdayPointMultiplier", Number(e.target.value))} />
+        </Field>
+      </div>
+      <div className="btn-row">
+        <button className="btn btn-primary" disabled={busy} onClick={() => {
+          if (tiers.some((t) => !t.name.trim())) return alert("等級名稱不能空白");
+          save();
+        }}>
+          儲存會員設定
+        </button>
+        <button className="btn" disabled={b2} onClick={() => run(async () => {
+          const r = await call<{ updated: number; error: string | null }>("recomputeMemberTiers");
+          if (r.error) throw new Error(r.error);
+          return r;
+        }, "會員等級已重新計算")}>
+          {b2 ? "計算中…" : "立即重算等級"}
+        </button>
+      </div>
     </section>
   );
 }

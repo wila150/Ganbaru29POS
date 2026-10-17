@@ -34,12 +34,15 @@ export function cartPromos(lines: CartLine[], byId: Map<string, Variant>, promot
   );
 }
 
-export function totals(lines: CartLine[], d: CartDiscounts, pointValue = 1, promo: PromoResult = NO_PROMO) {
+/** memberPct = 會員等級折扣 %, applied after promotions and before the order discount (same as the server). */
+export function totals(lines: CartLine[], d: CartDiscounts, pointValue = 1, promo: PromoResult = NO_PROMO, memberPct = 0) {
   const gross = lines.reduce((s, l) => s + lineTotal(l), 0);
   const subtotal = gross - promo.total;
-  const orderDiscount = Math.round((subtotal * d.orderDiscountPct) / 100);
-  const serviceFee = Math.round(((subtotal - orderDiscount) * d.serviceFeePct) / 100);
+  const memberDiscount = Math.round((subtotal * memberPct) / 100);
+  const afterMember = subtotal - memberDiscount;
+  const orderDiscount = Math.round((afterMember * d.orderDiscountPct) / 100);
+  const serviceFee = Math.round(((afterMember - orderDiscount) * d.serviceFeePct) / 100);
   const rewardDiscount = d.rewardPoints * pointValue;
-  const total = subtotal - orderDiscount + serviceFee - d.allowance - rewardDiscount;
-  return { gross, promoTotal: promo.total, subtotal, orderDiscount, serviceFee, rewardDiscount, total, items: lines.reduce((s, l) => s + l.qty, 0) };
+  const total = afterMember - orderDiscount + serviceFee - d.allowance - rewardDiscount;
+  return { gross, promoTotal: promo.total, subtotal, memberDiscount, orderDiscount, serviceFee, rewardDiscount, total, items: lines.reduce((s, l) => s + l.qty, 0) };
 }

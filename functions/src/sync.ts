@@ -29,6 +29,12 @@ async function withLock<T>(name: string, ttlMs: number, fn: () => Promise<T>): P
 
 // ---------- catalog ----------
 
+/** "MM" from a meepShop birthDate (YYYY-MM-DD or YYYY/MM/DD), or null. */
+export function birthMonth(b: string | null | undefined): string | null {
+  const m = b?.match(/^\d{4}[-/](\d{1,2})/);
+  return m ? m[1].padStart(2, "0") : null;
+}
+
 export function mobileKey(m: string | null | undefined): string | null {
   if (!m) return null;
   let d = m.replace(/\D/g, "");
@@ -228,9 +234,11 @@ export async function runShopperSync(mode: "full" | "incremental") {
           mobile: s.mobile ?? "",
           mobileKey: mobileKey(s.mobile),
           points: s.usableRewardPoints,
+          birthDate: s.birthDate ?? null,
+          birthMonth: birthMonth(s.birthDate),
           updatedAt: s.updatedAt,
           syncedAt: FieldValue.serverTimestamp(),
-        });
+        }, { merge: true }); // merge keeps tier / spend computed by memberTiersJob
       }
       await writer.close();
       if (!page.pageInfo.hasNextPage || !page.pageInfo.endCursor) break;

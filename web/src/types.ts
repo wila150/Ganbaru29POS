@@ -95,6 +95,11 @@ export interface ShopSettings {
   apiKeySetAt?: Timestamp;
   apiKeySetBy?: string;
   lineTokenSetAt?: Timestamp;
+  memberTiers?: TierDef[];
+  birthdayGiftPoints?: number;
+  birthdayPointMultiplier?: number;
+  tiersAt?: Timestamp;
+  tiersError?: string | null;
 }
 
 export interface PosLine {
@@ -141,6 +146,10 @@ export interface PosOrder {
   promoTotal?: number;
   itemCount: number;
   subtotal: number;
+  memberTier?: string | null;
+  memberDiscountPct?: number;
+  memberDiscount?: number;
+  birthdayMonth?: boolean;
   orderDiscountPct: number;
   orderDiscount: number;
   serviceFeePct: number;
@@ -174,4 +183,14 @@ export interface Shopper {
   email: string;
   mobile: string;
   points: number;
+  tier?: string | null;
+  birthMonth?: string | null;
+  spend12m?: number;
+}
+
+export interface TierDef {
+  name: string;
+  minSpend: number;
+  discountPct: number;
+  pointMultiplier: number;
 }
