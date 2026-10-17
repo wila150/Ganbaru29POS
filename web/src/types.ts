@@ -112,6 +112,7 @@ export interface ShopSettings {
   onlineLocationId?: string | null;
   locationStockInitAt?: Timestamp;
   merchantId?: string;
+  lineLogin?: { channelId?: string; liffId?: string };
   commissionPct?: number;
   commissionByUser?: Record<string, number>;
   expenseCategories?: string[];

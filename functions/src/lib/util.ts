@@ -38,7 +38,7 @@ export function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-export function assert(cond: unknown, message: string, code: "invalid-argument" | "failed-precondition" | "not-found" | "permission-denied" = "invalid-argument"): asserts cond {
+export function assert(cond: unknown, message: string, code: "invalid-argument" | "failed-precondition" | "not-found" | "permission-denied" | "unauthenticated" | "resource-exhausted" | "already-exists" = "invalid-argument"): asserts cond {
   if (!cond) throw new HttpsError(code, message);
 }
 

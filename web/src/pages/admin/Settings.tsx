@@ -19,6 +19,7 @@ export function Settings() {
       <PaymentSettings />
       <LocationSettings />
       <MerchantSettings />
+      <LineLoginSettings />
       <StaffMoneySettings />
     </div>
   );
@@ -746,5 +747,35 @@ function RewardRules() {
         </button>
       </div>
     </div>
+  );
+}
+
+/** LINE 會員卡（LIFF）設定 */
+function LineLoginSettings() {
+  const { form, set, save, busy } = useSettingsForm(["lineLogin"]);
+  const v = form.lineLogin ?? {};
+  return (
+    <section className="card">
+      <h2>LINE 會員卡</h2>
+      <p className="muted small">
+        客人在 LINE 官方帳號點「會員卡」→ LINE 自動登入 → 第一次用手機＋Email 綁定會員 → 之後直接出示會員條碼。需要在 LINE Developers 建「LINE Login」頻道與 LIFF（Endpoint URL 填 {location.origin}/line）。
+      </p>
+      <div className="grid-fields">
+        <Field label="LINE Login Channel ID">
+          <input value={v.channelId ?? ""} onChange={(e) => set("lineLogin", { ...v, channelId: e.target.value.trim() })} placeholder="例：2001234567" />
+        </Field>
+        <Field label="LIFF ID">
+          <input value={v.liffId ?? ""} onChange={(e) => set("lineLogin", { ...v, liffId: e.target.value.trim() })} placeholder="例：2001234567-AbCdEfGh" />
+        </Field>
+      </div>
+      {v.liffId && (
+        <p className="small">
+          圖文選單連結請設成：<code>https://liff.line.me/{v.liffId}</code>
+        </p>
+      )}
+      <button className="btn btn-primary" disabled={busy} onClick={save}>
+        儲存
+      </button>
+    </section>
   );
 }

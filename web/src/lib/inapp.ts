@@ -12,6 +12,8 @@ export function inAppBrowser(): "line" | "other" | null {
 /** LINE opens the page in the phone's default browser when the URL carries openExternalBrowser=1. */
 export function escapeLineBrowser(): boolean {
   if (inAppBrowser() !== "line") return false;
+  // 會員卡頁就是要在 LINE 裡打開（LIFF），不要跳外部瀏覽器
+  if (location.pathname.startsWith("/line") || location.pathname.startsWith("/card/")) return false;
   const url = new URL(location.href);
   if (url.searchParams.get("openExternalBrowser") === "1") return false;
   url.searchParams.set("openExternalBrowser", "1");

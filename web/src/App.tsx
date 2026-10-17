@@ -8,6 +8,7 @@ import { DataProvider } from "./data";
 import { atLeast, type Role } from "./lib/util";
 import { AcceptInvite, Login } from "./pages/Login";
 import { MemberCard } from "./pages/MemberCard";
+import { LineCard } from "./pages/LineCard";
 import { Inventory } from "./pages/admin/Inventory";
 import { Labels } from "./pages/admin/Labels";
 import { Movements } from "./pages/admin/Movements";
@@ -47,6 +48,7 @@ export function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/invite/:id" element={<AcceptInvite />} />
               <Route path="/card/:token" element={<MemberCard />} />
+              <Route path="/line" element={<LineCard />} />
               <Route path="/admin" element={<Guard><AdminLayout /></Guard>}>
                 <Route index element={<Navigate to="scan" replace />} />
                 <Route path="scan" element={<Scan />} />
