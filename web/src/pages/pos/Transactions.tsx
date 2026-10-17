@@ -1,5 +1,5 @@
 import { collection, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth";
 import { Badge, Empty, Modal, useAction, useToast } from "../../components/ui";
@@ -154,6 +154,9 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
               <td>
                 {l.productTitle} {l.options}
                 {l.discountPct > 0 && <span className="tag">-{l.discountPct}%</span>}
+                {(l.promoLabels ?? []).map((n) => (
+                  <span key={n} className="tag tag-promo">{n}</span>
+                ))}
                 {l.refundedQty > 0 && <Badge tone="bad">已退 {l.refundedQty}</Badge>}
               </td>
               <td className="num">{money(l.unitPrice)}</td>
@@ -164,6 +167,12 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
         </tbody>
       </table>
       <dl className="kv">
+        {(o.promotions ?? []).map((p) => (
+          <Fragment key={p.promoId}>
+            <dt>🏷 {p.name}</dt>
+            <dd>-{money(p.discount)}（已計入各品項）</dd>
+          </Fragment>
+        ))}
         <dt>小計</dt>
         <dd>{money(o.subtotal)}</dd>
         {o.orderDiscount > 0 && (

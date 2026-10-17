@@ -1,6 +1,7 @@
 import { collection, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { QrImg } from "../../components/QrImg";
+import { VariantMatrix } from "../../components/VariantMatrix";
 import { useAuth } from "../../auth";
 import { Badge, Empty, Modal, SyncBadge, useAction } from "../../components/ui";
 import { daysSince, isSlow, SLOW_DAYS, stockAge, stockState, useData, variantName } from "../../data";
@@ -196,8 +197,10 @@ export function Inventory() {
 }
 
 export function VariantDetail({ variant, onClose }: { variant: Variant; onClose: () => void }) {
-  const { byId, settings } = useData();
+  const { byId, settings, variants } = useData();
   const v = byId.get(variant.id) ?? variant;
+  const siblings = useMemo(() => variants.filter((x) => x.productId === v.productId), [variants, v.productId]);
+  const [current, setCurrent] = useState<Variant | null>(null);
   const [moves, setMoves] = useState<Movement[]>([]);
   useEffect(
     () => onSnapshot(query(collection(db, "movements"), where("variantId", "==", v.id), orderBy("at", "desc"), limit(20)), (s) => setMoves(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Movement))),
@@ -240,6 +243,13 @@ export function VariantDetail({ variant, onClose }: { variant: Variant; onClose:
           <small className="muted d-block">進貨用 QR code</small>
         </div>
       </div>
+
+      {siblings.length > 1 && (
+        <>
+          <h3>同款各規格庫存</h3>
+          <VariantMatrix variants={siblings} currentId={v.id} onPick={(x) => x.id !== v.id && setCurrent(x)} />
+        </>
+      )}
 
       <h3>批次與效期</h3>
       {batches.length === 0 ? (
@@ -300,6 +310,7 @@ export function VariantDetail({ variant, onClose }: { variant: Variant; onClose:
           </tbody>
         </table>
       )}
+      {current && <VariantDetail variant={current} onClose={() => setCurrent(null)} />}
     </Modal>
   );
 }

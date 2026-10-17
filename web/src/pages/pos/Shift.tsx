@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Badge, Empty, Field, useAction } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
-import { totals, type CartDiscounts, type CartLine } from "../../lib/cart";
+import { cartPromos, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
 import { fmtTime, money, PAY_LABEL } from "../../lib/util";
 import type { Shopper } from "../../types";
 import { useCurrentShift } from "./PosLayout";
@@ -25,7 +25,7 @@ interface Hold {
 
 export function Holds() {
   const [list, setList] = useState<Hold[]>([]);
-  const { settings } = useData();
+  const { settings, byId, promotions } = useData();
   const nav = useNavigate();
   useEffect(() => onSnapshot(query(collection(db, "posHolds"), orderBy("at", "desc")), (s) => setList(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Hold))), []);
   return (
@@ -36,7 +36,7 @@ export function Holds() {
       ) : (
         <div className="cards">
           {list.map((h) => {
-            const t = totals(h.cart, h.discounts, settings.pointValue ?? 1);
+            const t = totals(h.cart, h.discounts, settings.pointValue ?? 1, cartPromos(h.cart, byId, promotions));
             return (
               <div key={h.id} className="card">
                 <div className="row-between">

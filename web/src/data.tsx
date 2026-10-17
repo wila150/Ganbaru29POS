@@ -2,6 +2,7 @@ import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "./auth";
 import { db } from "./firebase";
+import type { Promotion } from "./lib/promo";
 import type { ShopSettings, Variant } from "./types";
 
 interface DataState {
@@ -9,9 +10,11 @@ interface DataState {
   variants: Variant[];
   byId: Map<string, Variant>;
   settings: ShopSettings;
+  /** active promotions (date range is checked by the engine) */
+  promotions: Promotion[];
 }
 
-const Ctx = createContext<DataState>({ ready: false, variants: [], byId: new Map(), settings: {} });
+const Ctx = createContext<DataState>({ ready: false, variants: [], byId: new Map(), settings: {}, promotions: [] });
 export const useData = () => useContext(Ctx);
 
 /**
@@ -22,6 +25,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
   const [variants, setVariants] = useState<Variant[]>([]);
   const [settings, setSettings] = useState<ShopSettings>({});
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [ready, setReady] = useState(false);
   const enabled = !!profile?.active;
 
@@ -32,14 +36,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setReady(true);
     });
     const u2 = onSnapshot(doc(db, "settings", "shop"), (s) => setSettings((s.data() as ShopSettings) ?? {}));
+    const u3 = onSnapshot(query(collection(db, "promotions"), where("active", "==", true)), (s) => setPromotions(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Promotion)));
     return () => {
       u1();
       u2();
+      u3();
     };
   }, [enabled]);
 
   const byId = useMemo(() => new Map(variants.map((v) => [v.id, v])), [variants]);
-  return <Ctx.Provider value={{ ready, variants, byId, settings }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ ready, variants, byId, settings, promotions }}>{children}</Ctx.Provider>;
 }
 
 export const variantName = (v: Pick<Variant, "productTitle" | "options">) => (v.options ? `${v.productTitle}（${v.options}）` : v.productTitle);

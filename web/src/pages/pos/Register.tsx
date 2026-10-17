@@ -5,9 +5,10 @@ import { useAuth } from "../../auth";
 import { Keypad, KeypadDialog } from "../../components/Keypad";
 import { ScanInput } from "../../components/ScanInput";
 import { Modal, useAction, useToast } from "../../components/ui";
+import { VariantMatrix } from "../../components/VariantMatrix";
 import { useData, variantName } from "../../data";
 import { call, db } from "../../firebase";
-import { lineTotal, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
+import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
 import { resolveCode, searchVariants } from "../../lib/lookup";
 import { printReceipt } from "../../lib/receipt";
 import { beep, deviceId, money, newId, PAY_LABEL } from "../../lib/util";
@@ -27,7 +28,7 @@ const DRAFT_KEY = "g29.posDraft";
 const emptyDiscounts = (serviceFeePct = 0): CartDiscounts => ({ serviceFeePct, orderDiscountPct: 0, allowance: 0, rewardPoints: 0 });
 
 export function Register() {
-  const { variants, byId, settings } = useData();
+  const { variants, byId, settings, promotions } = useData();
   const { user, profile } = useAuth();
   const shift = useCurrentShift();
   const toast = useToast();
@@ -76,7 +77,8 @@ export function Register() {
   }, [incoming, nav]);
 
   const pointValue = settings.pointValue ?? 1;
-  const t = totals(cart, disc, pointValue);
+  const promo = useMemo(() => cartPromos(cart, byId, promotions), [cart, byId, promotions]);
+  const t = totals(cart, disc, pointValue, promo);
 
   // ---- product grid ----
   const sellable = useMemo(() => variants.filter((v) => !v.posHidden), [variants]);
@@ -225,6 +227,9 @@ export function Register() {
                   <div className="cl-sub">
                     {money(l.unitPrice)}
                     {l.discountPct > 0 && <span className="tag">-{l.discountPct}%</span>}
+                    {(promo.lineLabels[l.key] ?? []).map((n) => (
+                      <span key={n} className="tag tag-promo">{n}</span>
+                    ))}
                     {over && <span className="tag tag-warn">庫存不足</span>}
                   </div>
                 </div>
@@ -233,7 +238,16 @@ export function Register() {
                   <span>{l.qty}</span>
                   <button onClick={(e) => (e.stopPropagation(), setCart((c) => c.map((x) => (x.key === l.key ? { ...x, qty: x.qty + 1 } : x))))}>＋</button>
                 </div>
-                <div className="cl-total">{money(lineTotal(l))}</div>
+                <div className="cl-total">
+                  {promo.lineDiscount[l.key] ? (
+                    <>
+                      <s className="muted small">{money(lineTotal(l))}</s>
+                      <div>{money(lineTotal(l) - promo.lineDiscount[l.key])}</div>
+                    </>
+                  ) : (
+                    money(lineTotal(l))
+                  )}
+                </div>
                 <button className="btn-icon" onClick={(e) => (e.stopPropagation(), setEditLine(l))} aria-label="編輯">
                   ⋯
                 </button>
@@ -260,6 +274,12 @@ export function Register() {
         </div>
 
         <div className="cart-sum">
+          {promo.applied.map((a) => (
+            <div key={a.promoId} className="promo-row">
+              <span>🏷 {a.name}</span>
+              <span>-{money(a.discount)}</span>
+            </div>
+          ))}
           <div>
             <span>小計</span>
             <span>{money(t.subtotal)}</span>
@@ -293,16 +313,7 @@ export function Register() {
 
       {pick && (
         <Modal title={pick[0].productTitle} onClose={() => setPick(null)}>
-          <div className="variant-pick">
-            {pick.map((v) => (
-              <button key={v.id} onClick={() => (add(v), setPick(null))} className={stockOf(v) <= 0 ? "out" : ""}>
-                <span>{v.options || "單一規格"}</span>
-                <small>
-                  {money(v.price)} · 剩 {stockOf(v)}
-                </small>
-              </button>
-            ))}
-          </div>
+          <VariantMatrix variants={pick} onPick={(v) => (add(v), setPick(null))} />
         </Modal>
       )}
 
@@ -353,8 +364,11 @@ export function Register() {
           onClose={() => setCheckout(false)}
           submit={async (payments) => {
             const id = orderId.current;
-            const r = await call<{ id: string; status: string; stockIssues: { title: string; status: string; error: string | null }[] }>("posCheckout", {
+            type R = { id: string; status: string; stockIssues: { title: string; status: string; error: string | null }[] };
+            const send = (allowOversell: boolean) =>
+              call<R>("posCheckout", {
               id,
+              allowOversell,
               items: cart.map((l) => ({ variantId: l.variantId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct })),
               ...disc,
               shopperId: shopper?.id ?? null,
@@ -363,10 +377,17 @@ export function Register() {
               guests,
               holdId,
               device: deviceId(),
-            }).catch((e: Error) => {
-              if (/購物金/.test(e.message)) orderId.current = newId("o"); // server canceled this order
-              throw e;
             });
+            const r = await send(false)
+              .catch(async (e: Error) => {
+                // 網店剛賣掉：讓店員決定（客人手上真的有這件時可以照賣，系統會記錄扣庫存失敗）
+                if (/^網店庫存不足/.test(e.message) && confirm(`${e.message}\n\n確定這件商品在店裡、仍要結帳嗎？`)) return send(true);
+                throw e;
+              })
+              .catch((e: Error) => {
+                if (/購物金/.test(e.message)) orderId.current = newId("o"); // server canceled this order
+                throw e;
+              });
             if (r.status !== "completed") {
               orderId.current = newId("o");
               throw new Error("這張單沒有完成，請再按一次結帳");

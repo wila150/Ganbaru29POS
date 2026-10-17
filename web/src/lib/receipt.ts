@@ -18,7 +18,7 @@ export function printReceipt(o: PosOrder, s: ShopSettings, opts: { copy?: boolea
   const rows = o.lines
     .map(
       (l) => `<tr><td colspan="3">${esc(l.productTitle)}${l.options ? ` ${esc(l.options)}` : ""}</td></tr>
-      <tr><td class="m">${l.qty} × ${money(l.unitPrice)}${l.discountPct ? ` (-${l.discountPct}%)` : ""}</td><td></td><td class="r">${money(l.total)}</td></tr>`
+      <tr><td class="m">${l.qty} × ${money(l.unitPrice)}${l.discountPct ? ` (-${l.discountPct}%)` : ""}</td><td></td><td class="r">${money(l.total + (l.promoDiscount ?? 0))}</td></tr>`
     )
     .join("");
   const line = (label: string, v: string) => `<tr><td>${label}</td><td></td><td class="r">${v}</td></tr>`;
@@ -41,6 +41,7 @@ ${opts.copy ? `<div class="c">（補印）</div>` : ""}
 ${o.shopper ? `<div>會員：${esc(o.shopper.name || o.shopper.mobile || o.shopper.email)}</div>` : ""}
 <hr><table>${rows}</table><hr>
 <table>
+${(o.promotions ?? []).map((p) => line(esc(p.name), `-${money(p.discount)}`)).join("")}
 ${line("小計", money(o.subtotal))}
 ${o.orderDiscount ? line(`整單折扣 ${o.orderDiscountPct}%`, `-${money(o.orderDiscount)}`) : ""}
 ${o.serviceFee ? line(`服務費 ${o.serviceFeePct}%`, money(o.serviceFee)) : ""}

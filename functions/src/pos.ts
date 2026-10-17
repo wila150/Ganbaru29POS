@@ -4,6 +4,7 @@ import { Actor, atLeast, requireRole } from "./lib/auth";
 import * as meep from "./lib/meepshop";
 import { createMovement, pushBulk } from "./lib/movements";
 import { assert, db, errMsg, FieldValue, HttpsError, int, num, str, taipeiDate, Timestamp } from "./lib/util";
+import { applyPromotions, type Promotion } from "./shared/promo";
 import { mobileKey } from "./sync";
 
 /**
@@ -26,6 +27,9 @@ interface Line {
   listPrice: number;
   unitPrice: number;
   discountPct: number;
+  /** promotion discount on this line (dollars); total is already net of it */
+  promoDiscount: number;
+  promoLabels: string[];
   total: number;
   refundedQty: number;
 }
@@ -81,11 +85,54 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
       listPrice: v.price ?? 0,
       unitPrice,
       discountPct,
+      promoDiscount: 0,
+      promoLabels: [],
       total: Math.round((unitPrice * qty * (100 - discountPct)) / 100),
       refundedQty: 0,
     };
   });
+
+  // --- 促銷：伺服器重算一次（與 POS 畫面用同一個引擎） ---
+  const promoSnap = await db.collection("promotions").where("active", "==", true).get();
+  const promotions = promoSnap.docs.map((p) => ({ id: p.id, ...p.data() }) as Promotion);
+  const infoById = new Map(vSnaps.map((v) => [v.id, { productId: v.data()?.productId ?? "", category: v.data()?.posCategory ?? null, tags: v.data()?.tags ?? [] }]));
+  const promo = applyPromotions(
+    lines.map((l, i) => ({ key: String(i), variantId: l.variantId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct })),
+    (vid) => infoById.get(vid),
+    promotions,
+    taipeiDate()
+  );
+  lines.forEach((l, i) => {
+    l.promoDiscount = promo.lineDiscount[String(i)] ?? 0;
+    l.promoLabels = promo.lineLabels[String(i)] ?? [];
+    l.total -= l.promoDiscount;
+  });
+
+  // --- 結帳前向 meepShop 確認即時庫存，避免網店剛賣掉最後一件 ---
+  if (!existing && d.allowOversell !== true) {
+    const want = new Map<string, number>();
+    for (const l of lines) want.set(l.variantId, (want.get(l.variantId) ?? 0) + l.qty);
+    let live: Map<string, number> | null = null;
+    try {
+      live = await meep.variantStocks([...want.keys()]);
+    } catch (e) {
+      logger.warn("live stock check skipped", e); // meepShop unreachable: don't block the sale
+    }
+    if (live) {
+      const short = [...want].filter(([vid, q]) => live!.has(vid) && q > live!.get(vid)!);
+      for (const [vid, stock] of live) await db.doc(`variants/${vid}`).update({ shopStock: stock, shopStockAt: FieldValue.serverTimestamp() });
+      if (short.length) {
+        const names = short.map(([vid, q]) => {
+          const l = lines.find((x) => x.variantId === vid)!;
+          return `${l.productTitle} ${l.options}：要 ${q} 件，網店只剩 ${live!.get(vid)} 件`;
+        });
+        throw new HttpsError("failed-precondition", `網店庫存不足（可能剛被網路訂單買走）\n${names.join("\n")}`, { code: "oversell" });
+      }
+    }
+  }
+
   const subtotal = lines.reduce((s, l) => s + l.total, 0);
+  const promoTotal = promo.total;
   const orderDiscountPct = num(d.orderDiscountPct ?? 0, "整單折扣", { min: 0, max: 100 });
   const orderDiscount = Math.round((subtotal * orderDiscountPct) / 100);
   const serviceFeePct = num(d.serviceFeePct ?? 0, "服務費", { min: 0, max: 100 });
@@ -130,6 +177,8 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
         note: str(d.note, "備註", { optional: true, max: 300 }) || null,
         shopper,
         lines,
+        promotions: promo.applied,
+        promoTotal,
         itemCount: lines.reduce((s, l) => s + l.qty, 0),
         subtotal,
         orderDiscountPct,

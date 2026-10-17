@@ -1,4 +1,8 @@
 /** Same arithmetic as functions/src/pos.ts → posCheckout (the server recomputes; this is the preview). */
+import type { Variant } from "../types";
+import { applyPromotions, type PromoResult, type Promotion } from "./promo";
+import { todayStr } from "./util";
+
 export interface CartLine {
   key: string;
   variantId: string;
@@ -15,11 +19,27 @@ export interface CartDiscounts {
 
 export const lineTotal = (l: Pick<CartLine, "qty" | "unitPrice" | "discountPct">) => Math.round((l.unitPrice * l.qty * (100 - l.discountPct)) / 100);
 
-export function totals(lines: CartLine[], d: CartDiscounts, pointValue = 1) {
-  const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
+const NO_PROMO: PromoResult = { lineDiscount: {}, lineLabels: {}, applied: [], total: 0 };
+
+export function cartPromos(lines: CartLine[], byId: Map<string, Variant>, promotions: Promotion[]): PromoResult {
+  if (!promotions.length) return NO_PROMO;
+  return applyPromotions(
+    lines,
+    (vid) => {
+      const v = byId.get(vid);
+      return v ? { productId: v.productId, category: v.posCategory, tags: v.tags ?? [] } : undefined;
+    },
+    promotions,
+    todayStr()
+  );
+}
+
+export function totals(lines: CartLine[], d: CartDiscounts, pointValue = 1, promo: PromoResult = NO_PROMO) {
+  const gross = lines.reduce((s, l) => s + lineTotal(l), 0);
+  const subtotal = gross - promo.total;
   const orderDiscount = Math.round((subtotal * d.orderDiscountPct) / 100);
   const serviceFee = Math.round(((subtotal - orderDiscount) * d.serviceFeePct) / 100);
   const rewardDiscount = d.rewardPoints * pointValue;
   const total = subtotal - orderDiscount + serviceFee - d.allowance - rewardDiscount;
-  return { subtotal, orderDiscount, serviceFee, rewardDiscount, total, items: lines.reduce((s, l) => s + l.qty, 0) };
+  return { gross, promoTotal: promo.total, subtotal, orderDiscount, serviceFee, rewardDiscount, total, items: lines.reduce((s, l) => s + l.qty, 0) };
 }

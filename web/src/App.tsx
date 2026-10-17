@@ -10,6 +10,7 @@ import { Inventory } from "./pages/admin/Inventory";
 import { Labels } from "./pages/admin/Labels";
 import { Movements } from "./pages/admin/Movements";
 import { Products } from "./pages/admin/Products";
+import { Promotions } from "./pages/admin/Promotions";
 import { Reports } from "./pages/admin/Reports";
 import { Scan } from "./pages/admin/Scan";
 import { Settings } from "./pages/admin/Settings";
@@ -45,6 +46,7 @@ export function App() {
                 <Route path="stocktake/:id" element={<StocktakeDetail />} />
                 <Route path="products" element={<Guard min="manager"><Products /></Guard>} />
                 <Route path="labels" element={<Guard min="manager"><Labels /></Guard>} />
+                <Route path="promotions" element={<Guard min="manager"><Promotions /></Guard>} />
                 <Route path="movements" element={<Guard min="manager"><Movements /></Guard>} />
                 <Route path="reports" element={<Guard min="manager"><Reports /></Guard>} />
                 <Route path="settings" element={<Guard min="owner"><Settings /></Guard>} />

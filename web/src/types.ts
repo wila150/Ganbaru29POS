@@ -106,6 +106,8 @@ export interface PosLine {
   listPrice: number;
   unitPrice: number;
   discountPct: number;
+  promoDiscount?: number;
+  promoLabels?: string[];
   total: number;
   refundedQty: number;
 }
@@ -135,6 +137,8 @@ export interface PosOrder {
   note: string | null;
   shopper: { id: string; name: string; email: string; mobile: string } | null;
   lines: PosLine[];
+  promotions?: { promoId: string; name: string; discount: number }[];
+  promoTotal?: number;
   itemCount: number;
   subtotal: number;
   orderDiscountPct: number;

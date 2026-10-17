@@ -32,6 +32,17 @@ service cloud.firestore {
     match /posOrders/{id} { allow read: if active(); }
     match /shifts/{id} { allow read: if active(); }
 
+    // 促銷活動：店長以上可以新增、修改；結帳時由 posCheckout 重算
+    match /promotions/{id} {
+      allow read: if active();
+      allow create, update: if isManager()
+        && request.resource.data.keys().hasOnly(['name', 'active', 'type', 'startDate', 'endDate', 'scope', 'percentOff', 'n', 'bundlePrice', 'addonScope', 'addonPrice', 'note', 'updatedBy', 'updatedAt', 'createdAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.type in ['percent_off', 'nth_discount', 'bundle_price', 'addon']
+        && request.resource.data.active is bool;
+      allow delete: if isManager();
+    }
+
     match /posHolds/{id} {
       allow read, delete: if active();
       allow create, update: if active()
