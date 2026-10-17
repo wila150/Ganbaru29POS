@@ -16,7 +16,6 @@ export function Settings() {
       <ApiKey />
       <Alerts />
       <PosSettings />
-      <MemberSettings />
       <PaymentSettings />
       <LocationSettings />
       <MerchantSettings />
@@ -313,7 +312,7 @@ const TIER_EXAMPLE: TierDef[] = [
   { name: "鑽石會員", minSpend: 30000, discountPct: 10, pointMultiplier: 2 },
 ];
 
-function MemberSettings() {
+export function MemberSettings() {
   const { settings } = useData();
   const { form, set, save, busy } = useSettingsForm(["memberTiers", "birthdayGiftPoints", "birthdayPointMultiplier"]);
   const { busy: b2, run } = useAction();

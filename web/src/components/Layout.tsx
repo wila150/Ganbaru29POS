@@ -10,7 +10,7 @@ const ADMIN_NAV: { to: string; label: string; icon: string; min: Role }[] = [
   { to: "/admin/inventory", label: "庫存查詢", icon: "▤", min: "staff" },
   { to: "/admin/stocktake", label: "盤點", icon: "✓", min: "staff" },
   { to: "/admin/transfers", label: "調貨", icon: "⇄", min: "staff" },
-  { to: "/admin/members", label: "顧客名單", icon: "☺", min: "staff" },
+  { to: "/admin/members", label: "顧客管理", icon: "☺", min: "staff" },
   { to: "/admin/products", label: "商品與條碼", icon: "▦", min: "manager" },
   { to: "/admin/promotions", label: "促銷活動", icon: "%", min: "manager" },
   { to: "/admin/movements", label: "異動紀錄", icon: "≡", min: "manager" },
