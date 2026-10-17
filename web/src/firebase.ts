@@ -8,7 +8,11 @@ const env = import.meta.env;
 
 /** 從主畫面開啟的 App（iPad / iPhone）—— 沒有彈出視窗，Google 登入改用同網域的轉址登入。 */
 export const isStandalone = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true);
-const sameOriginAuth = isStandalone && /\.(web\.app|firebaseapp\.com)$/.test(location.hostname);
+/**
+ * 登入處理頁用「目前這個網址」的網域（ganbaru29.web.app 或 ganbaru29.firebaseapp.com 都有 /__/auth/handler）。
+ * 跨網域時 Chrome／Safari 會把儲存空間分開，轉址回來會出現「missing initial state」。
+ */
+const sameOriginAuth = typeof location !== "undefined" && /\.(web\.app|firebaseapp\.com)$/.test(location.hostname);
 
 export const app = initializeApp({
   apiKey: env.VITE_FIREBASE_API_KEY,

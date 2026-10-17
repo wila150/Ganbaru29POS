@@ -74,8 +74,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     profile,
     login: async () => {
-      if (isStandalone) await signInWithRedirect(auth, googleProvider);
-      else await signInWithPopup(auth, googleProvider);
+      // 先用彈出視窗（電腦版 Chrome 的 App 視窗也可以）；不支援彈窗的環境（iPad 主畫面 App）才改用轉址
+      try {
+        await signInWithPopup(auth, googleProvider);
+      } catch (e) {
+        const code = (e as { code?: string }).code ?? "";
+        if (isStandalone && ["auth/popup-blocked", "auth/operation-not-supported-in-this-environment", "auth/cancelled-popup-request"].includes(code)) await signInWithRedirect(auth, googleProvider);
+        else if (code !== "auth/popup-closed-by-user") throw e;
+      }
     },
     logout: () => signOut(auth),
   };
