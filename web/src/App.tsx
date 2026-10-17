@@ -66,6 +66,7 @@ export function App() {
                 <Route path="close" element={<DayClose />} />
                 <Route path="transactions" element={<Transactions />} />
                 <Route path="members" element={<Members />} />
+                <Route path="attendance" element={<Attendance />} />
               </Route>
               <Route path="*" element={<Navigate to="/admin/scan" replace />} />
             </Routes>
