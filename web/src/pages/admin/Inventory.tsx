@@ -7,6 +7,7 @@ import { Badge, Empty, Modal, SyncBadge, useAction } from "../../components/ui";
 import { daysSince, isSlow, SLOW_DAYS, stockAge, stockState, useData, variantName } from "../../data";
 import { call, db } from "../../firebase";
 import { searchVariants } from "../../lib/lookup";
+import { useDeviceLocation } from "../../lib/location";
 import { atLeast, fmtTime, MOVE_LABEL, todayStr } from "../../lib/util";
 import type { Movement, Variant } from "../../types";
 
@@ -53,8 +54,9 @@ export function AgeCell({ v }: { v: Variant }) {
 }
 
 export function Inventory() {
-  const { variants, settings } = useData();
+  const { variants, settings, locStock } = useData();
   const { profile } = useAuth();
+  const { multi, locationId, name: locName } = useDeviceLocation();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>("name");
@@ -139,7 +141,8 @@ export function Inventory() {
               <tr>
                 <th>商品（規格）</th>
                 <th>儲位</th>
-                <th className="num">庫存</th>
+                <th className="num">{multi ? "總庫存" : "庫存"}</th>
+                {multi && <th className="num">{locName}</th>}
                 <th className="num">近 30 天銷量</th>
                 <th>最後賣出</th>
                 <th>庫齡</th>
@@ -159,6 +162,7 @@ export function Inventory() {
                   </td>
                   <td>{v.location || "—"}</td>
                   <td className="num strong">{v.shopStock ?? "—"}</td>
+                  {multi && <td className="num">{locStock.get(v.id)?.[locationId ?? ""] ?? 0}</td>}
                   <td className="num">
                     {v.statsAt ? (
                       <span title={`門市 ${v.sales30Store ?? 0}、網店 ${v.sales30Online ?? 0}`}>
@@ -197,7 +201,8 @@ export function Inventory() {
 }
 
 export function VariantDetail({ variant, onClose }: { variant: Variant; onClose: () => void }) {
-  const { byId, settings, variants } = useData();
+  const { byId, settings, variants, locStock } = useData();
+  const { multi, locations } = useDeviceLocation();
   const v = byId.get(variant.id) ?? variant;
   const siblings = useMemo(() => variants.filter((x) => x.productId === v.productId), [variants, v.productId]);
   const [current, setCurrent] = useState<Variant | null>(null);
@@ -244,6 +249,18 @@ export function VariantDetail({ variant, onClose }: { variant: Variant; onClose:
         </div>
       </div>
 
+      {multi && (
+        <>
+          <h3>各門市／倉庫</h3>
+          <div className="chips">
+            {locations.map((l) => (
+              <span key={l.id} className="chip">
+                {l.name} <strong>{locStock.get(v.id)?.[l.id] ?? 0}</strong>
+              </span>
+            ))}
+          </div>
+        </>
+      )}
       {siblings.length > 1 && (
         <>
           <h3>同款各規格庫存</h3>

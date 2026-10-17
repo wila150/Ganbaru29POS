@@ -13,7 +13,7 @@ import { mobileKey } from "./sync";
  * posOrders/{id}  id is generated on the tablet, so a double-tapped / re-sent checkout is stored once.
  * status: pending → completed | canceled ; later partial / refunded / void
  * shifts/{id}     one cashier shift (開班零用金、存提款、日結)
- * settings/shop.currentShiftId  the open shift (one register)
+ * settings/shop.currentShifts[locationId|"main"]  the open shift of each store's register
  */
 
 const METHODS = ["cash", "card", "linepay", "transfer"] as const;
@@ -50,6 +50,13 @@ export function memberTier(settings: FirebaseFirestore.DocumentData, name: strin
   return ((settings.memberTiers ?? []) as TierDef[]).find((t) => t.name === name) ?? null;
 }
 
+/** 每家門市各自開班、日結（單店時 key = "main"，相容舊的 currentShiftId）。 */
+const shiftKey = (loc: unknown) => (typeof loc === "string" && loc ? loc : "main");
+function currentShift(settings: FirebaseFirestore.DocumentData, loc: unknown): string | undefined {
+  const k = shiftKey(loc);
+  return settings.currentShifts?.[k] ?? (k === "main" ? settings.currentShiftId ?? undefined : undefined);
+}
+
 async function shopSettings() {
   return (await db.doc("settings/shop").get()).data() ?? {};
 }
@@ -78,7 +85,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   if (existing && existing.status !== "pending") return summarize(id);
 
   const settings = await shopSettings();
-  const shiftId = settings.currentShiftId as string | undefined;
+  const shiftId = currentShift(settings, d.locationId);
   assert(shiftId, "請先到「錢櫃」開班", "failed-precondition");
   const pointValue = Number(settings.pointValue ?? 1);
 
@@ -210,6 +217,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
       claims.forEach((apply) => apply());
       tx.create(ref, {
         invoiceRequest,
+        locationId: str(d.locationId, "地點", { optional: true, max: 40 }) || null,
         orderNo,
         status: "pending",
         shiftId,
@@ -281,7 +289,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   for (let i = 0; i < order.lines.length; i++) {
     const l = order.lines[i] as Line;
     const moveId = `${id}_${i}`;
-    await createMovement({ id: moveId, variantId: l.variantId, type: "sale", delta: -l.qty, ref: id, note: order.orderNo, device: order.device, status: "processing" }, actor);
+    await createMovement({ id: moveId, variantId: l.variantId, type: "sale", delta: -l.qty, ref: id, note: order.orderNo, device: order.device, status: "processing", locationId: order.locationId ?? null }, actor);
     moveIds.push(moveId);
   }
   await ref.update({ status: "completed", completedAt: FieldValue.serverTimestamp() });
@@ -358,11 +366,12 @@ async function doRefund(
   method: Method | "original",
   reason: string,
   isVoid: boolean,
-  explicitPayments?: { method: Method; amount: number }[]
+  explicitPayments?: { method: Method; amount: number }[],
+  locationId?: string | null
 ) {
   const ref = db.doc(`posOrders/${orderId}`);
   const settings = await shopSettings();
-  const shiftId = settings.currentShiftId as string | undefined;
+  const shiftId = currentShift(settings, locationId);
   assert(shiftId, "請先到「錢櫃」開班", "failed-precondition");
 
   const plan = await db.runTransaction(async (tx) => {
@@ -418,7 +427,7 @@ async function doRefund(
   for (const w of plan.record.lines) {
     const l = o.lines[w.index] as Line;
     const moveId = `${refundId}_${w.index}`;
-    await createMovement({ id: moveId, variantId: l.variantId, type: "refund", delta: w.qty, ref: orderId, note: `${o.orderNo} ${isVoid ? "作廢" : "退貨"}`, status: "processing" }, actor);
+    await createMovement({ id: moveId, variantId: l.variantId, type: "refund", delta: w.qty, ref: orderId, note: `${o.orderNo} ${isVoid ? "作廢" : "退貨"}`, status: "processing", locationId: locationId ?? o.locationId ?? null }, actor);
     moveIds.push(moveId);
   }
   await pushBulk(moveIds);
@@ -455,7 +464,7 @@ export const posRefund = onCall({ ...opts, timeoutSeconds: 120 }, async (req) =>
   const d = req.data ?? {};
   const method = d.method === "original" || METHODS.includes(d.method) ? d.method : "original";
   const lines = (Array.isArray(d.lines) ? d.lines : []).map((l: Record<string, unknown>) => ({ index: int(l.index, "項目", { min: 0, max: 99 }), qty: int(l.qty, "數量", { min: 0, max: 999 }) }));
-  return doRefund(actor, str(d.orderId, "訂單", { max: 64 }), str(d.refundId, "退貨 id", { max: 64 }), lines, method, str(d.reason, "原因", { optional: true, max: 200 }), false);
+  return doRefund(actor, str(d.orderId, "訂單", { max: 64 }), str(d.refundId, "退貨 id", { max: 64 }), lines, method, str(d.reason, "原因", { optional: true, max: 200 }), false, undefined, str(d.locationId, "地點", { optional: true, max: 40 }) || null);
 });
 
 /** 作廢：整單退回（加回庫存、退回購物金），用原付款方式退款 */
@@ -466,7 +475,7 @@ export const posVoid = onCall({ ...opts, timeoutSeconds: 120 }, async (req) => {
   const o = (await db.doc(`posOrders/${orderId}`).get()).data();
   assert(o, "找不到這張單", "not-found");
   const lines = (o.lines as Line[]).map((l, index) => ({ index, qty: l.qty - l.refundedQty }));
-  return doRefund(actor, orderId, `void_${orderId}`, lines, "original", str(req.data?.reason, "原因", { optional: true, max: 200 }) || "作廢", true);
+  return doRefund(actor, orderId, `void_${orderId}`, lines, "original", str(req.data?.reason, "原因", { optional: true, max: 200 }) || "作廢", true, undefined, str(req.data?.locationId, "地點", { optional: true, max: 40 }) || null);
 });
 
 // ---------- exchange (換貨) ----------
@@ -540,7 +549,7 @@ async function processExchangeReturn(actor: Actor, newOrderId: string, order: Fi
   if (ex.refundDue > 0) payments.push({ method: ex.refundMethod, amount: ex.refundDue });
 
   if (ex.kind === "pos") {
-    await doRefund(actor, ex.orderId!, `ex_${newOrderId}`, ex.lines.map((l) => ({ index: l.index!, qty: l.qty })), "original", `換貨 → ${order.orderNo}`, false, payments);
+    await doRefund(actor, ex.orderId!, `ex_${newOrderId}`, ex.lines.map((l) => ({ index: l.index!, qty: l.qty })), "original", `換貨 → ${order.orderNo}`, false, payments, order.locationId ?? null);
     return;
   }
   // 網店訂單：記錄已換數量（防止同一件換兩次），把商品加回 meepShop 庫存
@@ -564,7 +573,7 @@ async function processExchangeReturn(actor: Actor, newOrderId: string, order: Fi
   for (let i = 0; i < ex.lines.length; i++) {
     const l = ex.lines[i];
     const moveId = `${newOrderId}_ret_${i}`;
-    await createMovement({ id: moveId, variantId: l.variantId, type: "refund", delta: l.qty, ref: newOrderId, note: `網店訂單 ${ex.orderNumber} 門市換貨`, status: "processing" }, actor);
+    await createMovement({ id: moveId, variantId: l.variantId, type: "refund", delta: l.qty, ref: newOrderId, note: `網店訂單 ${ex.orderNumber} 門市換貨`, status: "processing", locationId: order.locationId ?? null }, actor);
     moveIds.push(moveId);
   }
   await pushBulk(moveIds);
@@ -584,20 +593,21 @@ export const openShift = onCall(opts, async (req) => {
   const actor = await requireRole(req, "staff");
   const float = num(req.data?.float ?? 0, "零用金", { min: 0, max: 1e7 });
   const name = str(req.data?.name, "班別", { optional: true, max: 20 }) || "早班";
+  const loc = str(req.data?.locationId, "門市", { optional: true, max: 40 });
   const sRef = db.doc("settings/shop");
   const shiftRef = db.collection("shifts").doc();
   await db.runTransaction(async (tx) => {
     const s = (await tx.get(sRef)).data() ?? {};
-    assert(!s.currentShiftId, "已經有開著的班，請先日結交班", "failed-precondition");
-    tx.set(shiftRef, { name, businessDate: taipeiDate(), status: "open", float, cashMoves: [], openedBy: actor.uid, openedByName: actor.name, openedAt: FieldValue.serverTimestamp() });
-    tx.set(sRef, { currentShiftId: shiftRef.id }, { merge: true });
+    assert(!currentShift(s, loc), "已經有開著的班，請先日結交班", "failed-precondition");
+    tx.set(shiftRef, { name, businessDate: taipeiDate(), status: "open", float, cashMoves: [], openedBy: actor.uid, openedByName: actor.name, openedAt: FieldValue.serverTimestamp(), locationId: loc || null });
+    tx.set(sRef, { currentShifts: { [shiftKey(loc)]: shiftRef.id }, ...(shiftKey(loc) === "main" ? { currentShiftId: shiftRef.id } : {}) }, { merge: true });
   });
   return { id: shiftRef.id };
 });
 
 export const cashMove = onCall(opts, async (req) => {
   const actor = await requireRole(req, "staff");
-  const shiftId = (await shopSettings()).currentShiftId;
+  const shiftId = currentShift(await shopSettings(), req.data?.locationId);
   assert(shiftId, "目前沒有開班", "failed-precondition");
   const type = req.data?.type === "out" ? "out" : "in";
   const amount = num(req.data?.amount, "金額", { min: 1, max: 1e7 });
@@ -661,7 +671,7 @@ async function computeShift(shiftId: string) {
 
 export const shiftSummary = onCall(opts, async (req) => {
   await requireRole(req, "staff");
-  const shiftId = req.data?.shiftId || (await shopSettings()).currentShiftId;
+  const shiftId = req.data?.shiftId || currentShift(await shopSettings(), req.data?.locationId);
   assert(shiftId, "目前沒有開班", "failed-precondition");
   const s = await computeShift(shiftId);
   return { ...s, shift: { ...s.shift, openedAt: s.shift.openedAt?.toMillis?.() ?? null, closedAt: s.shift.closedAt?.toMillis?.() ?? null, cashMoves: (s.shift.cashMoves ?? []).map((m: { at: Timestamp }) => ({ ...m, at: m.at.toMillis() })) } };
@@ -671,7 +681,7 @@ export const shiftSummary = onCall(opts, async (req) => {
 export const closeShift = onCall(opts, async (req) => {
   const actor = await requireRole(req, "staff");
   const sRef = db.doc("settings/shop");
-  const shiftId = (await shopSettings()).currentShiftId;
+  const shiftId = currentShift(await shopSettings(), req.data?.locationId);
   assert(shiftId, "目前沒有開班", "failed-precondition");
   const countedCash = num(req.data?.countedCash, "實點現金", { min: 0, max: 1e8 });
   const s = await computeShift(shiftId);
@@ -686,7 +696,8 @@ export const closeShift = onCall(opts, async (req) => {
     summary: { orders: s.orders, total: s.total, refundTotal: s.refundTotal, rewardPoints: s.rewardPoints, byMethod: s.byMethod, ins: s.ins, outs: s.outs },
     closeNote: str(req.data?.note, "備註", { optional: true, max: 300 }) || null,
   });
-  await sRef.set({ currentShiftId: null }, { merge: true });
+  const k = shiftKey(req.data?.locationId);
+  await sRef.set({ currentShifts: { [k]: null }, ...(k === "main" ? { currentShiftId: null } : {}) }, { merge: true });
   return { expectedCash: s.expectedCash, countedCash, diff: countedCash - s.expectedCash };
 });
 

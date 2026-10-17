@@ -6,6 +6,7 @@ import { Badge, Empty, Field, Modal, SyncBadge, useAction, useToast } from "../.
 import { useData, variantName } from "../../data";
 import { call, db } from "../../firebase";
 import { resolveCode, searchVariants } from "../../lib/lookup";
+import { useDeviceLocation } from "../../lib/location";
 import { atLeast, beep, dayStart, deviceId, fmtTime, MOVE_LABEL, newId } from "../../lib/util";
 import type { Movement, Variant } from "../../types";
 
@@ -25,6 +26,7 @@ interface ScanPayload {
   lot?: string;
   exp?: string;
   device: string;
+  locationId?: string | null;
 }
 interface ScanResult {
   id: string;
@@ -67,6 +69,7 @@ export function Scan() {
   const [busy, setBusy] = useState(false);
   const scanRef = useRef<ScanInputHandle>(null);
   const isManager = atLeast(profile?.role, "manager");
+  const { locationId, name: locName } = useDeviceLocation();
 
   useEffect(() => {
     if (!user) return;
@@ -108,6 +111,7 @@ export function Scan() {
       type: action,
       qty,
       device: deviceId(),
+      locationId,
       ...(action === "in" ? { unitCost: unitCost === "" ? undefined : Number(unitCost), lot: lot || undefined, exp: exp || undefined } : {}),
     };
     const delta = action === "in" ? qty : -qty;
@@ -206,7 +210,9 @@ export function Scan() {
           <input type="checkbox" checked={resetQty} onChange={(e) => setResetQty(e.target.checked)} /> 每次掃完數量回到 1
         </label>
         <ScanInput ref={scanRef} onCode={onCode} disabled={busy} />
-        <p className="muted small">掃完立即送出：{ACTIONS.find((a) => a.key === action)?.label} {qty} 件。</p>
+        <p className="muted small">
+          掃完立即送出：{ACTIONS.find((a) => a.key === action)?.label} {qty} 件{locName && `，記在「${locName}」`}。
+        </p>
       </div>
 
       {queue.length > 0 && (

@@ -15,6 +15,8 @@ import { runCatalogSync } from "./sync";
 export const createStocktake = onCall({ timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async (req) => {
   const actor = await requireRole(req, "manager");
   const prefix = str(req.data?.locationPrefix, "儲位", { optional: true, max: 40 });
+  // 多店：盤某一家門市／倉庫時，帳面 = 該地點的數量，套用時只調整該地點（以及 meepShop 總數同步加減）
+  const locationId = str(req.data?.locationId, "門市／倉庫", { optional: true, max: 40 }) || null;
   const name = str(req.data?.name, "名稱", { optional: true, max: 60 }) || (prefix ? `盤點 ${prefix}` : "全店盤點");
 
   const sync = await runCatalogSync("full", "stocktake");
@@ -32,8 +34,16 @@ export const createStocktake = onCall({ timeoutSeconds: 540, memory: "512MiB", m
     startedByName: actor.name,
     startedAt: FieldValue.serverTimestamp(),
     itemCount: variants.size,
+    locationId,
     syncWarning: sync.errors.length ? sync.errors.join("; ") : null,
   });
+  const locQty = new Map<string, number>();
+  if (locationId) {
+    for (const ids of chunk(variants.docs.map((v) => v.id), 300)) {
+      const ls = await db.getAll(...ids.map((id) => db.doc(`locationStock/${id}`)));
+      ls.forEach((x) => locQty.set(x.id, x.data()?.qty?.[locationId] ?? 0));
+    }
+  }
   const writer = db.bulkWriter();
   variants.forEach((v) => {
     const d = v.data();
@@ -42,7 +52,7 @@ export const createStocktake = onCall({ timeoutSeconds: 540, memory: "512MiB", m
       options: d.options,
       sku: d.sku ?? null,
       location: d.location ?? null,
-      book: d.shopStock ?? 0,
+      book: locationId ? locQty.get(v.id) ?? 0 : d.shopStock ?? 0,
       counted: 0,
       touched: false,
       inScope: true,
@@ -94,10 +104,19 @@ export const applyStocktake = onCall({ timeoutSeconds: 540, memory: "512MiB", ma
   });
 
   try {
+    const st = (await ref.get()).data()!;
     const items = await ref.collection("items").get();
     const targets = items.docs.filter((d) => !onlyCounted || d.data().touched);
     const live = new Map<string, number>();
-    for (const ids of chunk(targets.map((d) => d.id), 50)) for (const [k, v] of await variantStocks(ids)) live.set(k, v);
+    if (st.locationId) {
+      // 該地點目前的數量（含盤點期間的銷售、調貨）
+      for (const ids of chunk(targets.map((d) => d.id), 300)) {
+        const ls = ids.length ? await db.getAll(...ids.map((id) => db.doc(`locationStock/${id}`))) : [];
+        ls.forEach((x) => live.set(x.id, x.data()?.qty?.[st.locationId] ?? 0));
+      }
+    } else {
+      for (const ids of chunk(targets.map((d) => d.id), 50)) for (const [k, v] of await variantStocks(ids)) live.set(k, v);
+    }
 
     const moveIds: string[] = [];
     const writer = db.bulkWriter();
@@ -112,7 +131,7 @@ export const applyStocktake = onCall({ timeoutSeconds: 540, memory: "512MiB", ma
       writer.update(d.ref, { live: current, diff });
       if (diff !== 0) {
         const moveId = `st_${id}_${d.id}`;
-        await createMovement({ id: moveId, variantId: d.id, type: "stocktake", delta: diff, ref: id, note: `${it.counted}（實盤）− ${current}（網店）`, status: "processing" }, actor);
+        await createMovement({ id: moveId, variantId: d.id, type: "stocktake", delta: diff, ref: id, note: `${it.counted}（實盤）− ${current}（${st.locationId ? "該地點帳面" : "網店"}）`, status: "processing", locationId: st.locationId ?? null }, actor);
         moveIds.push(moveId);
       }
     }

@@ -10,3 +10,4 @@ export { retryFailed, lowStockAlert, refreshStats, salesReport } from "./jobs";
 export { memberTiersDaily, recomputeMemberTiers, birthdayGiftsMonthly } from "./members";
 export { createOnlinePayment, cancelOnlinePayment, checkOnlinePayment, payPage, payReturn, ecpayNotify, newebpayNotify, setPaymentCreds, paymentCredsStatus } from "./payments/index";
 export { reissueInvoice, invoicePrint } from "./payments/invoice";
+export { initLocationStock, requestTransfer, shipTransfer, receiveTransfer, cancelTransfer } from "./locations";

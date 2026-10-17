@@ -70,6 +70,7 @@ export const scanMove = onCall(opts, async (req) => {
       exp: type === "in" ? exp : undefined,
       note: str(d.note, "備註", { optional: true, max: 200 }),
       device: str(d.device, "裝置", { optional: true, max: 80 }),
+      locationId: str(d.locationId, "地點", { optional: true, max: 40 }) || null,
     },
     actor
   );
@@ -104,13 +105,13 @@ export const undoMove = onCall(opts, async (req) => {
   });
   if (canceled) {
     // Put the batch quantities back as they were.
-    await createMovement({ id: `${id}_undo`, variantId: orig.variantId, type: "undo", delta: -orig.delta, ref: id, undoOf: id, status: "processing" }, actor);
+    await createMovement({ id: `${id}_undo`, variantId: orig.variantId, type: "undo", delta: -orig.delta, ref: id, undoOf: id, status: "processing", locationId: orig.locationId ?? null }, actor);
     await db.doc(`movements/${id}_undo`).update({ status: "canceled", note: "原紀錄未同步，直接取消" });
     return { status: "canceled" };
   }
 
   const undoId = `${id}_undo`;
-  await createMovement({ id: undoId, variantId: orig.variantId, type: "undo", delta: -orig.delta, ref: id, undoOf: id, device: req.data?.device }, actor);
+  await createMovement({ id: undoId, variantId: orig.variantId, type: "undo", delta: -orig.delta, ref: id, undoOf: id, device: req.data?.device, locationId: orig.locationId ?? null }, actor);
   await ref.update({ undoneBy: actor.uid, undoneAt: FieldValue.serverTimestamp(), undoId });
   const m = await pushMovement(undoId);
   return { status: m.status, shopStockAfter: m.shopStockAfter ?? null, error: m.error ?? null };

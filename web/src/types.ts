@@ -90,6 +90,7 @@ export interface ShopSettings {
   serviceFeeDefault?: number;
   shiftNames?: string[];
   currentShiftId?: string | null;
+  currentShifts?: Record<string, string | null>;
   lastCatalogSyncAt?: Timestamp;
   lastIncrementalSyncAt?: Timestamp;
   statsAt?: Timestamp;
@@ -104,6 +105,9 @@ export interface ShopSettings {
   payment?: { provider: "ecpay" | "newebpay" | null; stage: boolean };
   invoice?: { enabled: boolean; stage: boolean; notifyEmail?: string; address?: string };
   credsSet?: Record<string, boolean>;
+  locations?: { id: string; name: string; type: "store" | "warehouse" }[];
+  onlineLocationId?: string | null;
+  locationStockInitAt?: Timestamp;
   tiersError?: string | null;
 }
 

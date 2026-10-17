@@ -7,6 +7,7 @@ import { Badge, Empty, Field, Modal, useAction, useToast } from "../../component
 import { useData, variantName } from "../../data";
 import { call, db } from "../../firebase";
 import { resolveCode } from "../../lib/lookup";
+import { useDeviceLocation } from "../../lib/location";
 import { atLeast, beep, fmtTime } from "../../lib/util";
 
 interface Stocktake {
@@ -94,6 +95,8 @@ export function StocktakeList() {
 function CreateStocktake({ onClose }: { onClose: () => void }) {
   const [prefix, setPrefix] = useState("");
   const [name, setName] = useState("");
+  const { multi, locationId, locations: places } = useDeviceLocation();
+  const [loc, setLoc] = useState(locationId ?? "");
   const { busy, run } = useAction();
   const nav = useNavigate();
   const { variants } = useData();
@@ -108,7 +111,7 @@ function CreateStocktake({ onClose }: { onClose: () => void }) {
           disabled={busy}
           onClick={() =>
             run(async () => {
-              const r = await call<{ id: string; syncWarning: string | null }>("createStocktake", { locationPrefix: prefix, name });
+              const r = await call<{ id: string; syncWarning: string | null }>("createStocktake", { locationPrefix: prefix, name, locationId: multi ? loc : null });
               if (r.syncWarning) alert(`同步 meepShop 時有問題，帳面可能不是最新：${r.syncWarning}`);
               nav(`/admin/stocktake/${r.id}`);
             })
@@ -118,6 +121,17 @@ function CreateStocktake({ onClose }: { onClose: () => void }) {
         </button>
       }
     >
+      {multi && (
+        <Field label="盤哪一家門市／倉庫" hint="帳面 = 該地點的數量，套用後只調整該地點（meepShop 總數同步加減）">
+          <select value={loc} onChange={(e) => setLoc(e.target.value)}>
+            {places.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
       <Field label="範圍（儲位開頭）" hint="留空 = 全部；例如填 A 會包含 A1、A2-3…">
         <input list="locs" value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="全部" />
         <datalist id="locs">

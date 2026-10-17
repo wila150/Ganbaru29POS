@@ -14,6 +14,7 @@ import { Promotions } from "./pages/admin/Promotions";
 import { Reports } from "./pages/admin/Reports";
 import { Scan } from "./pages/admin/Scan";
 import { Settings } from "./pages/admin/Settings";
+import { Transfers } from "./pages/admin/Transfers";
 import { StocktakeDetail, StocktakeList } from "./pages/admin/Stocktake";
 import { PosLayout } from "./pages/pos/PosLayout";
 import { Register } from "./pages/pos/Register";
@@ -44,6 +45,7 @@ export function App() {
                 <Route path="inventory" element={<Inventory />} />
                 <Route path="stocktake" element={<StocktakeList />} />
                 <Route path="stocktake/:id" element={<StocktakeDetail />} />
+                <Route path="transfers" element={<Transfers />} />
                 <Route path="products" element={<Guard min="manager"><Products /></Guard>} />
                 <Route path="labels" element={<Guard min="manager"><Labels /></Guard>} />
                 <Route path="promotions" element={<Guard min="manager"><Promotions /></Guard>} />

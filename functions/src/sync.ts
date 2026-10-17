@@ -6,6 +6,7 @@ import { requireRole } from "./lib/auth";
 import { MProduct, productsPage, shoppersPage } from "./lib/meepshop";
 import { Batch, consumeFifo } from "./lib/movements";
 import { codeKey, db, errMsg, FieldValue, sleep, Timestamp, TZ } from "./lib/util";
+import { reconcileLocations } from "./locations";
 
 const DEFAULT_SITE = "https://www.ganbaru29.com";
 
@@ -257,6 +258,7 @@ export const syncCatalog = onCall({ timeoutSeconds: 540, memory: "512MiB", maxIn
   await requireRole(req, "manager");
   const deadline = Date.now() + 520_000;
   const r = await runCatalogSync("full", "manual");
+  await reconcileLocations();
   const images = await processPendingImages(Math.min(deadline, Date.now() + 120_000));
   return { ...r, images };
 });
@@ -282,6 +284,7 @@ export const catalogIncremental = onSchedule({ schedule: "every 15 minutes", tim
 export const catalogDaily = onSchedule({ schedule: "0 4 * * *", timeZone: TZ, timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
   const deadline = Date.now() + 520_000;
   await runCatalogSync("full", "daily");
+  await reconcileLocations();
   try {
     await runShopperSync("full");
   } catch (e) {

@@ -410,3 +410,7 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .online-pay img { border: 8px solid #fff; box-shadow: var(--shadow); border-radius: 8px; }
 .online-pay > div { flex: 1; min-width: 220px; }
 .cred-form { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.loc-select { width: 100%; font-weight: 600; }
+.loc-select.compact { width: auto; min-height: 30px; padding: 2px 8px; background: #374151; color: #fff; border-color: #4b5563; }
+.transfer-items { margin: 6px 0; padding-left: 18px; }
+.other-locs h3 { margin-top: 12px; }

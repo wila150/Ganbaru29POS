@@ -2,6 +2,7 @@ import { collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, type Tim
 import { Fragment, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ExchangeDialog } from "../../components/ExchangeDialog";
+import { getDeviceLocationId } from "../../lib/location";
 import { Badge, Empty, Field, useAction } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
@@ -283,7 +284,7 @@ export function Drawer() {
           <Field label="開班零用金（錢櫃裡的現金）">
             <input type="number" min={0} inputMode="numeric" value={float} onChange={(e) => setFloat(e.target.value)} placeholder="0" />
           </Field>
-          <button className="btn btn-primary btn-lg block" disabled={busy} onClick={() => run(() => call("openShift", { name, float: Number(float) || 0 }), "已開班")}>
+          <button className="btn btn-primary btn-lg block" disabled={busy} onClick={() => run(() => call("openShift", { name, float: Number(float) || 0, locationId: getDeviceLocationId() }), "已開班")}>
             開班
           </button>
         </div>
@@ -322,7 +323,7 @@ export function Drawer() {
             className="btn btn-primary"
             disabled={busy || !(Number(amount) > 0)}
             onClick={() =>
-              run(() => call("cashMove", { type, amount: Number(amount), note }), "已記錄").then(() => {
+              run(() => call("cashMove", { type, amount: Number(amount), note, locationId: getDeviceLocationId() }), "已記錄").then(() => {
                 setAmount("");
                 setNote("");
               })
@@ -376,7 +377,7 @@ export function DayClose() {
   const { busy, run } = useAction();
 
   useEffect(() => {
-    if (shift) call<Summary>("shiftSummary").then(setSum).catch(() => setSum(null));
+    if (shift) call<Summary>("shiftSummary", { shiftId: shift.id }).then(setSum).catch(() => setSum(null));
   }, [shift]);
   useEffect(
     () =>
@@ -469,7 +470,7 @@ export function DayClose() {
             <button
               className="btn btn-primary btn-lg block"
               disabled={busy}
-              onClick={() => confirm(`確定交班？實點現金 ${money(counted)}`) && run(async () => setResult(await call("closeShift", { countedCash: counted, note })), "已交班")}
+              onClick={() => confirm(`確定交班？實點現金 ${money(counted)}`) && run(async () => setResult(await call("closeShift", { countedCash: counted, note, locationId: getDeviceLocationId() })), "已交班")}
             >
               日結交班
             </button>

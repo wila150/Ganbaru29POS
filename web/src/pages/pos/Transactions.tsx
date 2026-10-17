@@ -10,6 +10,7 @@ import { printReceipt } from "../../lib/receipt";
 import { atLeast, fmtTime, money, newId, PAY_LABEL, PAY_NAME, todayStr } from "../../lib/util";
 import type { PosOrder, Shopper } from "../../types";
 import { InvoiceInfo } from "./Checkout";
+import { getDeviceLocationId } from "../../lib/location";
 import { MemberPicker } from "./Register";
 
 const ORDER_BADGE: Record<PosOrder["status"], React.ReactNode> = {
@@ -124,7 +125,7 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
                 disabled={busy}
                 onClick={() => {
                   const reason = prompt("作廢原因");
-                  if (reason !== null) run(() => call("posVoid", { orderId: o.id, reason }), "已作廢，庫存已加回");
+                  if (reason !== null) run(() => call("posVoid", { orderId: o.id, reason, locationId: getDeviceLocationId() }), "已作廢，庫存已加回");
                 }}
               >
                 作廢
@@ -273,7 +274,7 @@ function RefundDialog({ order: o, onClose }: { order: PosOrder; onClose: () => v
           disabled={busy || !qty.some((n) => n > 0)}
           onClick={() =>
             run(async () => {
-              const r = await call<{ amount: number; notes?: string[] }>("posRefund", { orderId: o.id, refundId, lines: qty.map((n, index) => ({ index, qty: n })), method, reason });
+              const r = await call<{ amount: number; notes?: string[] }>("posRefund", { orderId: o.id, refundId, lines: qty.map((n, index) => ({ index, qty: n })), method, reason, locationId: getDeviceLocationId() });
               toast(`已退貨，退款 ${money(r.amount)}，庫存已加回`, "ok");
               r.notes?.forEach((n) => toast(n, "bad"));
               onClose();

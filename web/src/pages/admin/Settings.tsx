@@ -17,6 +17,7 @@ export function Settings() {
       <PosSettings />
       <MemberSettings />
       <PaymentSettings />
+      <LocationSettings />
     </div>
   );
 }
@@ -479,6 +480,84 @@ function PaymentSettings() {
       {(["ecpay_payment", "newebpay_payment", "ecpay_invoice"] as const).map((k) => (
         <CredForm key={k} kind={k} current={creds[k]} onSaved={load} />
       ))}
+    </section>
+  );
+}
+
+function LocationSettings() {
+  const { settings } = useData();
+  const { form, set, save, busy } = useSettingsForm(["locations", "onlineLocationId"]);
+  const { busy: b2, run } = useAction();
+  const list = form.locations ?? [];
+  const setLoc = (i: number, patch: Partial<{ name: string; type: "store" | "warehouse" }>) => set("locations", list.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  return (
+    <section className="card">
+      <h2>門市與倉庫（多店）</h2>
+      <p className="muted small">
+        只有一家店時不用設定。新增兩個以上地點後：每台裝置選自己所在的地點，掃碼、銷售、退貨都記在該地點；可以跨店查庫存、申請調貨；每家門市各自開班日結。
+        meepShop 仍是一個總庫存，網店訂單的扣減會記到「網店出貨地點」。
+      </p>
+      <table className="table table-compact">
+        <tbody>
+          {list.map((l, i) => (
+            <tr key={l.id}>
+              <td>
+                <input value={l.name} onChange={(e) => setLoc(i, { name: e.target.value })} placeholder="例：台北門市" />
+              </td>
+              <td>
+                <select value={l.type} onChange={(e) => setLoc(i, { type: e.target.value as "store" | "warehouse" })}>
+                  <option value="store">門市</option>
+                  <option value="warehouse">倉庫</option>
+                </select>
+              </td>
+              <td className="muted small">{l.id}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="btn-row">
+        <button className="btn btn-sm" onClick={() => set("locations", [...list, { id: `L${Date.now().toString(36)}`, name: "", type: "store" }])}>
+          ＋ 新增門市／倉庫
+        </button>
+      </div>
+      {list.length > 0 && (
+        <Field label="網店出貨地點" hint="網店訂單由 meepShop 扣總庫存，每天同步時把差額記到這個地點（通常是倉庫）">
+          <select value={form.onlineLocationId ?? ""} onChange={(e) => set("onlineLocationId", e.target.value || null)}>
+            <option value="">（未設定）</option>
+            {list.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name || l.id}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      <div className="btn-row">
+        <button className="btn btn-primary" disabled={busy} onClick={() => (list.some((l) => !l.name.trim()) ? alert("地點名稱不能空白") : save())}>
+          儲存門市設定
+        </button>
+        {(settings.locations ?? []).length > 0 && (
+          <select
+            className="btn"
+            value=""
+            disabled={b2}
+            onChange={(e) => {
+              const id = e.target.value;
+              const name = settings.locations?.find((l) => l.id === id)?.name;
+              if (id && confirm(`把目前所有 meepShop 庫存都歸到「${name}」？其他地點的數量會清為 0（之後用盤點或調貨分配）。`))
+                run(() => call("initLocationStock", { locationId: id }), "已設定各地點起始庫存");
+            }}
+          >
+            <option value="">起始庫存：全部歸到…</option>
+            {(settings.locations ?? []).map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {settings.locationStockInitAt && <p className="muted small">起始庫存設定於 {fmtTime(settings.locationStockInitAt)}。各店實際數量請到該店用「盤點」（選該門市）校正。</p>}
     </section>
   );
 }

@@ -5,12 +5,12 @@ import type { Variant } from "../types";
  * 商品矩陣：顏色 × 尺碼一眼看完。兩個規格維度時畫成表格（列 = 第一個規格，欄 = 第二個），
  * 其他情況（單一規格、三個以上維度）退回成按鈕清單。
  */
-export function VariantMatrix({ variants, onPick, currentId }: { variants: Variant[]; onPick?: (v: Variant) => void; currentId?: string }) {
+export function VariantMatrix({ variants, onPick, currentId, stockOf }: { variants: Variant[]; onPick?: (v: Variant) => void; currentId?: string; stockOf?: (v: Variant) => number }) {
   const sorted = [...variants].sort((a, b) => a.variantIndex - b.variantIndex);
   const dims = sorted[0]?.optionList?.map((o) => o.name) ?? [];
   const prices = new Set(sorted.map((v) => v.price));
   const showPrice = prices.size > 1;
-  const stock = (v: Variant) => v.shopStock ?? 0;
+  const stock = (v: Variant) => (stockOf ? stockOf(v) : v.shopStock ?? 0);
 
   const cell = (v: Variant | undefined, label?: string) => {
     if (!v) return <td className="matrix-none">—</td>;

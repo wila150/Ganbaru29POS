@@ -4,6 +4,8 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../../auth";
 import { useData } from "../../data";
 import { db } from "../../firebase";
+import { LocationSelect } from "../../components/LocationSelect";
+import { useDeviceLocation } from "../../lib/location";
 import { ROLE_LABEL, todayStr } from "../../lib/util";
 
 const MENU = [
@@ -29,7 +31,10 @@ export interface Shift {
 export function useCurrentShift(): Shift | null | undefined {
   const { settings } = useData();
   const [shift, setShift] = useState<Shift | null | undefined>(undefined);
-  const id = settings.currentShiftId;
+  const { locationId } = useDeviceLocation();
+  const key = locationId ?? "main";
+  // 多店：每家門市各自的班；單店沿用 currentShiftId
+  const id = settings.currentShifts?.[key] ?? (key === "main" ? settings.currentShiftId : null);
   useEffect(() => {
     if (!id) {
       setShift(null);
@@ -58,6 +63,7 @@ export function PosLayout() {
         <span className="pos-top-item">營業日 {shift?.businessDate ?? todayStr()}</span>
         <span className="pos-top-item">{shift ? `${shift.name}（${shift.openedByName} 開班）` : <NavLink to="/pos/drawer" className="warn-link">尚未開班</NavLink>}</span>
         <span className="grow" />
+        <LocationSelect compact />
         <span className="pos-top-item">
           {profile?.name} · {profile && ROLE_LABEL[profile.role]}
         </span>

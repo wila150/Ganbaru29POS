@@ -54,6 +54,8 @@ export interface NewMovement {
   note?: string;
   device?: string;
   status?: "pending" | "processing";
+  /** 多店：這筆異動發生在哪個門市／倉庫（locationStock/{variantId}.qty[locationId] 跟著加減） */
+  locationId?: string | null;
 }
 
 function fifo(a: Batch, b: Batch) {
@@ -87,7 +89,8 @@ export async function createMovement(m: NewMovement, actor: Actor) {
   const vRef = db.doc(`variants/${m.variantId}`);
   const cRef = db.doc(`costs/${m.variantId}`);
   return db.runTransaction(async (tx) => {
-    const [mSnap, vSnap, cSnap] = await Promise.all([tx.get(ref), tx.get(vRef), tx.get(cRef)]);
+    const lRef = m.locationId ? db.doc(`locationStock/${m.variantId}`) : null;
+    const [mSnap, vSnap, cSnap, lSnap] = await Promise.all([tx.get(ref), tx.get(vRef), tx.get(cRef), lRef ? tx.get(lRef) : Promise.resolve(null)]);
     if (mSnap.exists) return { created: false, data: mSnap.data()! };
     if (!vSnap.exists) throw new HttpsError("not-found", "找不到這個款式，請先同步 meepShop 商品");
     const v = vSnap.data()!;
@@ -138,6 +141,7 @@ export async function createMovement(m: NewMovement, actor: Actor) {
       by: actor.uid,
       byName: actor.name,
       device: m.device || null,
+      locationId: m.locationId || null,
       at: FieldValue.serverTimestamp(),
       status: m.status ?? "pending",
       processingAt: m.status === "processing" ? Timestamp.now() : null,
@@ -149,6 +153,11 @@ export async function createMovement(m: NewMovement, actor: Actor) {
     tx.set(ref, data);
     tx.update(vRef, { batches });
     tx.set(cRef, { avgCost, lots }, { merge: true });
+    if (lRef) {
+      const qty = { ...(lSnap?.data()?.qty ?? {}) };
+      qty[m.locationId!] = (qty[m.locationId!] ?? 0) + m.delta;
+      tx.set(lRef, { qty, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    }
     return { created: true, data };
   });
 }

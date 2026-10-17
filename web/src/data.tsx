@@ -12,9 +12,11 @@ interface DataState {
   settings: ShopSettings;
   /** active promotions (date range is checked by the engine) */
   promotions: Promotion[];
+  /** 多店：variantId → { locationId: qty } */
+  locStock: Map<string, Record<string, number>>;
 }
 
-const Ctx = createContext<DataState>({ ready: false, variants: [], byId: new Map(), settings: {}, promotions: [] });
+const Ctx = createContext<DataState>({ ready: false, variants: [], byId: new Map(), settings: {}, promotions: [], locStock: new Map() });
 export const useData = () => useContext(Ctx);
 
 /**
@@ -25,9 +27,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { profile } = useAuth();
   const [variants, setVariants] = useState<Variant[]>([]);
   const [settings, setSettings] = useState<ShopSettings>({});
-  const [promotions, setPromotions] = useState<Promotion[]>([]);
-  const [ready, setReady] = useState(false);
   const enabled = !!profile?.active;
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [locStock, setLocStock] = useState<Map<string, Record<string, number>>>(new Map());
+  const multi = (settings.locations ?? []).length > 0;
+  useEffect(() => {
+    if (!enabled || !multi) return setLocStock(new Map());
+    return onSnapshot(collection(db, "locationStock"), (s) => setLocStock(new Map(s.docs.map((d) => [d.id, (d.data().qty ?? {}) as Record<string, number>]))));
+  }, [enabled, multi]);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -45,7 +53,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [enabled]);
 
   const byId = useMemo(() => new Map(variants.map((v) => [v.id, v])), [variants]);
-  return <Ctx.Provider value={{ ready, variants, byId, settings, promotions }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ ready, variants, byId, settings, promotions, locStock }}>{children}</Ctx.Provider>;
 }
 
 export const variantName = (v: Pick<Variant, "productTitle" | "options">) => (v.options ? `${v.productTitle}（${v.options}）` : v.productTitle);

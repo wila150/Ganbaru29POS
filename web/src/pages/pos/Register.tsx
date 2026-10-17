@@ -5,6 +5,7 @@ import { useAuth } from "../../auth";
 import { Keypad, KeypadDialog } from "../../components/Keypad";
 import { ScanInput } from "../../components/ScanInput";
 import { Modal, useAction, useToast } from "../../components/ui";
+import { OtherLocations } from "../../components/OtherLocations";
 import { VariantMatrix } from "../../components/VariantMatrix";
 import { useData, variantName } from "../../data";
 import { call, db } from "../../firebase";
@@ -12,6 +13,7 @@ import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from
 import { resolveCode, searchVariants } from "../../lib/lookup";
 import { beep, deviceId, money, newId, PAY_LABEL, todayStr } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
+import { useDeviceLocation } from "../../lib/location";
 import { Checkout, Done } from "./Checkout";
 import { useCurrentShift } from "./PosLayout";
 
@@ -29,7 +31,8 @@ const DRAFT_KEY = "g29.posDraft";
 const emptyDiscounts = (serviceFeePct = 0): CartDiscounts => ({ serviceFeePct, orderDiscountPct: 0, allowance: 0, rewardPoints: 0 });
 
 export function Register() {
-  const { variants, byId, settings, promotions } = useData();
+  const { variants, byId, settings, promotions, locStock } = useData();
+  const { multi, locationId } = useDeviceLocation();
   const { user, profile } = useAuth();
   const shift = useCurrentShift();
   const toast = useToast();
@@ -169,7 +172,8 @@ export function Register() {
     reset();
   };
 
-  const stockOf = (v: Variant) => v.shopStock ?? 0;
+  // 多店：商品卡與規格表顯示「本店」數量；單店：meepShop 庫存
+  const stockOf = (v: Variant) => (multi && locationId ? locStock.get(v.id)?.[locationId] ?? 0 : v.shopStock ?? 0);
   const inCart = (variantId: string) => cart.filter((l) => l.variantId === variantId).reduce((s, l) => s + l.qty, 0);
 
   return (
@@ -359,7 +363,8 @@ export function Register() {
 
       {pick && (
         <Modal title={pick[0].productTitle} onClose={() => setPick(null)}>
-          <VariantMatrix variants={pick} onPick={(v) => (add(v), setPick(null))} />
+          <VariantMatrix variants={pick} stockOf={stockOf} onPick={(v) => (add(v), setPick(null))} />
+          {multi && <OtherLocations variants={pick} />}
         </Modal>
       )}
 
@@ -427,6 +432,7 @@ export function Register() {
               guests,
               holdId,
               device: deviceId(),
+              locationId,
             });
             const r = await send(false)
               .catch(async (e: Error) => {

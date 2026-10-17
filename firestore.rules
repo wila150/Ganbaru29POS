@@ -31,6 +31,8 @@ service cloud.firestore {
     match /shoppers/{id} { allow read: if active(); }
     match /posOrders/{id} { allow read: if active(); }
     match /posPayments/{id} { allow read: if active(); }
+    match /locationStock/{id} { allow read: if active(); }
+    match /transfers/{id} { allow read: if active(); }
     match /shifts/{id} { allow read: if active(); }
 
     // 促銷活動：店長以上可以新增、修改；結帳時由 posCheckout 重算
@@ -61,7 +63,8 @@ service cloud.firestore {
     function ownerKeys() {
       return ['shopName', 'leadDays', 'expiryDays', 'lineTargets', 'rewardPercent', 'pointValue',
               'staffCanRefund', 'siteBaseUrl', 'receiptHeader', 'receiptFooter', 'serviceFeeDefault', 'shiftNames',
-              'memberTiers', 'birthdayGiftPoints', 'birthdayPointMultiplier', 'tagTemplate', 'payment', 'invoice'];
+              'memberTiers', 'birthdayGiftPoints', 'birthdayPointMultiplier', 'tagTemplate', 'payment', 'invoice',
+              'locations', 'onlineLocationId'];
     }
   }
 }
