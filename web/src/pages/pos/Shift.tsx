@@ -1,11 +1,12 @@
 import { collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, type Timestamp } from "firebase/firestore";
 import { Fragment, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ExchangeDialog } from "../../components/ExchangeDialog";
 import { Badge, Empty, Field, useAction } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { cartPromos, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
-import { fmtTime, money, PAY_LABEL } from "../../lib/util";
+import { fmtTime, money, PAY_NAME } from "../../lib/util";
 import type { Shopper } from "../../types";
 import { useCurrentShift } from "./PosLayout";
 
@@ -94,7 +95,7 @@ interface MOrder {
   shopper: { name: string | null; email: string } | null;
   shipmentDetail: { name: string; phone: string | null; receiverName: string | null; note: string | null };
   paymentDetail: { name: string };
-  lineItems: { id: string; title: string; quantity: number; totalPrice: number }[] | null;
+  lineItems: { id: string; title: string; quantity: number; totalPrice: number; variant: { id: string } | null }[] | null;
 }
 
 export function OnlineOrders() {
@@ -105,6 +106,7 @@ export function OnlineOrders() {
   const [next, setNext] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
+  const [exchangeFor, setExchangeFor] = useState<MOrder | null>(null);
   const { busy, run } = useAction();
 
   const load = (after: string | null = null) =>
@@ -202,6 +204,11 @@ export function OnlineOrders() {
                             </li>
                           ))}
                         </ul>
+                        {o.status !== "CANCELED" && (
+                          <button className="btn btn-sm" onClick={() => setExchangeFor(o)}>
+                            門市換貨
+                          </button>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -210,6 +217,16 @@ export function OnlineOrders() {
             </tbody>
           </table>
         </div>
+      )}
+      {exchangeFor && (
+        <ExchangeDialog
+          title={`網店訂單 ${exchangeFor.orderNumber} 門市換貨`}
+          items={(exchangeFor.lineItems ?? [])
+            .filter((li) => li.variant)
+            .map((li) => ({ key: li.variant!.id, title: li.title, max: li.quantity, unit: li.quantity ? li.totalPrice / li.quantity : 0 }))}
+          request={(q) => ({ kind: "online", orderNumber: exchangeFor.orderNumber, lines: Object.entries(q).filter(([, n]) => n > 0).map(([variantId, qty]) => ({ variantId, qty })) })}
+          onClose={() => setExchangeFor(null)}
+        />
       )}
       {next && (
         <button className="btn block" disabled={busy} onClick={() => load(next)}>
@@ -398,7 +415,7 @@ export function DayClose() {
               <tbody>
                 {Object.entries(sum.byMethod).map(([k, v]) => (
                   <tr key={k}>
-                    <td>{PAY_LABEL[k]}</td>
+                    <td>{PAY_NAME[k] ?? k}</td>
                     <td className="num">{money(v.sales)}</td>
                     <td className="num">{v.refunds ? `-${money(v.refunds)}` : "—"}</td>
                     <td className="num strong">{money(v.sales - v.refunds)}</td>

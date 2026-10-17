@@ -158,6 +158,16 @@ export interface PosOrder {
   createdAt: Timestamp | null;
 }
 
+/** 換貨：退回的商品與可抵用金額（由 exchangeQuote 算出） */
+export interface ExchangeQuote {
+  kind: "pos" | "online";
+  orderId: string | null;
+  orderNumber: string | null;
+  orderNo: string;
+  lines: { index?: number; variantId: string; qty: number; title: string; amount: number }[];
+  credit: number;
+}
+
 export interface Shopper {
   id: string;
   name: string;

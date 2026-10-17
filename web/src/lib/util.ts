@@ -25,7 +25,10 @@ export const STATUS_LABEL: Record<string, string> = {
   resolved: "已處理",
 };
 
+/** Methods the cashier picks at checkout. */
 export const PAY_LABEL: Record<string, string> = { cash: "現金", card: "信用卡", linepay: "LINE Pay", transfer: "轉帳" };
+/** Every method that can appear on an order (display). */
+export const PAY_NAME: Record<string, string> = { ...PAY_LABEL, exchange: "換貨抵用", ecpay: "綠界線上付款", newebpay: "藍新線上付款" };
 
 /** Same rule as the backend: Firestore ids cannot contain "/". */
 export const codeKey = (code: string) => encodeURIComponent(code.trim());

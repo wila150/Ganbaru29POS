@@ -388,3 +388,6 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .matrix-sum { color: var(--muted); font-variant-numeric: tabular-nums; }
 .variant-chip { padding: 10px 8px; border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; text-align: center; }
 .variant-chip.out { opacity: 0.5; }
+
+.exchange-banner { background: #ede9fe; color: #4c1d95; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--border); }
+.exchange-banner select { min-height: 32px; padding: 4px 8px; }

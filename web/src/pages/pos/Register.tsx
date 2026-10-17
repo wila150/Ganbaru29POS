@@ -12,7 +12,7 @@ import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from
 import { resolveCode, searchVariants } from "../../lib/lookup";
 import { printReceipt } from "../../lib/receipt";
 import { beep, deviceId, money, newId, PAY_LABEL } from "../../lib/util";
-import type { PosOrder, Shopper, Variant } from "../../types";
+import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useCurrentShift } from "./PosLayout";
 
 export interface HoldState {
@@ -22,6 +22,7 @@ export interface HoldState {
   note?: string;
   guests?: number;
   discounts?: CartDiscounts;
+  exchange?: ExchangeQuote | null;
 }
 
 const DRAFT_KEY = "g29.posDraft";
@@ -50,6 +51,8 @@ export function Register() {
   const [guests, setGuests] = useState(draft.guests ?? 1);
   const [disc, setDisc] = useState<CartDiscounts>(draft.discounts ?? emptyDiscounts(settings.serviceFeeDefault ?? 0));
   const [holdId, setHoldId] = useState<string | undefined>(draft.holdId);
+  const [exchange, setExchange] = useState<ExchangeQuote | null>(draft.exchange ?? null);
+  const [refundMethod, setRefundMethod] = useState("cash");
   const [cat, setCat] = useState<string>("全部");
   const [q, setQ] = useState("");
   const [pick, setPick] = useState<Variant[] | null>(null);
@@ -61,17 +64,17 @@ export function Register() {
   const orderId = useRef<string>(newId("o"));
   useEffect(() => {
     orderId.current = newId("o"); // the cart changed → it is a different sale
-  }, [cart, disc, shopper]);
+  }, [cart, disc, shopper, exchange]);
   const [done, setDone] = useState<{ order: PosOrder; issues: { title: string; status: string; error: string | null }[] } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ cart, shopper, note, guests, discounts: disc, holdId }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ cart, shopper, note, guests, discounts: disc, holdId, exchange }));
     } catch {
       /* ignore */
     }
-  }, [cart, shopper, note, guests, disc, holdId]);
+  }, [cart, shopper, note, guests, disc, holdId, exchange]);
   useEffect(() => {
     if (incoming) nav(".", { replace: true, state: null });
   }, [incoming, nav]);
@@ -79,6 +82,9 @@ export function Register() {
   const pointValue = settings.pointValue ?? 1;
   const promo = useMemo(() => cartPromos(cart, byId, promotions), [cart, byId, promotions]);
   const t = totals(cart, disc, pointValue, promo);
+  const credit = exchange?.credit ?? 0;
+  const due = Math.max(0, t.total - credit);
+  const refundDue = Math.max(0, credit - t.total);
 
   // ---- product grid ----
   const sellable = useMemo(() => variants.filter((v) => !v.posHidden), [variants]);
@@ -147,6 +153,7 @@ export function Register() {
     setGuests(1);
     setDisc(emptyDiscounts(settings.serviceFeeDefault ?? 0));
     setHoldId(undefined);
+    setExchange(null);
     setSelected(null);
   };
 
@@ -197,6 +204,33 @@ export function Register() {
       </section>
 
       <aside className="reg-cart">
+        {exchange && (
+          <div className="exchange-banner">
+            <div className="row-between">
+              <strong>換貨：{exchange.kind === "online" ? `網店訂單 ${exchange.orderNumber}` : exchange.orderNo}</strong>
+              <button className="btn btn-sm btn-ghost" onClick={() => confirm("取消這次換貨？") && setExchange(null)}>
+                取消換貨
+              </button>
+            </div>
+            <div className="small">
+              退回：{exchange.lines.map((l) => `${l.title} ×${l.qty}`).join("、")}
+            </div>
+            <div>
+              可抵用 <strong>{money(credit)}</strong>
+              {cart.length > 0 && (refundDue > 0 ? <>，要退客人 <strong>{money(refundDue)}</strong></> : <>，客人補 <strong>{money(due)}</strong></>)}
+            </div>
+            {refundDue > 0 && (
+              <select value={refundMethod} onChange={(e) => setRefundMethod(e.target.value)}>
+                {Object.entries(PAY_LABEL).map(([k, l]) => (
+                  <option key={k} value={k}>
+                    差額用{l}退
+                  </option>
+                ))}
+              </select>
+            )}
+            {cart.length === 0 && <div className="muted small">請加入要換的新商品</div>}
+          </div>
+        )}
         <div className="cart-head">
           <div>
             <strong>{holdId ? "掛單取回" : "新單"}</strong>
@@ -306,7 +340,7 @@ export function Register() {
             掛單
           </button>
           <button className="btn btn-pay" disabled={!cart.length || t.total < 0} onClick={() => (shift ? setCheckout(true) : toast("請先到「錢櫃」開班", "bad"))}>
-            結帳 · {t.items} 件 <strong>{money(t.total)}</strong>
+            {exchange ? "換貨結帳" : "結帳"} · {t.items} 件 <strong>{money(exchange ? due : t.total)}</strong>
           </button>
         </div>
       </aside>
@@ -360,7 +394,7 @@ export function Register() {
 
       {checkout && (
         <Checkout
-          total={t.total}
+          total={due}
           onClose={() => setCheckout(false)}
           submit={async (payments) => {
             const id = orderId.current;
@@ -369,6 +403,8 @@ export function Register() {
               call<R>("posCheckout", {
               id,
               allowOversell,
+              exchange: exchange ? { kind: exchange.kind, orderId: exchange.orderId, orderNumber: exchange.orderNumber, lines: exchange.lines.map((l) => ({ index: l.index, variantId: l.variantId, qty: l.qty })) } : null,
+              exchangeRefundMethod: refundMethod,
               items: cart.map((l) => ({ variantId: l.variantId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct })),
               ...disc,
               shopperId: shopper?.id ?? null,

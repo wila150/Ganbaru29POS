@@ -2,11 +2,12 @@ import { collection, limit, onSnapshot, orderBy, query, where } from "firebase/f
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth";
+import { ExchangeDialog } from "../../components/ExchangeDialog";
 import { Badge, Empty, Modal, useAction, useToast } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { printReceipt } from "../../lib/receipt";
-import { atLeast, fmtTime, money, newId, PAY_LABEL, todayStr } from "../../lib/util";
+import { atLeast, fmtTime, money, newId, PAY_LABEL, PAY_NAME, todayStr } from "../../lib/util";
 import type { PosOrder, Shopper } from "../../types";
 import { MemberPicker } from "./Register";
 
@@ -76,7 +77,7 @@ export function Transactions() {
                     {o.lines.map((l) => l.productTitle).join("、")}（{o.itemCount} 件）
                   </td>
                   <td>{o.shopper ? o.shopper.name || o.shopper.mobile : "—"}</td>
-                  <td>{o.payments.map((p) => PAY_LABEL[p.method]).join("+")}</td>
+                  <td>{o.payments.map((p) => PAY_NAME[p.method]).join("+")}</td>
                   <td className="num strong">{money(o.total)}</td>
                   <td>{ORDER_BADGE[o.status]}</td>
                 </tr>
@@ -94,6 +95,7 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
   const { settings } = useData();
   const { profile } = useAuth();
   const [refunding, setRefunding] = useState(false);
+  const [exchanging, setExchanging] = useState(false);
   const { busy, run } = useAction();
   const canRefund = atLeast(profile?.role, "manager") || settings.staffCanRefund;
   const open = o.status === "completed" || o.status === "partial";
@@ -110,6 +112,9 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
           </button>
           {open && canRefund && (
             <>
+              <button className="btn" onClick={() => setExchanging(true)}>
+                換貨
+              </button>
               <button className="btn" onClick={() => setRefunding(true)}>
                 退貨
               </button>
@@ -203,7 +208,7 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
         <dd className="strong">{money(o.total)}</dd>
         <dt>付款</dt>
         <dd>
-          {o.payments.map((p) => `${PAY_LABEL[p.method]} ${money(p.amount)}`).join("、")}
+          {o.payments.map((p) => `${PAY_NAME[p.method]} ${money(p.amount)}`).join("、")}
           {o.change > 0 && `（找零 ${money(o.change)}）`}
         </dd>
       </dl>
@@ -214,7 +219,7 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
           <ul>
             {o.refunds.map((r) => (
               <li key={r.id}>
-                {fmtTime(r.at)} {r.byName} {r.void ? "作廢" : "退貨"} {money(r.amount)}（{r.payments.map((p) => PAY_LABEL[p.method]).join("+")}）
+                {fmtTime(r.at)} {r.byName} {r.void ? "作廢" : "退貨"} {money(r.amount)}（{r.payments.map((p) => PAY_NAME[p.method]).join("+")}）
                 {r.pointsReturned > 0 && ` · 退回購物金 ${r.pointsReturned} 點`}
                 {r.reason && ` · ${r.reason}`}
               </li>
@@ -228,6 +233,14 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
         </p>
       ))}
       {refunding && <RefundDialog order={o} onClose={() => setRefunding(false)} />}
+      {exchanging && (
+        <ExchangeDialog
+          title={`換貨：${o.orderNo}`}
+          items={o.lines.map((l, i) => ({ key: String(i), title: `${l.productTitle} ${l.options}`.trim(), max: l.qty - l.refundedQty, unit: l.qty ? l.total / l.qty : 0 }))}
+          request={(q) => ({ kind: "pos", orderId: o.id, lines: Object.entries(q).filter(([, n]) => n > 0).map(([i, n]) => ({ index: Number(i), qty: n })) })}
+          onClose={() => setExchanging(false)}
+        />
+      )}
     </Modal>
   );
 }

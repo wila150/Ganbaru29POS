@@ -15,7 +15,8 @@ import { mobileKey } from "./sync";
  */
 
 const METHODS = ["cash", "card", "linepay", "transfer"] as const;
-type Method = (typeof METHODS)[number];
+/** "exchange" = credit from items returned in an exchange; never sent by the tablet directly. */
+type Method = (typeof METHODS)[number] | "exchange";
 const opts = { maxInstances: 5 };
 
 interface Line {
@@ -145,9 +146,24 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   assert(total >= 0, "折扣超過應收金額");
 
   const payments = (Array.isArray(d.payments) ? d.payments : []).map((p: Record<string, unknown>) => {
-    assert(METHODS.includes(p.method as Method), "付款方式不正確");
+    assert((METHODS as readonly string[]).includes(p.method as string), "付款方式不正確");
     return { method: p.method as Method, amount: num(p.amount, "付款金額", { min: 0, max: 1e8 }) };
   }).filter((p: { amount: number }) => p.amount > 0);
+
+  // --- 換貨：退回商品的金額當作這張新單的抵用 ---
+  let exchange: (ExchangeQuote & { refundDue: number; refundMethod: Method }) | null = existing?.exchange ?? null;
+  if (!existing && d.exchange) {
+    const actorCanRefund = await canRefund(actor).then(() => true);
+    assert(actorCanRefund, "換貨限店長以上");
+    const q = await quoteExchange(d.exchange);
+    const used = Math.min(q.credit, total);
+    const refundMethod = (METHODS as readonly string[]).includes(d.exchangeRefundMethod) ? (d.exchangeRefundMethod as Method) : "cash";
+    exchange = { ...q, refundDue: q.credit - used, refundMethod };
+  }
+  if (exchange) {
+    const used = exchange.credit - exchange.refundDue;
+    if (used > 0) payments.unshift({ method: "exchange", amount: used });
+  }
   const paid = payments.reduce((s: number, p: { amount: number }) => s + p.amount, 0);
   const nonCash = payments.filter((p: { method: Method }) => p.method !== "cash").reduce((s: number, p: { amount: number }) => s + p.amount, 0);
   assert(paid >= total, `收款不足，還差 ${total - paid} 元`);
@@ -196,11 +212,19 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
         rewardEarned: 0,
         refunds: [],
         refundShiftIds: [],
+        exchange,
+        exchangeReturned: false,
         createdAt: FieldValue.serverTimestamp(),
       });
     });
   }
   const order = (await ref.get()).data()!;
+
+  // --- 換貨：先把退回的商品加回庫存（失敗時整單停在 pending，同一個 id 重送會接著做） ---
+  if (order.exchange && !order.exchangeReturned) {
+    await processExchangeReturn(actor, id, order);
+    await ref.update({ exchangeReturned: true });
+  }
 
   // --- 2. 扣購物金（失敗就整單取消，庫存還沒動） ---
   if (order.rewardPoints > 0 && !order.pointsDeducted) {
@@ -265,7 +289,42 @@ async function canRefund(actor: Actor) {
   if (!s.staffCanRefund) throw new HttpsError("permission-denied", "退貨 / 作廢限店長以上");
 }
 
-async function doRefund(actor: Actor, orderId: string, refundId: string, wanted: { index: number; qty: number }[], method: Method | "original", reason: string, isVoid: boolean) {
+/** The amounts a refund of these lines would give back (pure; used by refunds and exchange quotes). */
+function planRefund(o: FirebaseFirestore.DocumentData, wanted: { index: number; qty: number }[]) {
+  assert(["completed", "partial"].includes(o.status), "這張單不能退換貨（已作廢或已全退）", "failed-precondition");
+  const lines: Line[] = o.lines.map((l: Line) => ({ ...l }));
+  const picked = wanted.filter((w) => w.qty > 0);
+  assert(picked.length, "沒有選擇要退的商品");
+  let gross = 0;
+  for (const w of picked) {
+    const l = lines[w.index];
+    assert(l, "商品項目不正確");
+    assert(w.qty <= l.qty - l.refundedQty, `${l.productTitle} 最多只能退 ${l.qty - l.refundedQty} 件`);
+    l.refundedQty += w.qty;
+    gross += (l.total * w.qty) / l.qty;
+  }
+  const ratio = o.subtotal > 0 ? gross / o.subtotal : 0;
+  const allBack = lines.every((l) => l.refundedQty === l.qty);
+  const prevAmount = (o.refunds ?? []).reduce((s: number, r: { amount: number }) => s + r.amount, 0);
+  const prevPoints = (o.refunds ?? []).reduce((s: number, r: { pointsReturned: number }) => s + r.pointsReturned, 0);
+  const prevReclaim = (o.refunds ?? []).reduce((s: number, r: { pointsReclaimed: number }) => s + r.pointsReclaimed, 0);
+  // The last refund takes whatever is left, so rounding never leaves a 1-dollar gap.
+  const amount = allBack ? o.total - prevAmount : Math.min(o.total - prevAmount, Math.round(o.total * ratio));
+  const pointsReturned = allBack ? o.rewardPoints - prevPoints : Math.round(o.rewardPoints * ratio);
+  const pointsReclaimed = allBack ? (o.rewardEarned ?? 0) - prevReclaim : Math.round((o.rewardEarned ?? 0) * ratio);
+  return { lines, picked, amount, pointsReturned, pointsReclaimed, allBack };
+}
+
+async function doRefund(
+  actor: Actor,
+  orderId: string,
+  refundId: string,
+  wanted: { index: number; qty: number }[],
+  method: Method | "original",
+  reason: string,
+  isVoid: boolean,
+  explicitPayments?: { method: Method; amount: number }[]
+) {
   const ref = db.doc(`posOrders/${orderId}`);
   const settings = await shopSettings();
   const shiftId = settings.currentShiftId as string | undefined;
@@ -276,34 +335,17 @@ async function doRefund(actor: Actor, orderId: string, refundId: string, wanted:
     assert(o, "找不到這張單", "not-found");
     const done = (o.refunds ?? []).find((r: { id: string }) => r.id === refundId);
     if (done) return { already: true as const, o };
-    assert(["completed", "partial"].includes(o.status), "這張單不能退貨（已作廢或已全退）", "failed-precondition");
-    const lines: Line[] = o.lines.map((l: Line) => ({ ...l }));
-    const picked = wanted.filter((w) => w.qty > 0);
-    assert(picked.length, "沒有選擇要退的商品");
-    let gross = 0;
-    for (const w of picked) {
-      const l = lines[w.index];
-      assert(l, "商品項目不正確");
-      assert(w.qty <= l.qty - l.refundedQty, `${l.productTitle} 最多只能退 ${l.qty - l.refundedQty} 件`);
-      l.refundedQty += w.qty;
-      gross += (l.total * w.qty) / l.qty;
-    }
-    const ratio = o.subtotal > 0 ? gross / o.subtotal : 0;
-    const allBack = lines.every((l) => l.refundedQty === l.qty);
-    const prevAmount = (o.refunds ?? []).reduce((s: number, r: { amount: number }) => s + r.amount, 0);
-    const prevPoints = (o.refunds ?? []).reduce((s: number, r: { pointsReturned: number }) => s + r.pointsReturned, 0);
-    const prevReclaim = (o.refunds ?? []).reduce((s: number, r: { pointsReclaimed: number }) => s + r.pointsReclaimed, 0);
-    // The last refund takes whatever is left, so rounding never leaves a 1-dollar gap.
-    const amount = allBack ? o.total - prevAmount : Math.min(o.total - prevAmount, Math.round(o.total * ratio));
-    const pointsReturned = allBack ? o.rewardPoints - prevPoints : Math.round(o.rewardPoints * ratio);
-    const pointsReclaimed = allBack ? (o.rewardEarned ?? 0) - prevReclaim : Math.round((o.rewardEarned ?? 0) * ratio);
+    const { lines, picked, amount, pointsReturned, pointsReclaimed, allBack } = planRefund(o, wanted);
 
     let refundPayments: { method: Method; amount: number }[];
-    if (method === "original") {
-      // Pay back the original way: non-cash first in full, the rest in cash.
+    if (explicitPayments) {
+      refundPayments = explicitPayments;
+    } else if (method === "original") {
+      // Pay back the original way: card / LINE Pay / transfer first in full, the rest in cash
+      // (exchange credit is paid back as cash).
       let left = amount;
       refundPayments = [];
-      for (const p of o.payments.filter((x: { method: Method }) => x.method !== "cash")) {
+      for (const p of o.payments.filter((x: { method: Method }) => x.method !== "cash" && x.method !== "exchange")) {
         const a = Math.min(left, p.amount);
         if (a > 0) refundPayments.push({ method: p.method, amount: a });
         left -= a;
@@ -388,6 +430,115 @@ export const posVoid = onCall({ ...opts, timeoutSeconds: 120 }, async (req) => {
   return doRefund(actor, orderId, `void_${orderId}`, lines, "original", str(req.data?.reason, "原因", { optional: true, max: 200 }) || "作廢", true);
 });
 
+// ---------- exchange (換貨) ----------
+
+type ExchangeInput =
+  | { kind: "pos"; orderId: string; lines: { index: number; qty: number }[] }
+  | { kind: "online"; orderNumber: string; lines: { variantId: string; qty: number }[] };
+
+interface ExchangeQuote {
+  kind: "pos" | "online";
+  orderId: string | null;
+  orderNumber: string | null;
+  orderNo: string;
+  lines: { index?: number; variantId: string; qty: number; title: string; amount: number }[];
+  credit: number;
+}
+
+async function onlineOrder(orderNumber: string) {
+  const page = await meep.ordersPage({ first: 1, query: { orderNumber: [orderNumber] } });
+  const o = page.edges[0]?.node;
+  assert(o, `找不到網店訂單 ${orderNumber}`, "not-found");
+  assert(o.status !== "CANCELED", "這張網店訂單已取消", "failed-precondition");
+  return o;
+}
+
+/** How much the returned items are worth (what the customer actually paid for them). */
+async function quoteExchange(raw: Record<string, unknown>): Promise<ExchangeQuote> {
+  const ex = raw as unknown as ExchangeInput;
+  if (ex.kind === "pos") {
+    const orderId = str(ex.orderId, "原訂單", { max: 64 });
+    const o = (await db.doc(`posOrders/${orderId}`).get()).data();
+    assert(o, "找不到原訂單", "not-found");
+    const wanted = (ex.lines ?? []).map((l) => ({ index: int(l.index, "項目", { min: 0, max: 99 }), qty: int(l.qty, "數量", { min: 0, max: 999 }) }));
+    const plan = planRefund(o, wanted);
+    const gross = plan.picked.reduce((s, w) => s + (o.lines[w.index].total * w.qty) / o.lines[w.index].qty, 0);
+    return {
+      kind: "pos",
+      orderId,
+      orderNumber: null,
+      orderNo: o.orderNo,
+      lines: plan.picked.map((w) => {
+        const l = o.lines[w.index] as Line;
+        return { index: w.index, variantId: l.variantId, qty: w.qty, title: `${l.productTitle} ${l.options}`.trim(), amount: gross ? Math.round((plan.amount * ((l.total * w.qty) / l.qty)) / gross) : 0 };
+      }),
+      credit: plan.amount,
+    };
+  }
+  assert(ex.kind === "online", "換貨來源不正確");
+  const orderNumber = str(ex.orderNumber, "網店訂單編號", { max: 40 });
+  const o = await onlineOrder(orderNumber);
+  const done = (await db.doc(`onlineReturns/${orderNumber}`).get()).data()?.qty ?? {};
+  const lines = (ex.lines ?? [])
+    .map((l) => ({ variantId: str(l.variantId, "款式", { max: 100 }), qty: int(l.qty, "數量", { min: 0, max: 999 }) }))
+    .filter((l) => l.qty > 0)
+    .map((l) => {
+      const li = (o.lineItems ?? []).find((x) => x.variant?.id === l.variantId);
+      assert(li, "這張網店訂單沒有這個商品");
+      const left = li.quantity - (done[l.variantId] ?? 0);
+      assert(l.qty <= left, `${li.title} 最多只能換 ${left} 件`);
+      return { variantId: l.variantId, qty: l.qty, title: li.title, amount: Math.round((li.totalPrice / li.quantity) * l.qty) };
+    });
+  assert(lines.length, "沒有選擇要換的商品");
+  return { kind: "online", orderId: null, orderNumber, orderNo: orderNumber, lines, credit: lines.reduce((s, l) => s + l.amount, 0) };
+}
+
+async function processExchangeReturn(actor: Actor, newOrderId: string, order: FirebaseFirestore.DocumentData) {
+  const ex = order.exchange as ExchangeQuote & { refundDue: number; refundMethod: Method };
+  const used = ex.credit - ex.refundDue;
+  const payments: { method: Method; amount: number }[] = [];
+  if (used > 0) payments.push({ method: "exchange", amount: used });
+  if (ex.refundDue > 0) payments.push({ method: ex.refundMethod, amount: ex.refundDue });
+
+  if (ex.kind === "pos") {
+    await doRefund(actor, ex.orderId!, `ex_${newOrderId}`, ex.lines.map((l) => ({ index: l.index!, qty: l.qty })), "original", `換貨 → ${order.orderNo}`, false, payments);
+    return;
+  }
+  // 網店訂單：記錄已換數量（防止同一件換兩次），把商品加回 meepShop 庫存
+  const retRef = db.doc(`onlineReturns/${ex.orderNumber}`);
+  const fresh = await onlineOrder(ex.orderNumber!);
+  await db.runTransaction(async (tx) => {
+    const r = (await tx.get(retRef)).data() ?? { qty: {}, exchanges: [] };
+    if ((r.exchanges ?? []).some((e: { orderId: string }) => e.orderId === newOrderId)) return;
+    for (const l of ex.lines) {
+      const li = (fresh.lineItems ?? []).find((x) => x.variant?.id === l.variantId);
+      const left = (li?.quantity ?? 0) - (r.qty[l.variantId] ?? 0);
+      assert(l.qty <= left, `${l.title} 已經換過，最多只能再換 ${Math.max(0, left)} 件`, "failed-precondition");
+      r.qty[l.variantId] = (r.qty[l.variantId] ?? 0) + l.qty;
+    }
+    tx.set(retRef, {
+      qty: r.qty,
+      exchanges: [...(r.exchanges ?? []), { orderId: newOrderId, orderNo: order.orderNo, lines: ex.lines, credit: ex.credit, payments, by: actor.name, shiftId: order.shiftId, at: Timestamp.now() }],
+    });
+  });
+  const moveIds: string[] = [];
+  for (let i = 0; i < ex.lines.length; i++) {
+    const l = ex.lines[i];
+    const moveId = `${newOrderId}_ret_${i}`;
+    await createMovement({ id: moveId, variantId: l.variantId, type: "refund", delta: l.qty, ref: newOrderId, note: `網店訂單 ${ex.orderNumber} 門市換貨`, status: "processing" }, actor);
+    moveIds.push(moveId);
+  }
+  await pushBulk(moveIds);
+  if (ex.refundDue > 0) await db.doc(`posOrders/${newOrderId}`).update({ exchangeRefundShiftId: order.shiftId });
+}
+
+/** 換貨試算：退回這些商品可以抵多少 */
+export const exchangeQuote = onCall({ ...opts, timeoutSeconds: 60 }, async (req) => {
+  const actor = await requireRole(req, "staff");
+  await canRefund(actor);
+  return quoteExchange(req.data?.exchange ?? {});
+});
+
 // ---------- shifts / cash drawer ----------
 
 export const openShift = onCall(opts, async (req) => {
@@ -420,11 +571,13 @@ export const cashMove = onCall(opts, async (req) => {
 async function computeShift(shiftId: string) {
   const shift = (await db.doc(`shifts/${shiftId}`).get()).data();
   assert(shift, "找不到這個班", "not-found");
-  const [sales, refunded] = await Promise.all([
+  const [sales, refunded, onlineExchanges] = await Promise.all([
     db.collection("posOrders").where("shiftId", "==", shiftId).get(),
     db.collection("posOrders").where("refundShiftIds", "array-contains", shiftId).get(),
+    db.collection("posOrders").where("exchangeRefundShiftId", "==", shiftId).get(),
   ]);
-  const byMethod: Record<string, { sales: number; refunds: number }> = Object.fromEntries(METHODS.map((m) => [m, { sales: 0, refunds: 0 }]));
+  const bucket = (m: string) => (byMethod[m] ??= { sales: 0, refunds: 0 });
+  const byMethod: Record<string, { sales: number; refunds: number }> = Object.fromEntries([...METHODS, "exchange"].map((m) => [m, { sales: 0, refunds: 0 }]));
   let orders = 0;
   let total = 0;
   let rewardPoints = 0;
@@ -442,7 +595,7 @@ async function computeShift(shiftId: string) {
         amt -= c;
         changeLeft -= c;
       }
-      byMethod[p.method].sales += amt;
+      bucket(p.method).sales += amt;
     }
   }
   let refundTotal = 0;
@@ -450,8 +603,15 @@ async function computeShift(shiftId: string) {
     for (const r of doc.data().refunds ?? []) {
       if (r.shiftId !== shiftId) continue;
       refundTotal += r.amount;
-      for (const p of r.payments) byMethod[p.method].refunds += p.amount;
+      for (const p of r.payments) bucket(p.method).refunds += p.amount;
     }
+  }
+  // 網店訂單門市換貨：退給客人的差額
+  for (const doc of onlineExchanges.docs) {
+    const ex = doc.data().exchange;
+    if (!ex?.refundDue) continue;
+    refundTotal += ex.refundDue;
+    bucket(ex.refundMethod).refunds += ex.refundDue;
   }
   const ins = (shift.cashMoves ?? []).filter((m: { type: string }) => m.type === "in").reduce((s: number, m: { amount: number }) => s + m.amount, 0);
   const outs = (shift.cashMoves ?? []).filter((m: { type: string }) => m.type === "out").reduce((s: number, m: { amount: number }) => s + m.amount, 0);

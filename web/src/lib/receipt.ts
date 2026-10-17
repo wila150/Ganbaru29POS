@@ -1,5 +1,5 @@
 import type { PosOrder, ShopSettings } from "../types";
-import { fmtTime, money, PAY_LABEL } from "./util";
+import { fmtTime, money, PAY_NAME } from "./util";
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
@@ -50,7 +50,7 @@ ${o.rewardDiscount ? line(`購物金折抵 ${o.rewardPoints} 點`, `-${money(o.r
 </table>
 <table class="big">${line("合計", money(o.total))}</table>
 <table>
-${o.payments.map((p) => line(PAY_LABEL[p.method] ?? p.method, money(p.amount))).join("")}
+${o.payments.map((p) => line(PAY_NAME[p.method] ?? p.method, money(p.amount))).join("")}
 ${o.change ? line("找零", money(o.change)) : ""}
 ${o.rewardEarned ? line("本次回饋購物金", `${o.rewardEarned} 點`) : ""}
 </table>
