@@ -640,8 +640,12 @@ function StaffMoneySettings() {
           </Field>
         ))}
       </div>
-      <Field label="開支分類（一行一個）" hint="留空 = 使用預設分類">
-        <textarea rows={5} value={(form.expenseCategories ?? []).join("\n")} placeholder={DEFAULT_EXPENSE_CATEGORIES.join("\n")} onChange={(e) => set("expenseCategories", e.target.value.split("\n").map((x) => x.trim()).filter(Boolean))} />
+      <Field label="開支分類（一行一個）" hint="直接在最後一行加上新分類；刪掉一行就移除。已經記錄的開支不受影響。">
+        <textarea
+          rows={8}
+          defaultValue={(form.expenseCategories?.length ? form.expenseCategories : DEFAULT_EXPENSE_CATEGORIES).join("\n")}
+          onChange={(e) => set("expenseCategories", e.target.value.split("\n").map((x) => x.trim()).filter(Boolean))}
+        />
       </Field>
       <button className="btn btn-primary" disabled={busy} onClick={save}>
         儲存
