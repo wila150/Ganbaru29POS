@@ -28,6 +28,7 @@ const ADMIN_NAV: NavItem[] = [
     min: "staff",
     children: [
       { to: "/admin/members", label: "顧客名單", min: "staff" },
+      { to: "/admin/segments", label: "顧客分眾", min: "manager" },
       { to: "/admin/member-rules", label: "會員等級", min: "owner" },
     ],
   },

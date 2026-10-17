@@ -21,32 +21,58 @@ export async function recomputeTiers() {
     const bySingle = !!t.minSingle && single >= t.minSingle;
     return byTotal || bySingle;
   };
-  const since = new Date(Date.now() - 365 * 86400_000);
-  const spend = new Map<string, { store: number; online: number; maxSingle: number }>();
-  const add = (id: string, k: "store" | "online", v: number) => {
-    const cur = spend.get(id) ?? { store: 0, online: 0, maxSingle: 0 };
-    cur[k] += v;
-    cur.maxSingle = Math.max(cur.maxSingle, v);
+  const now = Date.now();
+  /**
+   * 每位會員：近 12 個月（等級用）＋全部歷史（顧客分眾用：消費次數、首購／最後消費日、累計金額）。
+   */
+  interface Stat {
+    store: number;
+    online: number;
+    maxSingle: number;
+    orders: number;
+    total: number;
+    first: number;
+    last: number;
+    orders12m: number;
+    orders6m: number;
+    orders3m: number;
+  }
+  const spend = new Map<string, Stat>();
+  const add = (id: string, k: "store" | "online", v: number, at: number) => {
+    const cur = spend.get(id) ?? { store: 0, online: 0, maxSingle: 0, orders: 0, total: 0, first: at, last: at, orders12m: 0, orders6m: 0, orders3m: 0 };
+    cur.orders++;
+    cur.total += v;
+    cur.first = Math.min(cur.first, at);
+    cur.last = Math.max(cur.last, at);
+    const age = now - at;
+    if (age <= 365 * 86400_000) {
+      cur[k] += v;
+      cur.maxSingle = Math.max(cur.maxSingle, v);
+      cur.orders12m++;
+    }
+    if (age <= 183 * 86400_000) cur.orders6m++;
+    if (age <= 92 * 86400_000) cur.orders3m++;
     spend.set(id, cur);
   };
 
-  const pos = await db.collection("posOrders").where("createdAt", ">=", Timestamp.fromDate(since)).select("shopper", "total", "refunds", "status").get();
+  const pos = await db.collection("posOrders").select("shopper", "total", "refunds", "status", "createdAt").get();
   for (const d of pos.docs) {
     const o = d.data();
-    if (!o.shopper?.id || ["pending", "canceled", "void"].includes(o.status)) continue;
+    if (!o.shopper?.id || ["pending", "canceled", "void", "refunded"].includes(o.status)) continue;
     const refunded = (o.refunds ?? []).reduce((s: number, r: { amount: number }) => s + r.amount, 0);
-    add(o.shopper.id, "store", (o.total ?? 0) - refunded);
+    add(o.shopper.id, "store", (o.total ?? 0) - refunded, o.createdAt?.toMillis?.() ?? now);
   }
 
   let onlineError: string | null = null;
   try {
     let after: string | null = null;
-    for (let page = 0; page < 200; page++) {
-      const p = await ordersPage({ first: 50, after, query: { createdAt: { start: since.toISOString() } } });
+    // 全部歷史訂單（顧客分眾需要「首購」「最後消費」）
+    for (let page = 0; page < 400; page++) {
+      const p = await ordersPage({ first: 50, after });
       for (const e of p.edges) {
         const o = e.node;
         if (!o?.shopper?.id || o.status === "CANCELED" || o.status === "RETURN") continue;
-        add(o.shopper.id, "online", o.totalPrice);
+        add(o.shopper.id, "online", o.totalPrice, new Date(o.createdAt).getTime());
       }
       if (!p.pageInfo.hasNextPage || !p.pageInfo.endCursor) break;
       after = p.pageInfo.endCursor;
@@ -68,8 +94,26 @@ export async function recomputeTiers() {
   for (const [id, s] of spend) {
     seen.add(id);
     const total = Math.round(s.store + s.online);
-    const tier = tiers.find((t) => qualifies(t, total, s.maxSingle))?.name ?? null;
-    writer.set(db.doc(`shoppers/${id}`), { spend12m: total, spendStore12m: Math.round(s.store), spendOnline12m: Math.round(s.online), maxSingle12m: Math.round(s.maxSingle), tier, tierAt: Timestamp.now() }, { merge: true });
+    const tier = total > 0 || s.maxSingle > 0 ? tiers.find((t) => qualifies(t, total, s.maxSingle))?.name ?? null : null;
+    writer.set(
+      db.doc(`shoppers/${id}`),
+      {
+        spend12m: total,
+        spendStore12m: Math.round(s.store),
+        spendOnline12m: Math.round(s.online),
+        maxSingle12m: Math.round(s.maxSingle),
+        tier,
+        tierAt: Timestamp.now(),
+        ordersTotal: s.orders,
+        spendTotal: Math.round(s.total),
+        firstOrderAt: Timestamp.fromMillis(s.first),
+        lastOrderAt: Timestamp.fromMillis(s.last),
+        orders12m: s.orders12m,
+        orders6m: s.orders6m,
+        orders3m: s.orders3m,
+      },
+      { merge: true }
+    );
     updated++;
   }
   // Members with no purchases in 12 months drop to the base tier.
