@@ -78,6 +78,7 @@ async function upsertPage(products: MProduct[], seen: Set<string>, full: boolean
         barcode: v.barcode,
         vendorSku: v.vendorSku,
         warehouseNumber: v.warehouseNumber,
+        shopCreatedAt: v.createdAt ? Timestamp.fromDate(new Date(v.createdAt)) : null,
         price: v.retailPrice ?? v.listPrice ?? v.suggestedPrice ?? 0,
         listPrice: v.listPrice,
         status: v.status,

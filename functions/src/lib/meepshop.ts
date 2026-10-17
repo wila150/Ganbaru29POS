@@ -102,6 +102,7 @@ export interface MVariant {
   listPrice: number | null;
   suggestedPrice: number | null;
   selectedOptions: { name: string; value: string }[];
+  createdAt: string;
 }
 
 export interface MProduct {
@@ -142,7 +143,7 @@ interface Connection<T> {
   total: number;
 }
 
-const VARIANT_FIELDS = `id sku barcode vendorSku warehouseNumber stock status retailPrice listPrice suggestedPrice selectedOptions { name value }`;
+const VARIANT_FIELDS = `id createdAt sku barcode vendorSku warehouseNumber stock status retailPrice listPrice suggestedPrice selectedOptions { name value }`;
 
 // ---------- Stock ----------
 

@@ -38,6 +38,11 @@ export interface Variant {
   imageSource: "auto" | "manual" | null;
   searchText: string;
   sales30?: number;
+  sales30Store?: number;
+  sales30Online?: number;
+  lastSoldAt?: Timestamp | null;
+  statsAt?: Timestamp;
+  shopCreatedAt?: Timestamp | null;
   reorderQty?: number;
 }
 
@@ -85,6 +90,8 @@ export interface ShopSettings {
   currentShiftId?: string | null;
   lastCatalogSyncAt?: Timestamp;
   lastIncrementalSyncAt?: Timestamp;
+  statsAt?: Timestamp;
+  statsOnlineError?: string | null;
   apiKeySetAt?: Timestamp;
   apiKeySetBy?: string;
   lineTokenSetAt?: Timestamp;

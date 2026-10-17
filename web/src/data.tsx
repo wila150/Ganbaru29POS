@@ -52,3 +52,25 @@ export function stockState(v: Variant, expiryDays = 30): "out" | "low" | "expiri
   if ((v.batches ?? []).some((b) => b.exp && b.exp <= limit)) return "expiring";
   return "ok";
 }
+
+const DAY = 86400_000;
+export function daysSince(t: { toMillis(): number } | null | undefined): number | null {
+  return t ? Math.max(0, Math.floor((Date.now() - t.toMillis()) / DAY)) : null;
+}
+
+/** 庫齡：最早一批還在庫的進貨距今幾天；沒有批次紀錄時，用 meepShop 上架（建立款式）日起算。 */
+export function stockAge(v: Variant): { days: number; basis: "batch" | "listed" } | null {
+  if ((v.shopStock ?? 0) <= 0) return null;
+  const batches = (v.batches ?? []).filter((b) => b.qty > 0 && b.receivedAt);
+  if (batches.length) return { days: daysSince(batches.reduce((a, b) => (a.receivedAt.toMillis() < b.receivedAt.toMillis() ? a : b)).receivedAt)!, basis: "batch" };
+  const listed = daysSince(v.shopCreatedAt);
+  return listed === null ? null : { days: listed, basis: "listed" };
+}
+
+/** 滯銷：有庫存，但 N 天內門市與網店都沒賣出 */
+export const SLOW_DAYS = 60;
+export function isSlow(v: Variant): boolean {
+  if ((v.shopStock ?? 0) <= 0 || !v.statsAt) return false;
+  const d = daysSince(v.lastSoldAt);
+  return d === null || d >= SLOW_DAYS;
+}

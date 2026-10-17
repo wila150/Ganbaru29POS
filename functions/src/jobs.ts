@@ -22,43 +22,106 @@ export const retryFailed = onSchedule({ schedule: "every 5 minutes", timeZone: T
   logger.info(`retryFailed: retried ${due.size}, stale ${stale.size}`);
 });
 
+const DAY = 86400_000;
+const LAST_SOLD_WINDOW_DAYS = 120;
+
 /**
- * 每天 9:00：算近 30 天門市銷量、建議補貨量，低於安全庫存 / 快到期的商品用 LINE 推播給老闆。
- * 建議補貨量 = 安全庫存 + 日均銷量 × 補貨到貨天數 − 目前庫存
+ * 銷售統計（每天 9:00 自動，也可在「庫存查詢」按「更新銷售統計」）：
+ *  - sales30Store / sales30Online / sales30：近 30 天門市、網店（meepShop 訂單）銷量
+ *  - lastSoldAt：最後一次賣出（門市或網店，只回看 120 天；null = 120 天內沒賣過）
+ *  - reorderQty：建議補貨量 = 安全庫存 + 日均銷量（門市＋網店）× 補貨到貨天數 − 目前庫存
  */
-export const lowStockAlert = onSchedule({ schedule: "0 9 * * *", timeZone: TZ, timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
+export async function computeStats() {
   const settings = (await db.doc("settings/shop").get()).data() ?? {};
   const leadDays = Number(settings.leadDays ?? 7);
-  const expiryDays = Number(settings.expiryDays ?? 30);
-  const since = Timestamp.fromMillis(Date.now() - 30 * 86400_000);
+  const now = Date.now();
+  const since30 = now - 30 * DAY;
+  const windowStart = new Date(now - LAST_SOLD_WINDOW_DAYS * DAY);
 
-  const sold = new Map<string, number>();
-  const moves = await db.collection("movements").where("at", ">=", since).where("type", "in", ["sale", "refund"]).select("variantId", "delta", "status").get();
+  const store30 = new Map<string, number>();
+  const online30 = new Map<string, number>();
+  const lastSold = new Map<string, number>();
+  const seen = (id: string, t: number) => lastSold.set(id, Math.max(lastSold.get(id) ?? 0, t));
+
+  const moves = await db.collection("movements").where("at", ">=", Timestamp.fromDate(windowStart)).where("type", "in", ["sale", "refund"]).select("variantId", "delta", "status", "type", "at").get();
   for (const m of moves.docs) {
     const d = m.data();
     if (d.status === "canceled") continue;
-    sold.set(d.variantId, (sold.get(d.variantId) ?? 0) - d.delta);
+    const t = d.at?.toMillis?.() ?? 0;
+    if (d.type === "sale") seen(d.variantId, t);
+    if (t >= since30) store30.set(d.variantId, (store30.get(d.variantId) ?? 0) - d.delta);
+  }
+
+  let onlineError: string | null = null;
+  try {
+    let after: string | null = null;
+    for (let page = 0; page < 100; page++) {
+      const p = await ordersPage({ first: 50, after, query: { createdAt: { start: windowStart.toISOString() } } });
+      for (const e of p.edges) {
+        const o = e.node;
+        if (!o || o.status === "CANCELED") continue;
+        const t = new Date(o.createdAt).getTime();
+        for (const li of o.lineItems ?? []) {
+          const vid = li.variant?.id;
+          if (!vid) continue;
+          seen(vid, t);
+          if (t >= since30) online30.set(vid, (online30.get(vid) ?? 0) + li.quantity);
+        }
+      }
+      if (!p.pageInfo.hasNextPage || !p.pageInfo.endCursor) break;
+      after = p.pageInfo.endCursor;
+      await sleep(1000);
+    }
+  } catch (e) {
+    onlineError = (e as Error).message;
+    logger.warn("computeStats: online orders failed", e);
   }
 
   const variants = await db.collection("variants").where("active", "==", true).get();
-  const today = taipeiDate();
-  const expiryLimit = taipeiDate(new Date(Date.now() + expiryDays * 86400_000));
-  const low: string[] = [];
-  const expiring: string[] = [];
   const writer = db.bulkWriter();
   for (const v of variants.docs) {
     const d = v.data();
-    const sales30 = Math.max(0, sold.get(v.id) ?? 0);
+    const sales30Store = Math.max(0, store30.get(v.id) ?? 0);
+    // If meepShop orders could not be read, keep yesterday's online numbers rather than zeroing them.
+    const sales30Online = onlineError ? d.sales30Online ?? 0 : online30.get(v.id) ?? 0;
+    const sales30 = sales30Store + sales30Online;
     const stock = d.shopStock ?? 0;
     const reorderQty = Math.max(0, Math.ceil((d.safety ?? 0) + (sales30 / 30) * leadDays - stock));
-    if (d.sales30 !== sales30 || d.reorderQty !== reorderQty) writer.update(v.ref, { sales30, reorderQty });
+    const ls = lastSold.get(v.id);
+    const lastSoldAt = ls ? Timestamp.fromMillis(ls) : onlineError ? d.lastSoldAt ?? null : null;
+    writer.update(v.ref, { sales30Store, sales30Online, sales30, reorderQty, lastSoldAt, statsAt: Timestamp.now() });
+  }
+  await writer.close();
+  await db.doc("settings/shop").set({ statsAt: Timestamp.now(), statsOnlineError: onlineError }, { merge: true });
+  return { variants: variants.size, onlineError };
+}
+
+export const refreshStats = onCall({ timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async (req) => {
+  await requireRole(req, "manager");
+  const r = await computeStats();
+  return { variants: r.variants, onlineError: r.onlineError };
+});
+
+/** 每天 9:00：更新銷售統計，低於安全庫存 / 快到期的商品用 LINE 推播給老闆。 */
+export const lowStockAlert = onSchedule({ schedule: "0 9 * * *", timeZone: TZ, timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
+  const settings = (await db.doc("settings/shop").get()).data() ?? {};
+  const expiryDays = Number(settings.expiryDays ?? 30);
+  await computeStats();
+
+  const variants = await db.collection("variants").where("active", "==", true).get();
+  const today = taipeiDate();
+  const expiryLimit = taipeiDate(new Date(Date.now() + expiryDays * DAY));
+  const low: string[] = [];
+  const expiring: string[] = [];
+  for (const v of variants.docs) {
+    const d = v.data();
+    const stock = d.shopStock ?? 0;
     const name = `${d.productTitle}${d.options ? " " + d.options : ""}`;
-    if ((d.safety ?? 0) > 0 && stock <= d.safety) low.push(`・${name}：剩 ${stock}（安全 ${d.safety}，建議補 ${reorderQty}）`);
+    if ((d.safety ?? 0) > 0 && stock <= d.safety) low.push(`・${name}：剩 ${stock}（安全 ${d.safety}，建議補 ${d.reorderQty ?? 0}）`);
     for (const b of d.batches ?? []) {
       if (b.exp && b.exp <= expiryLimit) expiring.push(`・${name} 批號 ${b.lot ?? "-"}：${b.exp}${b.exp < today ? "（已過期）" : ""}，${b.qty} 件`);
     }
   }
-  await writer.close();
 
   const [failed, unknown] = await Promise.all([
     db.collection("movements").where("status", "==", "failed").count().get(),

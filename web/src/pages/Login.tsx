@@ -2,7 +2,23 @@ import { useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import { call } from "../firebase";
+import { inAppBrowser } from "../lib/inapp";
 import { ROLE_LABEL, type Role } from "../lib/util";
+
+/** Shown instead of the Google button inside LINE / Facebook / Instagram browsers. */
+function OpenExternally() {
+  const [copied, setCopied] = useState(false);
+  const url = location.href.replace(/[?&]openExternalBrowser=1/, "");
+  return (
+    <div className="notice notice-warn" style={{ flexDirection: "column", alignItems: "stretch" }}>
+      <strong>請用外部瀏覽器開啟</strong>
+      <span className="small">LINE、Facebook、Instagram 裡的瀏覽器不能用 Google 登入。請點右上角「⋯」選「用預設瀏覽器開啟」，或複製網址貼到 Safari / Chrome。</span>
+      <button className="btn" onClick={() => navigator.clipboard.writeText(url).then(() => setCopied(true)).catch(() => prompt("複製這個網址", url))}>
+        {copied ? "已複製網址" : "複製網址"}
+      </button>
+    </div>
+  );
+}
 
 export function Login() {
   const { user, profile, login, logout, loading } = useAuth();
@@ -32,12 +48,13 @@ export function Login() {
           </>
         ) : (
           <>
-            <button
-              className="btn btn-primary btn-lg"
-              onClick={() => login().catch((e) => setErr(e.message))}
-            >
-              用 Google 帳號登入
-            </button>
+            {inAppBrowser() ? (
+              <OpenExternally />
+            ) : (
+              <button className="btn btn-primary btn-lg" onClick={() => login().catch((e) => setErr(e.message))}>
+                用 Google 帳號登入
+              </button>
+            )}
             {err && <p className="error">{err}</p>}
           </>
         )}
@@ -74,9 +91,13 @@ export function AcceptInvite() {
         ) : !user ? (
           <>
             <p>請用收到邀請的 Google 帳號登入。</p>
-            <button className="btn btn-primary btn-lg" onClick={() => login().catch((e) => setState({ err: e.message }))}>
-              用 Google 帳號登入
-            </button>
+            {inAppBrowser() ? (
+              <OpenExternally />
+            ) : (
+              <button className="btn btn-primary btn-lg" onClick={() => login().catch((e) => setState({ err: e.message }))}>
+                用 Google 帳號登入
+              </button>
+            )}
           </>
         ) : profile?.active ? (
           <>
