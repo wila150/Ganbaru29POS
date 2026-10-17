@@ -1,0 +1,54 @@
+rules_version = '2';
+
+// 前端只能「讀」庫存與紀錄（即時更新），所有寫入一律經過 Cloud Functions。
+// 例外：老闆可改 settings/shop 的一般設定；收銀員可存掛單（posHolds）。
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function active() { return request.auth != null && request.auth.token.active == true; }
+    function isManager() { return active() && request.auth.token.role in ['manager', 'owner', 'engineer']; }
+    // engineer（工程師）與老闆同等權限
+    function isOwner() { return active() && request.auth.token.role in ['owner', 'engineer']; }
+
+    match /users/{uid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || isOwner());
+    }
+    match /invites/{id} {
+      allow read: if isOwner();
+    }
+
+    match /variants/{id} { allow read: if active(); }
+    match /codes/{code} { allow read: if active(); }
+    match /productImages/{id} { allow read: if active(); }
+    match /movements/{id} { allow read: if active(); }
+    match /stocktakes/{id} {
+      allow read: if active();
+      match /items/{variantId} { allow read: if active(); }
+    }
+    // 成本只有老闆看得到
+    match /costs/{id} { allow read: if isOwner(); }
+    match /syncLogs/{id} { allow read: if isManager(); }
+
+    match /shoppers/{id} { allow read: if active(); }
+    match /posOrders/{id} { allow read: if active(); }
+    match /shifts/{id} { allow read: if active(); }
+
+    match /posHolds/{id} {
+      allow read, delete: if active();
+      allow create, update: if active()
+        && request.resource.data.keys().hasOnly(['label', 'cart', 'shopper', 'note', 'guests', 'discounts', 'by', 'byName', 'at'])
+        && request.resource.data.cart is list
+        && request.resource.data.cart.size() <= 100
+        && request.resource.data.by == request.auth.uid;
+    }
+
+    match /settings/shop {
+      allow read: if active();
+      allow create: if isOwner() && request.resource.data.keys().hasOnly(ownerKeys());
+      allow update: if isOwner() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(ownerKeys());
+    }
+    function ownerKeys() {
+      return ['shopName', 'leadDays', 'expiryDays', 'lineTargets', 'rewardPercent', 'pointValue',
+              'staffCanRefund', 'siteBaseUrl', 'receiptHeader', 'receiptFooter', 'serviceFeeDefault', 'shiftNames'];
+    }
+  }
+}

@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function active() { return request.auth != null && request.auth.token.active == true; }
+    function isManager() { return active() && request.auth.token.role in ['manager', 'owner', 'engineer']; }
+
+    // 自動抓的官網主圖，只有 Cloud Functions 寫入
+    match /products/{file} {
+      allow read: if active();
+    }
+    // 「商品與條碼」頁手動上傳的圖片
+    match /manual/{productId}/{file} {
+      allow read: if active();
+      allow write: if isManager()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}
