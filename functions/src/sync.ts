@@ -221,8 +221,10 @@ export async function runShopperSync(mode: "full" | "incremental") {
     const since = mode === "incremental" && settings.lastShopperSyncAt ? new Date(settings.lastShopperSyncAt.toMillis() - 2 * 60_000) : undefined;
     let after: string | null = null;
     let count = 0;
+    const groups = new Set<string>(settings.memberGroups ?? []);
     for (;;) {
       const page = await shoppersPage(after, since);
+      page.edges.forEach((e) => e.node?.memberGroup?.title && groups.add(e.node.memberGroup.title));
       const writer = db.bulkWriter();
       for (const e of page.edges) {
         const s = e.node;
@@ -236,6 +238,7 @@ export async function runShopperSync(mode: "full" | "incremental") {
           mobileKey: mobileKey(s.mobile),
           points: s.usableRewardPoints,
           birthDate: s.birthDate ?? null,
+          memberGroup: s.memberGroup?.title ?? null,
           birthMonth: birthMonth(s.birthDate),
           updatedAt: s.updatedAt,
           syncedAt: FieldValue.serverTimestamp(),
@@ -246,7 +249,8 @@ export async function runShopperSync(mode: "full" | "incremental") {
       after = page.pageInfo.endCursor;
       await sleep(2000);
     }
-    await settingsRef.set({ lastShopperSyncAt: Timestamp.fromDate(startedAt) }, { merge: true });
+    // meepShop 會員群組清單（促銷、購物金回饋規則選群組用）
+    await settingsRef.set({ lastShopperSyncAt: Timestamp.fromDate(startedAt), memberGroups: [...groups].sort() }, { merge: true });
     return count;
   });
 }

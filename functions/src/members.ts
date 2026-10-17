@@ -13,12 +13,20 @@ import type { TierDef } from "./pos";
  */
 export async function recomputeTiers() {
   const settings = (await db.doc("settings/shop").get()).data() ?? {};
-  const tiers = [...((settings.memberTiers ?? []) as TierDef[])].sort((a, b) => b.minSpend - a.minSpend);
+  // 高等級優先判斷（依累計門檻、再依單次門檻排序）
+  const tiers = [...((settings.memberTiers ?? []) as TierDef[])].sort((a, b) => b.minSpend - a.minSpend || (b.minSingle ?? 0) - (a.minSingle ?? 0));
+  // 達到「累計」或「單次」任一門檻即升級（與 meepShop 群組的升級資格相同邏輯）
+  const qualifies = (t: TierDef, total: number, single: number) => {
+    const byTotal = t.minSpend > 0 ? total >= t.minSpend : !t.minSingle;
+    const bySingle = !!t.minSingle && single >= t.minSingle;
+    return byTotal || bySingle;
+  };
   const since = new Date(Date.now() - 365 * 86400_000);
-  const spend = new Map<string, { store: number; online: number }>();
+  const spend = new Map<string, { store: number; online: number; maxSingle: number }>();
   const add = (id: string, k: "store" | "online", v: number) => {
-    const cur = spend.get(id) ?? { store: 0, online: 0 };
+    const cur = spend.get(id) ?? { store: 0, online: 0, maxSingle: 0 };
     cur[k] += v;
+    cur.maxSingle = Math.max(cur.maxSingle, v);
     spend.set(id, cur);
   };
 
@@ -60,8 +68,8 @@ export async function recomputeTiers() {
   for (const [id, s] of spend) {
     seen.add(id);
     const total = Math.round(s.store + s.online);
-    const tier = tiers.find((t) => total >= t.minSpend)?.name ?? null;
-    writer.set(db.doc(`shoppers/${id}`), { spend12m: total, spendStore12m: Math.round(s.store), spendOnline12m: Math.round(s.online), tier, tierAt: Timestamp.now() }, { merge: true });
+    const tier = tiers.find((t) => qualifies(t, total, s.maxSingle))?.name ?? null;
+    writer.set(db.doc(`shoppers/${id}`), { spend12m: total, spendStore12m: Math.round(s.store), spendOnline12m: Math.round(s.online), maxSingle12m: Math.round(s.maxSingle), tier, tierAt: Timestamp.now() }, { merge: true });
     updated++;
   }
   // Members with no purchases in 12 months drop to the base tier.

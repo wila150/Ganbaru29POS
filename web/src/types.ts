@@ -99,6 +99,8 @@ export interface ShopSettings {
   apiKeySetBy?: string;
   lineTokenSetAt?: Timestamp;
   memberTiers?: TierDef[];
+  rewardRules?: RewardRule[];
+  memberGroups?: string[];
   birthdayGiftPoints?: number;
   birthdayPointMultiplier?: number;
   tiersAt?: Timestamp;
@@ -204,11 +206,26 @@ export interface Shopper {
   tier?: string | null;
   birthMonth?: string | null;
   spend12m?: number;
+  /** meepShop 會員群組 */
+  group?: string | null;
+}
+
+export interface RewardRule {
+  name: string;
+  active: boolean;
+  groups?: string[];
+  tiers?: string[];
+  every: number;
+  points: number;
+  minSpend?: number;
+  maxSpend?: number;
+  expiryDays?: number;
 }
 
 export interface TierDef {
   name: string;
   minSpend: number;
+  minSingle?: number;
   discountPct: number;
   pointMultiplier: number;
 }

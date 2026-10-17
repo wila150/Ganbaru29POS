@@ -8,7 +8,7 @@
  * Lines with a manual discount (單品打折 / 改價) are left out of promotions.
  */
 
-export type PromoType = "percent_off" | "nth_discount" | "bundle_price" | "addon";
+export type PromoType = "percent_off" | "amount_off" | "nth_discount" | "bundle_price" | "addon" | "threshold";
 
 export type PromoScope =
   | { kind: "all" }
@@ -24,15 +24,44 @@ export interface Promotion {
   startDate?: string | null;
   endDate?: string | null;
   scope: PromoScope;
-  /** percent_off: X% off every eligible item (例：打 7 折 = 30) */
+  /** 不參加的商品／分類（例：新品不參加） */
+  excludeScope?: PromoScope | null;
+
+  /** percent_off / nth_discount / threshold(percent): % off (例：打 7 折 = 30) */
   percentOff?: number;
-  /** nth_discount: every Nth item gets percentOff (例：第二件 6 折 = n 2, percentOff 40) */
+  /** amount_off: $ off each item; threshold(amount): $ off per reached threshold */
+  amountOff?: number;
+  /** nth_discount: every Nth item gets percentOff; bundle_price: any n items */
   n?: number;
-  /** bundle_price: any n eligible items for this price (例：任選 3 件 1000) */
+  /** bundle_price: price of n items */
   bundlePrice?: number;
   /** addon: buying a scope item lets one addonScope item per trigger be bought at addonPrice */
   addonScope?: PromoScope;
   addonPrice?: number;
+  /** threshold: 滿額（amount）或 滿件（qty） */
+  thresholdType?: "amount" | "qty";
+  threshold?: number;
+  /** threshold: discount kind once reached */
+  thresholdReward?: "percent" | "amount";
+  /** threshold(amount reward): 每滿一次就再折一次 */
+  repeat?: boolean;
+
+  // ---- 條件 ----
+  /** 會員限定：none = 不限；members = 任何會員；tiers = 指定等級（本系統）；groups = 指定 meepShop 會員群組 */
+  memberRule?: "none" | "members" | "tiers" | "groups";
+  memberTiers?: string[];
+  memberGroups?: string[];
+  /** 星期幾（0 = 週日）；空 = 每天 */
+  days?: number[];
+  /** "HH:MM"；空 = 全天 */
+  timeFrom?: string | null;
+  timeTo?: string | null;
+  /** 適用商品合計滿多少才生效 */
+  minSpend?: number;
+  /** 每張單最多套用次數（件數／組數）；0 = 不限 */
+  maxUses?: number;
+  /** true = 套用這個活動的商品，不再打會員等級折扣 */
+  noMemberStack?: boolean;
 }
 
 export interface PromoLine {
@@ -49,6 +78,17 @@ export interface PromoItemInfo {
   tags: string[];
 }
 
+/** 結帳當下的情境（台灣時間、會員） */
+export interface PromoContext {
+  date: string; // YYYY-MM-DD
+  weekday: number; // 0 = Sunday
+  hhmm: string; // "14:05"
+  isMember: boolean;
+  tier: string | null;
+  /** meepShop 會員群組名稱 */
+  group?: string | null;
+}
+
 export interface PromoApplied {
   promoId: string;
   name: string;
@@ -60,6 +100,8 @@ export interface PromoResult {
   lineDiscount: Record<string, number>;
   /** line key → promotion names used on that line */
   lineLabels: Record<string, string[]>;
+  /** line keys touched by a promotion that does not stack with the member discount */
+  noMemberStack: string[];
   applied: PromoApplied[];
   total: number;
 }
@@ -70,37 +112,78 @@ interface Unit {
   info: PromoItemInfo;
 }
 
-export function promoIsLive(p: Promotion, today: string): boolean {
+/** Taiwan time for a Date (UTC+8, no DST). */
+export function taipeiClock(d = new Date()): Pick<PromoContext, "date" | "weekday" | "hhmm"> {
+  const t = new Date(d.getTime() + 8 * 3600_000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return { date: `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}`, weekday: t.getUTCDay(), hhmm: `${p(t.getUTCHours())}:${p(t.getUTCMinutes())}` };
+}
+
+/** Accepts a context or (backwards compatible) just a YYYY-MM-DD date. */
+function ctxOf(c: PromoContext | string): PromoContext {
+  return typeof c === "string" ? { date: c, weekday: new Date(`${c}T12:00:00Z`).getUTCDay(), hhmm: "12:00", isMember: false, tier: null } : c;
+}
+
+export function promoIsLive(p: Promotion, c: PromoContext | string): boolean {
+  const ctx = ctxOf(c);
   if (!p.active) return false;
-  if (p.startDate && today < p.startDate) return false;
-  if (p.endDate && today > p.endDate) return false;
+  if (p.startDate && ctx.date < p.startDate) return false;
+  if (p.endDate && ctx.date > p.endDate) return false;
+  if (p.days?.length && !p.days.includes(ctx.weekday)) return false;
+  if (p.timeFrom && ctx.hhmm < p.timeFrom) return false;
+  if (p.timeTo && ctx.hhmm > p.timeTo) return false;
+  if (p.memberRule === "members" && !ctx.isMember) return false;
+  if (p.memberRule === "tiers" && !(ctx.tier && (p.memberTiers ?? []).includes(ctx.tier))) return false;
+  if (p.memberRule === "groups" && !(ctx.group && (p.memberGroups ?? []).includes(ctx.group))) return false;
   return true;
 }
 
-export function inScope(scope: PromoScope | undefined, info: PromoItemInfo): boolean {
+export function inScope(scope: PromoScope | undefined | null, info: PromoItemInfo): boolean {
   if (!scope || scope.kind === "all") return true;
   if (scope.kind === "products") return scope.productIds.includes(info.productId);
   return scope.categories.some((c) => c === info.category || info.tags.includes(c));
 }
 
+function excluded(p: Promotion, info: PromoItemInfo) {
+  const ex = p.excludeScope;
+  if (!ex || ex.kind === "all") return false;
+  return inScope(ex, info);
+}
+
 const byPriceDesc = (a: Unit, b: Unit) => b.price - a.price;
+const capUses = (p: Promotion) => (p.maxUses && p.maxUses > 0 ? Math.floor(p.maxUses) : Infinity);
+
+/** Spread `save` over the given units by price; the last unit takes the rounding remainder. */
+function spread(uses: Map<number, number>, group: { u: Unit; i: number }[], save: number) {
+  const sum = group.reduce((s, x) => s + x.u.price, 0);
+  let left = save;
+  group.forEach((x, k) => {
+    const d = k === group.length - 1 ? left : sum ? Math.round((save * x.u.price) / sum) : 0;
+    left -= d;
+    uses.set(x.i, (uses.get(x.i) ?? 0) + d);
+  });
+}
 
 /** What one promotion would save on the free units, and which units it uses (unit index → discount). */
 function evaluate(p: Promotion, units: Unit[], free: boolean[]): { saving: number; uses: Map<number, number> } {
   const uses = new Map<number, number>();
-  const eligible = units.map((u, i) => ({ u, i })).filter(({ u, i }) => free[i] && inScope(p.scope, u.info));
+  const eligible = units.map((u, i) => ({ u, i })).filter(({ u, i }) => free[i] && inScope(p.scope, u.info) && !excluded(p, u.info));
+  const eligibleSum = eligible.reduce((s, x) => s + x.u.price, 0);
+  if (p.minSpend && eligibleSum < p.minSpend) return { saving: 0, uses };
   const pct = Math.min(100, Math.max(0, p.percentOff ?? 0));
+  const cap = capUses(p);
 
-  if (p.type === "percent_off") {
-    for (const { u, i } of eligible) {
-      const d = Math.round((u.price * pct) / 100);
+  if (p.type === "percent_off" || p.type === "amount_off") {
+    const sorted = [...eligible].sort((a, b) => byPriceDesc(a.u, b.u)).slice(0, cap);
+    for (const { u, i } of sorted) {
+      const d = p.type === "percent_off" ? Math.round((u.price * pct) / 100) : Math.min(u.price, Math.max(0, Math.round(p.amountOff ?? 0)));
       if (d > 0) uses.set(i, d);
     }
   } else if (p.type === "nth_discount") {
     const n = Math.max(2, Math.floor(p.n ?? 2));
     const sorted = [...eligible].sort((a, b) => byPriceDesc(a.u, b.u));
     // Groups of n, most expensive first; the cheapest of each group gets the discount.
-    for (let g = 0; g + n <= sorted.length; g += n) {
+    for (let g = 0, used = 0; g + n <= sorted.length && used < cap; g += n, used++) {
       const group = sorted.slice(g, g + n);
       const cheapest = group[group.length - 1];
       for (const x of group) uses.set(x.i, 0);
@@ -110,31 +193,38 @@ function evaluate(p: Promotion, units: Unit[], free: boolean[]): { saving: numbe
     const n = Math.max(1, Math.floor(p.n ?? 1));
     const price = Math.max(0, p.bundlePrice ?? 0);
     const sorted = [...eligible].sort((a, b) => byPriceDesc(a.u, b.u));
-    for (let g = 0; g + n <= sorted.length; g += n) {
+    for (let g = 0, used = 0; g + n <= sorted.length && used < cap; g += n, used++) {
       const group = sorted.slice(g, g + n);
-      const sum = group.reduce((s, x) => s + x.u.price, 0);
-      const save = sum - price;
+      const save = group.reduce((s, x) => s + x.u.price, 0) - price;
       if (save <= 0) break; // later groups are cheaper still
-      // Spread the saving over the group by price; the last unit takes the rounding remainder.
-      let left = save;
-      group.forEach((x, k) => {
-        const d = k === group.length - 1 ? left : Math.round((save * x.u.price) / sum);
-        left -= d;
-        uses.set(x.i, d);
-      });
+      spread(uses, group, save);
     }
   } else if (p.type === "addon") {
     const addonPrice = Math.max(0, p.addonPrice ?? 0);
     const addons = units
       .map((u, i) => ({ u, i }))
-      .filter(({ u, i }) => free[i] && inScope(p.addonScope, u.info) && u.price > addonPrice)
+      .filter(({ u, i }) => free[i] && inScope(p.addonScope, u.info) && !excluded(p, u.info) && u.price > addonPrice)
       .sort((a, b) => byPriceDesc(a.u, b.u));
     const addonIdx = new Set(addons.map((a) => a.i));
     const triggers = eligible.filter((x) => !addonIdx.has(x.i));
-    const pairs = Math.min(triggers.length, addons.length);
+    const pairs = Math.min(triggers.length, addons.length, cap);
     for (let k = 0; k < pairs; k++) {
       uses.set(triggers[k].i, 0);
       uses.set(addons[k].i, addons[k].u.price - addonPrice);
+    }
+  } else if (p.type === "threshold") {
+    const t = Math.max(0, p.threshold ?? 0);
+    const measure = p.thresholdType === "qty" ? eligible.length : eligibleSum;
+    if (t > 0 && measure >= t && eligible.length) {
+      let save: number;
+      if (p.thresholdReward === "amount") {
+        const times = Math.min(p.repeat ? Math.floor(measure / t) : 1, cap);
+        save = Math.round(Math.max(0, p.amountOff ?? 0) * times);
+      } else {
+        save = Math.round((eligibleSum * pct) / 100);
+      }
+      save = Math.min(save, eligibleSum);
+      if (save > 0) spread(uses, eligible, save);
     }
   }
 
@@ -143,7 +233,8 @@ function evaluate(p: Promotion, units: Unit[], free: boolean[]): { saving: numbe
   return { saving, uses };
 }
 
-export function applyPromotions(lines: PromoLine[], infoOf: (variantId: string) => PromoItemInfo | undefined, promotions: Promotion[], today: string): PromoResult {
+export function applyPromotions(lines: PromoLine[], infoOf: (variantId: string) => PromoItemInfo | undefined, promotions: Promotion[], context: PromoContext | string): PromoResult {
+  const ctx = ctxOf(context);
   const units: Unit[] = [];
   for (const l of lines) {
     if (l.discountPct > 0) continue; // manual discount wins; no stacking
@@ -154,8 +245,9 @@ export function applyPromotions(lines: PromoLine[], infoOf: (variantId: string) 
   const free = units.map(() => true);
   const lineDiscount: Record<string, number> = {};
   const lineLabels: Record<string, string[]> = {};
+  const noStack = new Set<string>();
   const applied: PromoApplied[] = [];
-  const remaining = promotions.filter((p) => promoIsLive(p, today));
+  const remaining = promotions.filter((p) => promoIsLive(p, ctx));
 
   for (;;) {
     let best: { p: Promotion; saving: number; uses: Map<number, number> } | null = null;
@@ -170,29 +262,63 @@ export function applyPromotions(lines: PromoLine[], infoOf: (variantId: string) 
       lineDiscount[key] = (lineDiscount[key] ?? 0) + d;
       const labels = (lineLabels[key] ??= []);
       if (!labels.includes(best.p.name)) labels.push(best.p.name);
+      if (best.p.noMemberStack) noStack.add(key);
     }
     applied.push({ promoId: best.p.id, name: best.p.name, discount: best.saving });
     remaining.splice(remaining.indexOf(best.p), 1);
   }
-  return { lineDiscount, lineLabels, applied, total: applied.reduce((s, a) => s + a.discount, 0) };
+  return { lineDiscount, lineLabels, noMemberStack: [...noStack], applied, total: applied.reduce((s, a) => s + a.discount, 0) };
 }
 
 export const PROMO_TYPE_LABEL: Record<PromoType, string> = {
   percent_off: "打折",
+  amount_off: "每件折抵",
   nth_discount: "第 N 件折扣",
   bundle_price: "任選 N 件特價",
+  threshold: "滿額／滿件折",
   addon: "加價購",
 };
 
+/** 30 (% off) → "7 折"；25 → "75 折" */
+export const zhe = (percentOff: number | undefined) => {
+  const z = 100 - (percentOff ?? 0);
+  return `${z % 10 === 0 ? z / 10 : z} 折`;
+};
+
+const WEEK = ["日", "一", "二", "三", "四", "五", "六"];
+
 export function describePromo(p: Promotion): string {
+  let main: string;
   switch (p.type) {
     case "percent_off":
-      return `全部 ${(100 - (p.percentOff ?? 0)) / 10} 折`;
+      main = `打 ${zhe(p.percentOff)}`;
+      break;
+    case "amount_off":
+      main = `每件折 $${p.amountOff ?? 0}`;
+      break;
     case "nth_discount":
-      return `第 ${p.n ?? 2} 件 ${(100 - (p.percentOff ?? 0)) / 10} 折`;
+      main = `第 ${p.n ?? 2} 件 ${zhe(p.percentOff)}`;
+      break;
     case "bundle_price":
-      return `任選 ${p.n ?? 1} 件 $${p.bundlePrice ?? 0}`;
+      main = `任選 ${p.n ?? 1} 件 $${p.bundlePrice ?? 0}`;
+      break;
     case "addon":
-      return `加價 $${p.addonPrice ?? 0} 購`;
+      main = `加價 $${p.addonPrice ?? 0} 購`;
+      break;
+    case "threshold": {
+      const cond = p.thresholdType === "qty" ? `買 ${p.threshold ?? 0} 件以上` : `${p.repeat ? "每滿" : "滿"} $${p.threshold ?? 0}`;
+      main = `${cond}${p.thresholdReward === "amount" ? ` 折 $${p.amountOff ?? 0}` : ` 打 ${zhe(p.percentOff)}`}`;
+      break;
+    }
   }
+  const extra: string[] = [];
+  if (p.memberRule === "members") extra.push("會員限定");
+  if (p.memberRule === "tiers") extra.push(`限 ${(p.memberTiers ?? []).join("、")}`);
+  if (p.memberRule === "groups") extra.push(`限 ${(p.memberGroups ?? []).join("、")}`);
+  if (p.days?.length && p.days.length < 7) extra.push(`每週${p.days.map((d) => WEEK[d]).join("、")}`);
+  if (p.timeFrom || p.timeTo) extra.push(`${p.timeFrom || "開店"}～${p.timeTo || "打烊"}`);
+  if (p.minSpend) extra.push(`滿 $${p.minSpend} 才適用`);
+  if (p.maxUses) extra.push(`每單限 ${p.maxUses} 次`);
+  if (p.noMemberStack) extra.push("不併用會員折扣");
+  return extra.length ? `${main}（${extra.join("，")}）` : main;
 }

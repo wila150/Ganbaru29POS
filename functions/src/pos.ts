@@ -4,7 +4,7 @@ import { Actor, atLeast, requireRole } from "./lib/auth";
 import * as meep from "./lib/meepshop";
 import { createMovement, pushBulk } from "./lib/movements";
 import { assert, db, errMsg, FieldValue, HttpsError, int, num, str, taipeiDate, Timestamp } from "./lib/util";
-import { applyPromotions, type Promotion } from "./shared/promo";
+import { applyPromotions, taipeiClock, type Promotion } from "./shared/promo";
 import { claimOnlinePayment } from "./payments/index";
 import { invoiceAfterRefund, issueForOrder, parseInvoiceRequest } from "./payments/invoice";
 import { audit } from "./lib/audit";
@@ -40,9 +40,43 @@ interface Line {
   refundedQty: number;
 }
 
+/**
+ * 購物金回饋規則（滿額贈購物金）：例「尊貴的客人 每消費 $10 送 $1，$1～$1,000,000，365 天到期」。
+ * 符合多條規則時取送最多的一條；沒有規則時沿用舊的「消費回饋 %」。
+ */
+export interface RewardRule {
+  name: string;
+  active: boolean;
+  /** meepShop 會員群組；空 = 所有會員 */
+  groups?: string[];
+  /** 本系統會員等級；空 = 不限 */
+  tiers?: string[];
+  every: number;
+  points: number;
+  minSpend?: number;
+  maxSpend?: number;
+  expiryDays?: number;
+}
+export function rewardFor(settings: FirebaseFirestore.DocumentData, total: number, group: string | null, tier: string | null) {
+  const rules = ((settings.rewardRules ?? []) as RewardRule[]).filter(
+    (r) => r.active && (!r.groups?.length || (group && r.groups.includes(group))) && (!r.tiers?.length || (tier && r.tiers.includes(tier))) && total >= (r.minSpend ?? 0)
+  );
+  if (!rules.length) {
+    const pct = Number(settings.rewardPercent ?? 0);
+    const pv = Number(settings.pointValue ?? 1);
+    return pct > 0 ? { points: (total * pct) / 100 / pv, rule: "消費回饋", expiryDays: undefined } : null;
+  }
+  const calc = (r: RewardRule) => Math.floor(Math.min(total, r.maxSpend || Infinity) / Math.max(1, r.every)) * Math.max(0, r.points);
+  const best = rules.reduce((a, b) => (calc(b) > calc(a) ? b : a));
+  return { points: calc(best), rule: best.name, expiryDays: best.expiryDays || undefined };
+}
+
 export interface TierDef {
   name: string;
+  /** 近 12 個月累計消費滿（元）；0 = 不看累計 */
   minSpend: number;
+  /** 近 12 個月內「單次購物」滿（元）；不填 = 不看單次 */
+  minSingle?: number;
   discountPct: number;
   pointMultiplier: number;
 }
@@ -116,6 +150,9 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
     };
   });
 
+  const shopperId = d.shopperId ? str(d.shopperId, "會員", { max: 64 }) : null;
+  const shopperDoc = shopperId ? (await db.doc(`shoppers/${shopperId}`).get()).data() : undefined;
+
   // --- 促銷：伺服器重算一次（與 POS 畫面用同一個引擎） ---
   const promoSnap = await db.collection("promotions").where("active", "==", true).get();
   const promotions = promoSnap.docs.map((p) => ({ id: p.id, ...p.data() }) as Promotion);
@@ -124,7 +161,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
     lines.map((l, i) => ({ key: String(i), variantId: l.variantId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct })),
     (vid) => infoById.get(vid),
     promotions,
-    taipeiDate()
+    { ...taipeiClock(), isMember: !!shopperId, tier: shopperDoc?.tier ?? null, group: shopperDoc?.memberGroup ?? null }
   );
   lines.forEach((l, i) => {
     l.promoDiscount = promo.lineDiscount[String(i)] ?? 0;
@@ -157,14 +194,14 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
 
   const subtotal = lines.reduce((s, l) => s + l.total, 0);
   const promoTotal = promo.total;
-  const shopperId = d.shopperId ? str(d.shopperId, "會員", { max: 64 }) : null;
-  const shopperDoc = shopperId ? (await db.doc(`shoppers/${shopperId}`).get()).data() : undefined;
-
   // --- 會員等級折扣、生日月（以伺服器上的會員資料為準） ---
   const tier = memberTier(settings, shopperDoc?.tier);
   const birthdayMonth = !!shopperDoc?.birthMonth && shopperDoc.birthMonth === taipeiDate().slice(5, 7);
   const memberDiscountPct = tier?.discountPct ?? 0;
-  const memberDiscount = Math.round((subtotal * memberDiscountPct) / 100);
+  // 設了「不併用會員折扣」的促銷，那些品項不再打會員折扣
+  const noStack = new Set(promo.noMemberStack.map(Number));
+  const memberBase = lines.reduce((s2, l, i) => s2 + (noStack.has(i) ? 0 : l.total), 0);
+  const memberDiscount = Math.round((memberBase * memberDiscountPct) / 100);
   const afterMember = subtotal - memberDiscount;
 
   const orderDiscountPct = num(d.orderDiscountPct ?? 0, "整單折扣", { min: 0, max: 100 });
@@ -204,7 +241,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   assert(nonCash <= total, "非現金付款不能超過應收金額（不能找零）");
   const change = paid - total;
 
-  const shopper = shopperId ? { id: shopperId, name: shopperDoc?.name ?? "", email: shopperDoc?.email ?? "", mobile: shopperDoc?.mobile ?? "", tier: tier?.name ?? null } : null;
+  const shopper = shopperId ? { id: shopperId, name: shopperDoc?.name ?? "", email: shopperDoc?.email ?? "", mobile: shopperDoc?.mobile ?? "", tier: tier?.name ?? null, group: shopperDoc?.memberGroup ?? null } : null;
   const pointMultiplier = (tier?.pointMultiplier || 1) * (birthdayMonth ? Number(settings.birthdayPointMultiplier || 1) : 1);
 
   // --- 1. pending record (idempotent) ---
@@ -301,13 +338,13 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   await pushBulk(moveIds);
 
   // --- 4. 回饋購物金 ---
-  const rewardPercent = Number(settings.rewardPercent ?? 0);
-  if (order.shopper && rewardPercent > 0 && order.total > 0) {
-    const earned = Math.floor(((order.total * rewardPercent) / 100 / pointValue) * (order.pointMultiplier || 1));
+  const reward = order.shopper && order.total > 0 ? rewardFor(settings, order.total, order.shopper.group ?? null, order.shopper.tier ?? null) : null;
+  if (order.shopper && reward) {
+    const earned = Math.floor(reward.points * (order.pointMultiplier || 1));
     if (earned > 0) {
       try {
-        await meep.sendRewardPoints(order.shopper.id, earned, `門市消費回饋 ${order.orderNo}`);
-        await ref.update({ rewardEarned: earned, rewardEarnStatus: "ok" });
+        await meep.sendRewardPoints(order.shopper.id, earned, `門市消費回饋 ${order.orderNo}（${reward.rule}）`, reward.expiryDays);
+        await ref.update({ rewardEarned: earned, rewardEarnStatus: "ok", rewardRule: reward.rule });
       } catch (e) {
         await ref.update({ rewardEarned: 0, rewardEarnStatus: `failed: ${errMsg(e)}` });
       }
@@ -768,13 +805,13 @@ export const searchShopper = onCall(opts, async (req) => {
       const live = await meep.getShopper(id);
       if (live) {
         points = live.usableRewardPoints;
-        await db.doc(`shoppers/${id}`).update({ points, name: live.name ?? "", mobile: live.mobile ?? "", mobileKey: mobileKey(live.mobile) });
+        await db.doc(`shoppers/${id}`).update({ points, name: live.name ?? "", mobile: live.mobile ?? "", mobileKey: mobileKey(live.mobile), memberGroup: live.memberGroup?.title ?? null });
       }
     } catch {
       // fall back to cached points
     }
     const s = (await db.doc(`shoppers/${id}`).get()).data()!;
-    out.push({ id, name: s.name, email: s.email, mobile: s.mobile, points: points ?? s.points ?? 0, live: points !== null, tier: s.tier ?? null, birthMonth: s.birthMonth ?? null, spend12m: s.spend12m ?? 0 });
+    out.push({ id, name: s.name, email: s.email, mobile: s.mobile, points: points ?? s.points ?? 0, live: points !== null, tier: s.tier ?? null, birthMonth: s.birthMonth ?? null, spend12m: s.spend12m ?? 0, group: s.memberGroup ?? null });
   }
   return { shoppers: out };
 });

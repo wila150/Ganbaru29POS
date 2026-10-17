@@ -2,10 +2,10 @@ import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverT
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
 import { Badge, Empty, Field, Modal, useAction } from "../../components/ui";
-import { daysSince, useData } from "../../data";
+import { daysSince, useData, variantName } from "../../data";
 import { db } from "../../firebase";
 import { searchVariants } from "../../lib/lookup";
-import { describePromo, promoIsLive, PROMO_TYPE_LABEL, type PromoScope, type PromoType, type Promotion } from "../../lib/promo";
+import { applyPromotions, describePromo, inScope, PROMO_TYPE_LABEL, taipeiClock, type PromoScope, type PromoType, type Promotion } from "../../lib/promo";
 import { money, todayStr } from "../../lib/util";
 import type { Variant } from "../../types";
 
@@ -81,20 +81,33 @@ function scopeText(s?: PromoScope) {
 }
 
 const TYPE_HINT: Record<PromoType, string> = {
-  percent_off: "例：滯銷品 7 折 → 折扣 30%",
-  nth_discount: "例：第二件 6 折 → 第 2 件、折扣 40%（每 2 件中較便宜的那件打折）",
-  bundle_price: "例：任選 3 件 1000 元（優先把貴的湊成一組）",
-  addon: "例：買上衣，配件加 99 元購（每買 1 件適用商品可加購 1 件）",
+  percent_off: "適用商品直接打折。例：滯銷品 7 折、全館 85 折",
+  amount_off: "適用商品每件折抵固定金額。例：每件折 $100",
+  nth_discount: "每 N 件中最便宜的那件打折。例：第二件 6 折",
+  bundle_price: "任選 N 件組成特價（優先把貴的湊成一組）。例：任選 3 件 $1000",
+  threshold: "適用商品合計滿額或滿件數就折。例：滿 $2000 折 $200、每滿 $1000 折 $100、買 3 件以上 85 折",
+  addon: "買適用商品，可用加購價買另一件指定商品。例：買上衣，配件加 $99 購",
+};
+const WEEK = ["日", "一", "二", "三", "四", "五", "六"];
+
+/** 幾折 ↔ 折扣 %：7 折 = 30% off；75 折 = 25% off */
+const zheToPct = (z: number) => (z <= 0 ? 0 : z < 10 ? 100 - z * 10 : 100 - z);
+const pctToZhe = (p: number | undefined) => {
+  const z = 100 - (p ?? 0);
+  return z % 10 === 0 ? z / 10 : z;
 };
 
 function PromoEditor({ promo, onClose }: { promo: PromoDoc | null; onClose: () => void }) {
   const { profile } = useAuth();
+  const { settings, variants } = useData();
   const [p, setP] = useState<Omit<PromoDoc, "id">>(
-    promo ?? { name: "", active: true, type: "nth_discount", n: 2, percentOff: 40, scope: { kind: "all" }, startDate: todayStr(), endDate: "" }
+    promo ?? { name: "", active: true, type: "nth_discount", n: 2, percentOff: 40, scope: { kind: "all" }, startDate: todayStr(), endDate: "", memberRule: "none", thresholdType: "amount", thresholdReward: "amount" }
   );
-  const [picking, setPicking] = useState<"scope" | "addonScope" | null>(null);
+  const [picking, setPicking] = useState<"scope" | "addonScope" | "excludeScope" | null>(null);
   const { busy, run } = useAction();
   const set = (patch: Partial<Promotion>) => setP((x) => ({ ...x, ...patch }));
+  const tiers = (settings.memberTiers ?? []).map((t) => t.name);
+  const groups = settings.memberGroups ?? [];
 
   const save = () =>
     run(async () => {
@@ -107,13 +120,36 @@ function PromoEditor({ promo, onClose }: { promo: PromoDoc | null; onClose: () =
         startDate: p.startDate || null,
         endDate: p.endDate || null,
         scope: p.scope,
+        excludeScope: p.excludeScope && p.excludeScope.kind !== "all" ? p.excludeScope : null,
+        memberRule: p.memberRule ?? "none",
+        memberTiers: p.memberRule === "tiers" ? p.memberTiers ?? [] : [],
+        memberGroups: p.memberRule === "groups" ? p.memberGroups ?? [] : [],
+        days: p.days?.length && p.days.length < 7 ? p.days : [],
+        timeFrom: p.timeFrom || null,
+        timeTo: p.timeTo || null,
+        minSpend: Number(p.minSpend) || 0,
+        maxUses: Number(p.maxUses) || 0,
+        noMemberStack: !!p.noMemberStack,
         note: p.note ?? null,
         updatedBy: profile?.name ?? "",
         updatedAt: serverTimestamp(),
       };
-      if (p.type === "percent_off" || p.type === "nth_discount") data.percentOff = Number(p.percentOff) || 0;
+      const needsPct = p.type === "percent_off" || p.type === "nth_discount" || (p.type === "threshold" && p.thresholdReward === "percent");
+      const needsAmt = p.type === "amount_off" || (p.type === "threshold" && p.thresholdReward === "amount");
+      if (needsPct) {
+        if (!(Number(p.percentOff) > 0 && Number(p.percentOff) < 100)) throw new Error("請輸入幾折（例：7 或 75）");
+        data.percentOff = Number(p.percentOff);
+      }
+      if (needsAmt) {
+        if (!(Number(p.amountOff) > 0)) throw new Error("請輸入折抵金額");
+        data.amountOff = Number(p.amountOff);
+      }
       if (p.type === "nth_discount" || p.type === "bundle_price") data.n = Number(p.n) || 2;
       if (p.type === "bundle_price") data.bundlePrice = Number(p.bundlePrice) || 0;
+      if (p.type === "threshold") {
+        if (!(Number(p.threshold) > 0)) throw new Error("請輸入門檻");
+        Object.assign(data, { thresholdType: p.thresholdType ?? "amount", threshold: Number(p.threshold), thresholdReward: p.thresholdReward ?? "amount", repeat: !!p.repeat });
+      }
       if (p.type === "addon") {
         data.addonScope = p.addonScope ?? { kind: "all" };
         data.addonPrice = Number(p.addonPrice) || 0;
@@ -123,18 +159,13 @@ function PromoEditor({ promo, onClose }: { promo: PromoDoc | null; onClose: () =
       onClose();
     }, "已儲存");
 
-  const scopeEditor = (key: "scope" | "addonScope", label: string) => {
+  const scopeEditor = (key: "scope" | "addonScope" | "excludeScope", label: string, allowAll = true) => {
     const s = (p[key] ?? { kind: "all" }) as PromoScope;
+    const choices = [...(allowAll ? [["all", key === "excludeScope" ? "不排除" : "全部商品"]] : []), ["categories", "依分類"], ["products", "指定商品"]] as [PromoScope["kind"], string][];
     return (
       <Field label={label}>
         <div className="segmented">
-          {(
-            [
-              ["all", "全部商品"],
-              ["categories", "依分類"],
-              ["products", "指定商品"],
-            ] as const
-          ).map(([k, l]) => (
+          {choices.map(([k, l]) => (
             <button
               key={k}
               type="button"
@@ -158,7 +189,31 @@ function PromoEditor({ promo, onClose }: { promo: PromoDoc | null; onClose: () =
     );
   };
 
-  const off = Number(p.percentOff) || 0;
+  const zheField = (
+    <Field label="打幾折" hint={Number(p.percentOff) > 0 ? `= 折扣 ${p.percentOff}%（例：$1000 → $${1000 - Math.round((1000 * Number(p.percentOff)) / 100)}）` : "輸入 7 = 7 折、75 = 75 折、9 = 9 折"}>
+      <input type="number" min={1} max={99} step={1} value={p.percentOff ? pctToZhe(p.percentOff) : ""} onChange={(e) => set({ percentOff: zheToPct(Number(e.target.value)) })} placeholder="例：7" />
+    </Field>
+  );
+
+  // 試算：適用範圍內最貴的 4 件、各 1 件
+  const sample = useMemo(() => {
+    const live = { ...(p as Promotion), id: "preview", active: true, startDate: null, endDate: null, days: [], timeFrom: null, timeTo: null, memberRule: "none" as const };
+    const info = (v: (typeof variants)[number]) => ({ productId: v.productId, category: v.posCategory, tags: v.tags ?? [] });
+    const pool = variants.filter((v) => (v.price ?? 0) > 0 && inScope(live.scope, info(v)) && !(live.excludeScope && live.excludeScope.kind !== "all" && inScope(live.excludeScope, info(v))));
+    const seen = new Set<string>();
+    const picks = pool.filter((v) => !seen.has(v.productId) && seen.add(v.productId)).slice(0, 3);
+    if (live.type === "addon") {
+      const add = variants.find((v) => inScope(live.addonScope, info(v)) && !picks.some((x) => x.id === v.id));
+      if (add) picks.push(add);
+    }
+    const lines = picks.map((v, i) => ({ key: String(i), variantId: v.id, qty: live.type === "nth_discount" || live.type === "bundle_price" ? 1 : 1, unitPrice: v.price, discountPct: 0 }));
+    const r = applyPromotions(lines, (vid) => {
+      const v = variants.find((x) => x.id === vid);
+      return v ? info(v) : undefined;
+    }, [live], { ...taipeiClock(), isMember: true, tier: null, group: null });
+    return { picks, r };
+  }, [p, variants]);
+
   return (
     <Modal
       title={promo ? "編輯促銷活動" : "新增促銷活動"}
@@ -170,6 +225,7 @@ function PromoEditor({ promo, onClose }: { promo: PromoDoc | null; onClose: () =
         </button>
       }
     >
+      <h3 className="form-section">1. 基本設定</h3>
       <div className="grid-fields">
         <Field label="活動名稱（會印在收據上）">
           <input value={p.name} onChange={(e) => set({ name: e.target.value })} placeholder="例：秋季出清 第二件6折" />
@@ -182,29 +238,30 @@ function PromoEditor({ promo, onClose }: { promo: PromoDoc | null; onClose: () =
         </Field>
       </div>
 
-      <Field label="活動類型" hint={TYPE_HINT[p.type]}>
-        <div className="segmented">
-          {(Object.keys(PROMO_TYPE_LABEL) as PromoType[]).map((t) => (
-            <button key={t} type="button" className={p.type === t ? "active" : ""} onClick={() => set({ type: t })}>
-              {PROMO_TYPE_LABEL[t]}
-            </button>
-          ))}
-        </div>
-      </Field>
-
+      <h3 className="form-section">2. 優惠方式</h3>
+      <div className="type-grid">
+        {(Object.keys(PROMO_TYPE_LABEL) as PromoType[]).map((t) => (
+          <button key={t} type="button" className={`type-card ${p.type === t ? "active" : ""}`} onClick={() => set({ type: t })}>
+            <strong>{PROMO_TYPE_LABEL[t]}</strong>
+            <small>{TYPE_HINT[t].split("。")[0]}</small>
+          </button>
+        ))}
+      </div>
+      <p className="muted small">{TYPE_HINT[p.type]}</p>
       <div className="grid-fields">
+        {(p.type === "percent_off" || p.type === "nth_discount") && zheField}
+        {p.type === "amount_off" && (
+          <Field label="每件折抵（元）">
+            <input type="number" min={1} value={p.amountOff ?? ""} onChange={(e) => set({ amountOff: Number(e.target.value) })} />
+          </Field>
+        )}
         {(p.type === "nth_discount" || p.type === "bundle_price") && (
           <Field label={p.type === "nth_discount" ? "第幾件" : "任選幾件"}>
             <input type="number" min={p.type === "nth_discount" ? 2 : 1} value={p.n ?? ""} onChange={(e) => set({ n: Number(e.target.value) })} />
           </Field>
         )}
-        {(p.type === "percent_off" || p.type === "nth_discount") && (
-          <Field label="折扣 %" hint={off > 0 && off < 100 ? `= ${(100 - off) / 10} 折` : undefined}>
-            <input type="number" min={1} max={100} value={p.percentOff ?? ""} onChange={(e) => set({ percentOff: Number(e.target.value) })} />
-          </Field>
-        )}
         {p.type === "bundle_price" && (
-          <Field label="特價（元）">
+          <Field label="組合特價（元）">
             <input type="number" min={0} value={p.bundlePrice ?? ""} onChange={(e) => set({ bundlePrice: Number(e.target.value) })} />
           </Field>
         )}
@@ -213,15 +270,128 @@ function PromoEditor({ promo, onClose }: { promo: PromoDoc | null; onClose: () =
             <input type="number" min={0} value={p.addonPrice ?? ""} onChange={(e) => set({ addonPrice: Number(e.target.value) })} />
           </Field>
         )}
+        {p.type === "threshold" && (
+          <>
+            <Field label="門檻">
+              <div className="inline-form" style={{ margin: 0 }}>
+                <select value={p.thresholdType ?? "amount"} onChange={(e) => set({ thresholdType: e.target.value as "amount" | "qty" })}>
+                  <option value="amount">滿金額（元）</option>
+                  <option value="qty">滿件數（件）</option>
+                </select>
+                <input type="number" min={1} value={p.threshold ?? ""} onChange={(e) => set({ threshold: Number(e.target.value) })} placeholder={p.thresholdType === "qty" ? "例：3" : "例：2000"} />
+              </div>
+            </Field>
+            <Field label="達到後">
+              <select value={p.thresholdReward ?? "amount"} onChange={(e) => set({ thresholdReward: e.target.value as "amount" | "percent" })}>
+                <option value="amount">折抵金額</option>
+                <option value="percent">打折</option>
+              </select>
+            </Field>
+            {p.thresholdReward === "percent" ? (
+              zheField
+            ) : (
+              <Field label="折抵（元）">
+                <input type="number" min={1} value={p.amountOff ?? ""} onChange={(e) => set({ amountOff: Number(e.target.value) })} />
+              </Field>
+            )}
+            {p.thresholdReward !== "percent" && (
+              <label className="check">
+                <input type="checkbox" checked={!!p.repeat} onChange={(e) => set({ repeat: e.target.checked })} /> 每滿一次再折一次（例：每滿 $1000 折 $100）
+              </label>
+            )}
+          </>
+        )}
       </div>
 
+      <h3 className="form-section">3. 適用商品</h3>
       {scopeEditor("scope", p.type === "addon" ? "要買的商品（觸發加購）" : "適用商品")}
       {p.type === "addon" && scopeEditor("addonScope", "可加價購的商品")}
+      {scopeEditor("excludeScope", "排除（不參加活動的商品，例：新品、特價品）")}
 
+      <h3 className="form-section">4. 條件</h3>
+      <div className="grid-fields">
+        <Field label="適用對象">
+          <select value={p.memberRule ?? "none"} onChange={(e) => set({ memberRule: e.target.value as Promotion["memberRule"] })}>
+            <option value="none">所有客人</option>
+            <option value="members">會員限定</option>
+            {groups.length > 0 && <option value="groups">指定 meepShop 會員群組</option>}
+            {tiers.length > 0 && <option value="tiers">指定本系統會員等級</option>}
+          </select>
+        </Field>
+        <Field label="最低消費（適用商品合計，元）" hint="0 = 不限">
+          <input type="number" min={0} value={p.minSpend ?? 0} onChange={(e) => set({ minSpend: Number(e.target.value) })} />
+        </Field>
+        <Field label="每單最多套用（件／組／次）" hint="0 = 不限">
+          <input type="number" min={0} value={p.maxUses ?? 0} onChange={(e) => set({ maxUses: Number(e.target.value) })} />
+        </Field>
+      </div>
+      {p.memberRule === "groups" && (
+        <div className="chips">
+          {groups.map((g) => {
+            const on = (p.memberGroups ?? []).includes(g);
+            return (
+              <button key={g} type="button" className={`chip ${on ? "active" : ""}`} onClick={() => set({ memberGroups: on ? (p.memberGroups ?? []).filter((x) => x !== g) : [...(p.memberGroups ?? []), g] })}>
+                {g}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {p.memberRule === "tiers" && (
+        <div className="chips">
+          {tiers.map((g) => {
+            const on = (p.memberTiers ?? []).includes(g);
+            return (
+              <button key={g} type="button" className={`chip ${on ? "active" : ""}`} onClick={() => set({ memberTiers: on ? (p.memberTiers ?? []).filter((x) => x !== g) : [...(p.memberTiers ?? []), g] })}>
+                {g}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <Field label="星期（都不選 = 每天）">
+        <div className="chips">
+          {WEEK.map((w, i) => {
+            const on = (p.days ?? []).includes(i);
+            return (
+              <button key={i} type="button" className={`chip ${on ? "active" : ""}`} onClick={() => set({ days: on ? (p.days ?? []).filter((x) => x !== i) : [...(p.days ?? []), i].sort() })}>
+                週{w}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+      <div className="grid-fields">
+        <Field label="時段開始（留空 = 開店）">
+          <input type="time" value={p.timeFrom ?? ""} onChange={(e) => set({ timeFrom: e.target.value })} />
+        </Field>
+        <Field label="時段結束（留空 = 打烊）">
+          <input type="time" value={p.timeTo ?? ""} onChange={(e) => set({ timeTo: e.target.value })} />
+        </Field>
+      </div>
+
+      <h3 className="form-section">5. 搭配</h3>
+      <label className="check">
+        <input type="checkbox" checked={!p.noMemberStack} onChange={(e) => set({ noMemberStack: !e.target.checked })} /> 可以和會員等級折扣併用
+      </label>
+      <p className="muted small">同一件商品只會套一個促銷活動；多個活動重疊時，系統自動選對客人最優惠的組合。店員手動打折的品項不再套活動。</p>
       <label className="check">
         <input type="checkbox" checked={p.active} onChange={(e) => set({ active: e.target.checked })} /> 啟用
       </label>
-      {promoIsLive({ ...(p as Promotion), id: "x" }, todayStr()) && <p className="muted small">儲存後收銀畫面立即生效：{describePromo(p as Promotion)}</p>}
+
+      <div className="preview-box">
+        <strong>活動摘要：</strong>
+        {describePromo(p as Promotion)}
+        {sample.picks.length > 0 ? (
+          <div className="small">
+            試算：{sample.picks.map((v) => `${variantName(v)} ${money(v.price)}`).join(" ＋ ")}
+            <br />→ 合計 {money(sample.picks.reduce((s2, v) => s2 + v.price, 0))}，折 <strong>{money(sample.r.total)}</strong>
+            {sample.r.total === 0 && "（這個組合還沒達到條件）"}
+          </div>
+        ) : (
+          <div className="small muted">適用範圍內沒有商品可以試算</div>
+        )}
+      </div>
 
       {picking && (
         <ProductPicker

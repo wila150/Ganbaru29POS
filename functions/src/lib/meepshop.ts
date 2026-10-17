@@ -121,6 +121,7 @@ export interface MShopper {
   mobile: string | null;
   usableRewardPoints: number;
   birthDate: string | null;
+  memberGroup: { title: string } | null;
   updatedAt: string;
 }
 
@@ -258,7 +259,7 @@ export async function updateOrderShipmentStatus(orderNumber: string, shipmentSta
 
 // ---------- Shoppers ----------
 
-const SHOPPER_FIELDS = `id email name mobile birthDate usableRewardPoints updatedAt`;
+const SHOPPER_FIELDS = `id email name mobile birthDate usableRewardPoints updatedAt memberGroup { title }`;
 
 export async function shoppersPage(after: string | null, updatedSince?: Date) {
   const data = await gql<{ shoppers: Connection<MShopper> }>(
@@ -316,10 +317,16 @@ export async function deductRewardPoints(shopperId: string, points: number) {
   if (s !== "OK") throw new MeepError("rejected", REWARD_ERRORS[s] ?? s);
 }
 
-export async function sendRewardPoints(shopperId: string, points: number, description: string) {
+/** expiryDays：有填就設定使用期限（例：寄送後 365 天），不填 = 永久有效 */
+export async function sendRewardPoints(shopperId: string, points: number, description: string, expiryDays?: number) {
+  const input: Record<string, unknown> = { shopperId, points, description, methodType: "UNLIMITED" };
+  if (expiryDays && expiryDays > 0) {
+    const now = new Date();
+    Object.assign(input, { methodType: "CUSTOM", startAt: now.toISOString(), endAt: new Date(now.getTime() + expiryDays * 86400_000).toISOString() });
+  }
   const data = await gql<{ sendShopperRewardPoint: { status: string } }>(
     `mutation S($input: SendShopperRewardPointInput!) { sendShopperRewardPoint(input: $input) { status } }`,
-    { input: { shopperId, points, methodType: "UNLIMITED", description } }
+    { input }
   );
   const s = data.sendShopperRewardPoint.status;
   if (s !== "OK") throw new MeepError("rejected", REWARD_ERRORS[s] ?? s);

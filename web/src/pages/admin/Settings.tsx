@@ -5,7 +5,7 @@ import { Badge, Field, useAction, useToast } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
-import type { ShopSettings, TierDef } from "../../types";
+import type { RewardRule, ShopSettings, TierDef } from "../../types";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
 
 export function Settings() {
@@ -323,7 +323,7 @@ function MemberSettings() {
     <section className="card">
       <h2>會員等級與生日禮</h2>
       <p className="muted small">
-        依「近 12 個月消費（門市＋網店）」每天凌晨自動升降級；結帳時自動套用等級折扣，回饋購物金乘上倍數。meepShop 不能改會員等級，等級只存在本系統。
+        依「近 12 個月消費（門市＋網店）」每天凌晨自動升降級，累計或單次任一達標即升級；結帳時自動套用等級折扣，回饋購物金乘上倍數。meepShop 不能改會員等級，等級只存在本系統。
         {settings.tiersAt && ` 上次計算：${fmtTime(settings.tiersAt)}`}
         {settings.tiersError && <span className="error"> 計算失敗：{settings.tiersError}</span>}
       </p>
@@ -332,7 +332,8 @@ function MemberSettings() {
           <thead>
             <tr>
               <th>等級名稱</th>
-              <th className="num">12 個月消費滿（元）</th>
+              <th className="num">12 個月累計滿（元）</th>
+              <th className="num">或單次購物滿（元）</th>
               <th className="num">結帳折扣 %</th>
               <th className="num">購物金回饋倍數</th>
               <th />
@@ -346,6 +347,9 @@ function MemberSettings() {
                 </td>
                 <td>
                   <input type="number" min={0} value={t.minSpend} onChange={(e) => setTier(i, { minSpend: Number(e.target.value) })} />
+                </td>
+                <td>
+                  <input type="number" min={0} value={t.minSingle ?? ""} placeholder="不限" onChange={(e) => setTier(i, { minSingle: e.target.value === "" ? undefined : Number(e.target.value) })} />
                 </td>
                 <td>
                   <input type="number" min={0} max={100} value={t.discountPct} onChange={(e) => setTier(i, { discountPct: Number(e.target.value) })} />
@@ -373,6 +377,7 @@ function MemberSettings() {
           </button>
         )}
       </div>
+      <RewardRules />
       <div className="grid-fields" style={{ marginTop: 12 }}>
         <Field label="生日禮購物金（點）" hint="每月 1 日送給當月壽星，一年一次；0 = 不送">
           <input type="number" min={0} value={form.birthdayGiftPoints ?? 0} onChange={(e) => set("birthdayGiftPoints", Number(e.target.value))} />
@@ -651,5 +656,81 @@ function StaffMoneySettings() {
         儲存
       </button>
     </section>
+  );
+}
+
+/** 購物金回饋規則（門市結帳用；網店的回饋由 meepShop 自己發） */
+function RewardRules() {
+  const { settings } = useData();
+  const { form, set, save, busy } = useSettingsForm(["rewardRules"]);
+  const rules = form.rewardRules ?? [];
+  const groups = settings.memberGroups ?? [];
+  const tiers = (settings.memberTiers ?? []).map((t) => t.name);
+  const setRule = (i: number, patch: Partial<RewardRule>) => set("rewardRules", rules.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const toggle = (list: string[] | undefined, v: string) => ((list ?? []).includes(v) ? (list ?? []).filter((x) => x !== v) : [...(list ?? []), v]);
+  return (
+    <div className="reward-rules">
+      <h3>購物金回饋（門市結帳）</h3>
+      <p className="muted small">
+        門市結帳時依規則送購物金到客人的 meepShop 帳戶（網店訂單的回饋由 meepShop 自己發，不會重複）。符合多條時取送最多的一條，再乘上會員等級、生日月的倍數。
+      </p>
+      {rules.map((r, i) => (
+        <div key={i} className="card rule-card">
+          <div className="row-between">
+            <input value={r.name} onChange={(e) => setRule(i, { name: e.target.value })} placeholder="規則名稱，例：回饋甘爹" style={{ maxWidth: 260 }} />
+            <div className="btn-row">
+              <label className="check">
+                <input type="checkbox" checked={r.active} onChange={(e) => setRule(i, { active: e.target.checked })} /> 啟用
+              </label>
+              <button className="btn btn-sm btn-ghost" onClick={() => set("rewardRules", rules.filter((_, j) => j !== i))}>
+                刪除
+              </button>
+            </div>
+          </div>
+          <div className="inline-form">
+            <span>每消費 $</span>
+            <input type="number" min={1} value={r.every} onChange={(e) => setRule(i, { every: Number(e.target.value) })} style={{ flex: "0 0 90px" }} />
+            <span>送購物金 $</span>
+            <input type="number" min={1} value={r.points} onChange={(e) => setRule(i, { points: Number(e.target.value) })} style={{ flex: "0 0 80px" }} />
+            <span>，消費 $</span>
+            <input type="number" min={0} value={r.minSpend ?? 1} onChange={(e) => setRule(i, { minSpend: Number(e.target.value) })} style={{ flex: "0 0 90px" }} />
+            <span>～ $</span>
+            <input type="number" min={0} value={r.maxSpend ?? ""} placeholder="不限" onChange={(e) => setRule(i, { maxSpend: e.target.value === "" ? undefined : Number(e.target.value) })} style={{ flex: "0 0 120px" }} />
+            <span>，使用期限</span>
+            <input type="number" min={0} value={r.expiryDays ?? ""} placeholder="永久" onChange={(e) => setRule(i, { expiryDays: e.target.value === "" ? undefined : Number(e.target.value) })} style={{ flex: "0 0 80px" }} />
+            <span>天</span>
+          </div>
+          <div className="small">適用 meepShop 群組（都不選 = 所有會員）：</div>
+          <div className="chips">
+            {groups.length === 0 && <span className="muted small">尚未同步到群組（會員同步後會出現）</span>}
+            {groups.map((g) => (
+              <button key={g} type="button" className={`chip ${(r.groups ?? []).includes(g) ? "active" : ""}`} onClick={() => setRule(i, { groups: toggle(r.groups, g) })}>
+                {g}
+              </button>
+            ))}
+          </div>
+          {tiers.length > 0 && (
+            <>
+              <div className="small">或限本系統等級（都不選 = 不限）：</div>
+              <div className="chips">
+                {tiers.map((g) => (
+                  <button key={g} type="button" className={`chip ${(r.tiers ?? []).includes(g) ? "active" : ""}`} onClick={() => setRule(i, { tiers: toggle(r.tiers, g) })}>
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      ))}
+      <div className="btn-row">
+        <button className="btn btn-sm" onClick={() => set("rewardRules", [...rules, { name: "", active: true, every: 10, points: 1, minSpend: 1, expiryDays: 365 }])}>
+          ＋ 新增回饋規則
+        </button>
+        <button className="btn btn-sm btn-primary" disabled={busy} onClick={save}>
+          儲存回饋規則
+        </button>
+      </div>
+    </div>
   );
 }

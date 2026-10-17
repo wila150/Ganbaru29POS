@@ -83,7 +83,7 @@ export function Register() {
   }, [incoming, nav]);
 
   const pointValue = settings.pointValue ?? 1;
-  const promo = useMemo(() => cartPromos(cart, byId, promotions), [cart, byId, promotions]);
+  const promo = useMemo(() => cartPromos(cart, byId, promotions, shopper), [cart, byId, promotions, shopper]);
   const tier = shopper?.tier ? (settings.memberTiers ?? []).find((x) => x.name === shopper.tier) : undefined;
   const isBirthday = !!shopper?.birthMonth && shopper.birthMonth === todayStr().slice(5, 7);
   const t = totals(cart, disc, pointValue, promo, tier?.discountPct ?? 0);
@@ -249,6 +249,7 @@ export function Register() {
               <>
                 {isBirthday && "🎂 "}
                 {shopper.name || shopper.mobile} {shopper.tier && <span className="tag">{shopper.tier}</span>}
+                {shopper.group && <span className="tag tag-promo">{shopper.group}</span>}
                 <small>購物金 {shopper.points}</small>
               </>
             ) : (
@@ -551,6 +552,7 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
                     <span>{s.name || "(未填姓名)"}</span>
                     <small className="muted">
                       {s.mobile} · {s.email} · 購物金 {s.points}
+                      {s.group && ` · ${s.group}`}
                       {s.live === false && "（快取）"}
                     </small>
                   </button>
