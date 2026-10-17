@@ -38,7 +38,7 @@ const ADMIN_NAV: NavItem[] = [
     icon: "%",
     min: "manager",
     children: [
-      { to: "/admin/promotions", label: "促銷活動", min: "manager" },
+      { to: "/admin/promotions", label: "折扣", min: "manager" },
       { to: "/admin/rewards", label: "購物金回饋", min: "owner" },
     ],
   },
@@ -81,7 +81,7 @@ export function AdminLayout() {
                 <span className="nav-icon" aria-hidden>
                   {n.icon}
                 </span>
-                {kids?.length === 1 && n.label === "行銷" ? kids[0].label : n.label}
+                {kids?.length === 1 && n.label === "行銷" ? "折扣" : n.label}
               </NavLink>
             );
           })}

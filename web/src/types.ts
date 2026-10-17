@@ -101,6 +101,8 @@ export interface ShopSettings {
   lineTokenSetAt?: Timestamp;
   memberTiers?: TierDef[];
   rewardRules?: RewardRule[];
+  /** 會員生日／會員加入購物金（meepShop 寄送，這裡只記錄） */
+  pointGifts?: PointGift[];
   memberGroups?: string[];
   birthdayGiftPoints?: number;
   birthdayPointMultiplier?: number;
@@ -210,6 +212,16 @@ export interface Shopper {
   spend12m?: number;
   /** meepShop 會員群組 */
   group?: string | null;
+}
+
+export interface PointGift {
+  kind: "birthday" | "join";
+  name: string;
+  active: boolean;
+  groups?: string[];
+  daysBefore?: number;
+  points: number;
+  expiryDays?: number;
 }
 
 export interface RewardRule {

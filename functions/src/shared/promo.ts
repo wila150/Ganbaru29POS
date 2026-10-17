@@ -8,7 +8,13 @@
  * Lines with a manual discount (單品打折 / 改價) are left out of promotions.
  */
 
-export type PromoType = "percent_off" | "amount_off" | "nth_discount" | "bundle_price" | "addon" | "threshold";
+export type PromoType = "percent_off" | "amount_off" | "nth_discount" | "bundle_price" | "addon" | "threshold" | "gift";
+
+/** 滿額折扣的一層條件（新增條件）：消費滿 threshold → 優惠 value（元或 % off，依 thresholdReward） */
+export interface PromoLevel {
+  threshold: number;
+  value: number;
+}
 
 export type PromoScope =
   | { kind: "all" }
@@ -35,7 +41,8 @@ export interface Promotion {
   n?: number;
   /** bundle_price: price of n items */
   bundlePrice?: number;
-  /** addon: buying a scope item lets one addonScope item per trigger be bought at addonPrice */
+  /** addon: buying a scope item lets one addonScope item per trigger be bought at addonPrice
+   *  gift: 滿額贈 — reaching the threshold makes addonScope items free (levels[].value = 贈品件數) */
   addonScope?: PromoScope;
   addonPrice?: number;
   /** threshold: 滿額（amount）或 滿件（qty） */
@@ -45,6 +52,10 @@ export interface Promotion {
   thresholdReward?: "percent" | "amount";
   /** threshold(amount reward): 每滿一次就再折一次 */
   repeat?: boolean;
+  /** threshold / gift: 多層條件，達到的最高一層生效（有設定時取代 threshold / amountOff / percentOff） */
+  levels?: PromoLevel[];
+  /** 顯示分類：true = 訂單層級（列在「訂單」） */
+  orderLevel?: boolean;
 
   // ---- 條件 ----
   /** 會員限定：none = 不限；members = 任何會員；tiers = 指定等級（本系統）；groups = 指定 meepShop 會員群組 */
@@ -217,6 +228,26 @@ function evaluate(p: Promotion, units: Unit[], free: boolean[]): { saving: numbe
       uses.set(triggers[k].i, 0);
       uses.set(addons[k].i, addons[k].u.price - addonPrice);
     }
+  } else if (p.type === "gift") {
+    const gifts = units
+      .map((u, i) => ({ u, i }))
+      .filter(({ u, i }) => free[i] && inScope(p.addonScope, u.info))
+      .sort((a, b) => byPriceDesc(a.u, b.u));
+    const giftIdx = new Set(gifts.map((g) => g.i));
+    const buys = eligible.filter((x) => !giftIdx.has(x.i));
+    const measure = p.thresholdType === "qty" ? buys.length : buys.reduce((s, x) => s + x.u.price, 0);
+    const levels = p.levels?.length ? p.levels : [{ threshold: p.threshold ?? 0, value: 1 }];
+    const hit = levels.filter((l) => l.threshold > 0 && measure >= l.threshold).sort((a, b) => b.threshold - a.threshold)[0];
+    const count = hit ? Math.min(Math.max(1, Math.floor(hit.value || 1)), cap, gifts.length) : 0;
+    for (let k = 0; k < count; k++) uses.set(gifts[k].i, gifts[k].u.price);
+    if (count) for (const x of buys) if (!uses.has(x.i)) uses.set(x.i, 0);
+  } else if (p.type === "threshold" && p.levels?.length) {
+    const measure = p.thresholdType === "qty" ? eligible.length : eligibleSum;
+    const hit = p.levels.filter((l) => l.threshold > 0 && measure >= l.threshold).sort((a, b) => b.threshold - a.threshold)[0];
+    if (hit && eligible.length) {
+      const save = Math.min(eligibleSum, Math.round(p.thresholdReward === "percent" ? (eligibleSum * Math.min(100, Math.max(0, hit.value))) / 100 : Math.max(0, hit.value)));
+      if (save > 0) spread(uses, eligible, save);
+    }
   } else if (p.type === "threshold") {
     const t = Math.max(0, p.threshold ?? 0);
     const measure = p.thresholdType === "qty" ? eligible.length : eligibleSum;
@@ -280,8 +311,9 @@ export const PROMO_TYPE_LABEL: Record<PromoType, string> = {
   amount_off: "每件折抵",
   nth_discount: "第 N 件折扣",
   bundle_price: "任選 N 件特價",
-  threshold: "滿額／滿件折",
+  threshold: "滿額折扣",
   addon: "加價購",
+  gift: "滿額贈",
 };
 
 /** 30 (% off) → "7 折"；25 → "75 折" */
@@ -311,10 +343,17 @@ export function describePromo(p: Promotion): string {
       main = `加價 $${p.addonPrice ?? 0} 購`;
       break;
     case "threshold": {
+      if (p.levels?.length) {
+        main = levelText(p);
+        break;
+      }
       const cond = p.thresholdType === "qty" ? `買 ${p.threshold ?? 0} 件以上` : `${p.repeat ? "每滿" : "滿"} $${p.threshold ?? 0}`;
       main = `${cond}${p.thresholdReward === "amount" ? ` 折 $${p.amountOff ?? 0}` : ` 打 ${zhe(p.percentOff)}`}`;
       break;
     }
+    case "gift":
+      main = levelText(p);
+      break;
   }
   const extra: string[] = [];
   if (p.memberRule === "members") extra.push("會員限定");
@@ -327,4 +366,17 @@ export function describePromo(p: Promotion): string {
   if (p.noMemberStack) extra.push("不併用會員折扣");
   if (p.couponOnly) extra.push("需優惠碼");
   return extra.length ? `${main}（${extra.join("，")}）` : main;
+}
+
+/** 多層條件文字：消費滿 $2000 折 $200；滿 $3000 享 85 折；滿 3 件 贈 1 件 */
+export function levelText(p: Promotion): string {
+  const levels = p.levels?.length ? p.levels : [{ threshold: p.threshold ?? 0, value: p.type === "gift" ? 1 : p.thresholdReward === "percent" ? p.percentOff ?? 0 : p.amountOff ?? 0 }];
+  return [...levels]
+    .sort((a, b) => a.threshold - b.threshold)
+    .map((l) => {
+      const cond = p.thresholdType === "qty" ? `滿 ${l.threshold} 件` : `消費滿 $${l.threshold}`;
+      const reward = p.type === "gift" ? `贈 ${l.value || 1} 件贈品` : p.thresholdReward === "percent" ? `享 ${zhe(l.value)}` : `折 $${l.value}`;
+      return `${cond} ${reward}`;
+    })
+    .join("；");
 }
