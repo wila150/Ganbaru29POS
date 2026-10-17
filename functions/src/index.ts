@@ -1,5 +1,6 @@
 import "./lib/util";
 
+export { markLabelsPrinted } from "./inventory";
 export { lookupCode, scanMove, undoMove, resolveMovement, bindCode, unbindCode, generateStoreCode, updateVariantMeta, setProductImage } from "./inventory";
 export { syncCatalog, syncShoppersNow, catalogIncremental, catalogDaily, importImageFeed } from "./sync";
 export { createStocktake, stocktakeCount, applyStocktake, cancelStocktake } from "./stocktake";

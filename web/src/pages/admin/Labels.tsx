@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { QrImg } from "../../components/QrImg";
 import { useData } from "../../data";
+import { call } from "../../firebase";
 import { money } from "../../lib/util";
 import type { Variant } from "../../types";
 
@@ -43,10 +44,30 @@ const KEY = "g29.labelPrefs";
  */
 export function Labels() {
   const { byId, settings } = useData();
-  const ids = ((useLocation().state as { ids?: string[] })?.ids ?? []).filter((id) => byId.has(id));
+  const state = useLocation().state as { ids?: string[]; markPrinted?: boolean; mode?: Mode } | null;
+  const allIds = (state?.ids ?? []).filter((id) => byId.has(id));
+  // 可勾選：預設全勾；也可以個別設定張數（空白 = 用上方的「每款幾張」）
+  const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
+  const [perCopies, setPerCopies] = useState<Record<string, number>>({});
+  const [showPick, setShowPick] = useState(allIds.length <= 60);
+  const ids = allIds.filter((id) => !unchecked.has(id));
+  const [marked, setMarked] = useState(false);
+  // 列印後詢問是否標記為「已印」，從「未印 QR」清單移除
+  useEffect(() => {
+    if (!state?.markPrinted || !ids.length) return;
+    const after = () => {
+      if (marked) return;
+      setTimeout(() => {
+        if (confirm(`標籤都印好了嗎？按「確定」把這 ${ids.length} 款從「未印 QR」清單移除。`))
+          call("markLabelsPrinted", { variantIds: ids }).then(() => setMarked(true)).catch((e) => alert(e.message));
+      }, 300);
+    };
+    window.addEventListener("afterprint", after);
+    return () => window.removeEventListener("afterprint", after);
+  }, [ids.join(","), marked]); // eslint-disable-line react-hooks/exhaustive-deps
   const [p, setP] = useState<Prefs>(() => {
     try {
-      return { ...DEFAULT, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+      return { ...DEFAULT, ...JSON.parse(localStorage.getItem(KEY) || "{}"), ...(state?.mode ? { mode: state.mode } : {}) };
     } catch {
       return DEFAULT;
     }
@@ -59,7 +80,14 @@ export function Labels() {
     }
   }, [p]);
   const set = (patch: Partial<Prefs>) => setP((x) => ({ ...x, ...patch }));
-  const list = ids.flatMap((id) => Array.from({ length: p.copies }, () => byId.get(id)!));
+  const list = ids.flatMap((id) => Array.from({ length: perCopies[id] ?? p.copies }, () => byId.get(id)!));
+  const toggle = (id: string) =>
+    setUnchecked((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
   const noCode = p.mode === "tag" ? [...new Set(ids)].map((id) => byId.get(id)!).filter((v) => !tagCode(v)) : [];
 
   const w = p.mode === "qr" ? 40 : p.w;
@@ -76,9 +104,12 @@ export function Labels() {
           </Link>
           <h1>列印標籤（{list.length} 張）</h1>
         </div>
-        <button className="btn btn-primary" onClick={() => window.print()} disabled={!list.length}>
-          列印
-        </button>
+        <div className="btn-row">
+          {marked && <span className="ok small">已標記為已印</span>}
+          <button className="btn btn-primary" onClick={() => window.print()} disabled={!list.length}>
+            列印
+          </button>
+        </div>
       </div>
 
       <div className="card no-print">
@@ -115,6 +146,65 @@ export function Labels() {
             每款 <input type="number" min={1} max={100} value={p.copies} onChange={(e) => set({ copies: Math.max(1, Number(e.target.value) || 1) })} style={{ width: 64 }} /> 張
           </label>
         </div>
+        {allIds.length > 0 && (
+          <div className="label-pick">
+            <div className="row-between">
+              <button className="link-btn" onClick={() => setShowPick((x) => !x)}>
+                {showPick ? "▾" : "▸"} 選擇要印的款式（已勾 {ids.length}／{allIds.length}）
+              </button>
+              {showPick && (
+                <div className="btn-row">
+                  <button className="btn btn-sm btn-ghost" onClick={() => setUnchecked(new Set())}>
+                    全選
+                  </button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setUnchecked(new Set(allIds))}>
+                    全不選
+                  </button>
+                </div>
+              )}
+            </div>
+            {showPick && (
+              <div className="table-wrap" style={{ maxHeight: 360, overflowY: "auto" }}>
+                <table className="table table-compact table-click">
+                  <tbody>
+                    {allIds.map((id) => {
+                      const v = byId.get(id)!;
+                      return (
+                        <tr key={id} onClick={() => toggle(id)}>
+                          <td>
+                            <input type="checkbox" readOnly checked={!unchecked.has(id)} />
+                          </td>
+                          <td>
+                            {v.productTitle} <span className="muted">{v.options}</span>
+                          </td>
+                          <td className="muted small">{v.sku}</td>
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              placeholder={String(p.copies)}
+                              value={perCopies[id] ?? ""}
+                              onChange={(e) => setPerCopies((c) => {
+                                const n = { ...c };
+                                if (e.target.value === "") delete n[id];
+                                else n[id] = Math.max(0, Number(e.target.value) || 0);
+                                return n;
+                              })}
+                              style={{ width: 70 }}
+                              title="這款印幾張（空白 = 用上方設定）"
+                            />{" "}
+                            張
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
         {noCode.length > 0 && <p className="notice notice-warn">{noCode.length} 款沒有條碼或商品編號，吊牌會改印 QR code。可在「商品與條碼」按「產生店內條碼」。</p>}
         {!list.length && <p className="muted">請先在「商品與條碼」勾選要印的款式。</p>}
       </div>

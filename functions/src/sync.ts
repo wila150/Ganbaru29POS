@@ -97,7 +97,8 @@ async function upsertPage(products: MProduct[], seen: Set<string>, full: boolean
       };
       if (!old?.posCategoryManual) data.posCategory = p.tags?.[0] ?? null;
       if (!old) {
-        Object.assign(data, { location: v.warehouseNumber || null, safety: 0, extraCodes: [], batches: [], posSort: 0, imageUrl: img?.url ?? null, imageSource: img?.source ?? null });
+        // 新款式：自動列入「未印 QR」清單（QR 內容 = meepShop 款式編號，任何時候都能印）
+        Object.assign(data, { location: v.warehouseNumber || null, safety: 0, extraCodes: [], batches: [], posSort: 0, imageUrl: img?.url ?? null, imageSource: img?.source ?? null, labelPrinted: false, firstSyncedAt: FieldValue.serverTimestamp() });
       } else if (img?.url && old.imageSource !== "manual" && old.imageUrl !== img.url) {
         data.imageUrl = img.url;
       }

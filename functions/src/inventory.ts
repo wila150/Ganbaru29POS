@@ -199,6 +199,18 @@ export const generateStoreCode = onCall(opts, async (req) => {
   throw new HttpsError("internal", "產生條碼失敗，請再試一次");
 });
 
+/** 標籤印好了：從「未印 QR」清單移除（printed=false 則放回清單，例如要補印） */
+export const markLabelsPrinted = onCall(opts, async (req) => {
+  await requireRole(req, "staff");
+  const ids: string[] = (Array.isArray(req.data?.variantIds) ? req.data.variantIds : []).slice(0, 2000);
+  assert(ids.length, "沒有選擇款式");
+  const printed = req.data?.printed !== false;
+  const writer = db.bulkWriter();
+  ids.forEach((id) => writer.update(db.doc(`variants/${id}`), { labelPrinted: printed, labelPrintedAt: printed ? FieldValue.serverTimestamp() : null }));
+  await writer.close();
+  return { updated: ids.length };
+});
+
 /** 設定：儲位、安全庫存、POS 分類與排序 */
 export const updateVariantMeta = onCall(opts, async (req) => {
   await requireRole(req, "manager");

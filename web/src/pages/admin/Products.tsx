@@ -21,7 +21,7 @@ interface Group {
 export function Products() {
   const { variants, settings } = useData();
   const [q, setQ] = useState("");
-  const [onlyMissing, setOnlyMissing] = useState<"" | "image" | "code" | "location">("");
+  const [onlyMissing, setOnlyMissing] = useState<"" | "image" | "code" | "location" | "unprinted">("");
   const [missingImg, setMissingImg] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [edit, setEdit] = useState<Variant | null>(null);
@@ -37,6 +37,7 @@ export function Products() {
     if (onlyMissing === "image") list = list.filter((v) => !v.imageUrl || missingImg.has(v.productId));
     if (onlyMissing === "code") list = list.filter((v) => !v.barcode && !(v.extraCodes ?? []).length);
     if (onlyMissing === "location") list = list.filter((v) => !v.location);
+    if (onlyMissing === "unprinted") list = list.filter((v) => v.labelPrinted !== true);
     const map = new Map<string, Group>();
     for (const v of list) {
       const g = map.get(v.productId) ?? { productId: v.productId, title: v.productTitle, imageUrl: v.imageUrl, status: v.productStatus, variants: [] };
@@ -90,6 +91,7 @@ export function Products() {
             ["image", `缺圖片 ${missingImg.size || ""}`],
             ["code", "沒有條碼"],
             ["location", "沒有儲位"],
+            ["unprinted", `未印 QR ${variants.filter((v) => v.labelPrinted !== true).length || ""}`],
           ] as const
         ).map(([k, l]) => (
           <button key={k} className={`chip ${onlyMissing === k ? "active" : ""}`} onClick={() => setOnlyMissing(k)}>
@@ -98,13 +100,25 @@ export function Products() {
         ))}
       </div>
 
+      <div className="btn-row" style={{ marginBottom: 10 }}>
+        <button
+          className="btn btn-sm"
+          disabled={!variants.some((v) => v.labelPrinted !== true)}
+          onClick={() => nav("/admin/labels", { state: { ids: variants.filter((v) => v.labelPrinted !== true).map((v) => v.id), markPrinted: true, mode: "qr" } })}
+        >
+          列印全部未印的 QR（{variants.filter((v) => v.labelPrinted !== true).length} 款）
+        </button>
+        <button className="btn btn-sm" disabled={busy} onClick={() => run(() => downloadQrZip(selected.size ? variants.filter((v) => selected.has(v.id)) : variants), "已下載")}>
+          下載{selected.size ? `已選 ${selected.size} 款` : "全部"} QR 圖檔（ZIP）
+        </button>
+      </div>
       {selected.size > 0 && (
         <div className="sticky-bar">
           已選 {selected.size} 款
           <button className="btn btn-sm" onClick={() => setBulk(true)}>
             批次設定
           </button>
-          <button className="btn btn-sm btn-primary" onClick={() => nav("/admin/labels", { state: { ids: [...selected] } })}>
+          <button className="btn btn-sm btn-primary" onClick={() => nav("/admin/labels", { state: { ids: [...selected], markPrinted: true } })}>
             列印吊牌／標籤
           </button>
           <button className="btn btn-sm btn-ghost" onClick={() => setSelected(new Set())}>
@@ -239,6 +253,9 @@ function EditVariant({ variant, onClose }: { variant: Variant; onClose: () => vo
         <div className="center">
           <QrImg value={v.id} size={120} />
           <small className="muted d-block">進貨 QR（款式編號）</small>
+          <button className="btn btn-sm btn-ghost" onClick={() => downloadQrZip([v])}>
+            下載 QR 圖
+          </button>
         </div>
       </div>
 
@@ -372,4 +389,26 @@ function FeedImport() {
       />
     </label>
   );
+}
+
+/** 每個款式一張 QR code PNG（內容 = meepShop 款式編號），打包成 ZIP 下載。 */
+async function downloadQrZip(list: Variant[]) {
+  const [{ default: JSZip }, QR] = await Promise.all([import("jszip"), import("qrcode")]);
+  const zip = new JSZip();
+  const used = new Set<string>();
+  const safe = (s: string) => s.replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
+  for (const v of list) {
+    let name = safe([v.productTitle, v.options.replace(/ \/ /g, "-"), v.sku].filter(Boolean).join("_"));
+    while (used.has(name)) name += "_";
+    used.add(name);
+    const url = await QR.toDataURL(v.id, { margin: 2, width: 600, errorCorrectionLevel: "M" });
+    zip.file(`${name}.png`, url.split(",")[1], { base64: true });
+  }
+  zip.file("說明.txt", "每張 QR code 的內容是 meepShop 款式編號，用 ganbaru29 系統掃描即可對應到商品（進貨、盤點、POS 結帳）。\n");
+  const blob = await zip.generateAsync({ type: "blob" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `ganbaru29_QR_${new Date().toISOString().slice(0, 10)}.zip`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }

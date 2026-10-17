@@ -133,6 +133,8 @@ export const lowStockAlert = onSchedule({ schedule: "0 9 * * *", timeZone: TZ, t
   const f = failed.data().count;
   const u = unknown.data().count;
   if (f || u) parts.push(`\n同步失敗 ${f} 筆、待確認 ${u} 筆`);
+  const unprinted = variants.docs.filter((v) => v.data().labelPrinted === false).length;
+  if (unprinted) parts.push(`\n有 ${unprinted} 款新商品還沒印 QR 標籤（商品與條碼 →「未印 QR」）`);
   if (parts.length > 1) await notifyOwner(parts.join("\n"));
 });
 

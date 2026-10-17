@@ -437,3 +437,4 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .preview-box { background: #fdf2f8; border: 1px solid #fbcfe8; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
 .rule-card { padding: 12px; margin: 8px 0; }
 .reward-rules { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 6px; }
+.label-pick { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
