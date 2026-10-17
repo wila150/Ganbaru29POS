@@ -71,7 +71,8 @@ export async function recomputeTiers() {
       const p = await ordersPage({ first: 50, after });
       for (const e of p.edges) {
         const o = e.node;
-        if (!o?.shopper?.id || o.status === "CANCELED" || o.status === "RETURN") continue;
+        // 與 meepShop 顧客分眾一致：只算「已結案」的網店訂單（處理中、取消、退貨不算消費）
+        if (!o?.shopper?.id || o.status !== "CLOSED") continue;
         add(o.shopper.id, "online", o.totalPrice, new Date(o.createdAt).getTime());
       }
       if (!p.pageInfo.hasNextPage || !p.pageInfo.endCursor) break;

@@ -148,7 +148,7 @@ export function Segments() {
         <div>
           <h1>顧客分眾</h1>
           <div className="muted small">
-            共 {rows.length} 位會員；消費資料合併門市＋網店的全部歷史訂單，每天凌晨 3:30 更新
+            共 {rows.length} 位會員；消費資料合併門市＋網店全部歷史訂單（網店只算「已結案」的訂單，與 meepShop 相同），每天凌晨 3:30 更新
             {settings.tiersAt && `（上次 ${fmtTime(settings.tiersAt)}）`}。
           </div>
         </div>
