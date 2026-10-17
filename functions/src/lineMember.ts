@@ -62,11 +62,13 @@ async function rateLimit(sub: string) {
 export const lineBindMember = onCall({ maxInstances: 10 }, async (req) => {
   const { sub } = await verifyLine(req.data?.idToken);
   await rateLimit(sub);
-  const key = mobileKey(str(req.data?.mobile, "手機", { max: 20 }));
+  const digits = str(req.data?.mobile, "手機", { max: 20 }).replace(/\D/g, "");
   const email = str(req.data?.email, "Email", { max: 120 }).toLowerCase();
-  assert(key && key.length >= 8, "請輸入完整手機號碼");
-  const q = await db.collection("shoppers").where("mobileKey", "==", key).get();
-  const match = q.docs.find((d) => (d.data().emailLower ?? d.data().email?.toLowerCase()) === email);
+  assert(digits.length >= 8, "請輸入完整手機號碼");
+  // 先用 Email 找，再比對手機後 8 碼（不管有沒有輸入 +886、+852 國碼都對得上）
+  const q = await db.collection("shoppers").where("emailLower", "==", email).limit(5).get();
+  const tail = digits.slice(-8);
+  const match = q.docs.find((d) => String(d.data().mobile ?? "").replace(/\D/g, "").slice(-8) === tail);
   assert(match, "找不到符合的會員：請確認手機和 Email 都和註冊網店時一樣，或選擇「註冊新會員」", "not-found");
   const bound = match.data().lineUserId;
   assert(!bound || bound === sub, "這個會員已經綁定其他 LINE 帳號，請洽店員協助", "already-exists");
