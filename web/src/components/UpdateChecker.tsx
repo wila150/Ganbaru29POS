@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { CHANGELOG, LATEST, type ChangeEntry } from "../lib/changelog";
+import { Modal } from "./ui";
 
 const DRAFT_KEY = "g29.posDraft";
 
@@ -30,36 +32,87 @@ export async function checkForUpdate(): Promise<boolean> {
 
 export function UpdateButton({ className = "link-btn small" }: { className?: string }) {
   const [state, setState] = useState<"idle" | "checking" | "latest" | "error">("idle");
+  const [notes, setNotes] = useState(false);
   return (
-    <button
-      type="button"
-      className={className}
-      disabled={state === "checking"}
-      onClick={async () => {
-        setState("checking");
-        try {
-          if (!(await checkForUpdate())) setState("latest");
-        } catch {
-          setState("error");
-        }
-        setTimeout(() => setState("idle"), 3000);
-      }}
-    >
-      {state === "checking" ? "檢查中…" : state === "latest" ? "已是最新版本 ✓" : state === "error" ? "無法連線，稍後再試" : "檢查更新"}
-    </button>
+    <>
+      <button
+        type="button"
+        className={className}
+        disabled={state === "checking"}
+        onClick={async () => {
+          setState("checking");
+          try {
+            if (!(await checkForUpdate())) {
+              setState("latest");
+              setNotes(true);
+            }
+          } catch {
+            setState("error");
+          }
+          setTimeout(() => setState("idle"), 3000);
+        }}
+      >
+        {state === "checking" ? "檢查中…" : state === "latest" ? "已是最新版本 ✓" : state === "error" ? "無法連線，稍後再試" : "檢查更新"}
+      </button>
+      {notes && <ChangelogDialog onClose={() => setNotes(false)} />}
+    </>
   );
 }
 
+/** 更新紀錄（最新的在最上面） */
+export function ChangelogDialog({ onClose, onlyLatest = false }: { onClose: () => void; onlyLatest?: boolean }) {
+  const list: ChangeEntry[] = onlyLatest ? [LATEST] : CHANGELOG;
+  return (
+    <Modal
+      title={onlyLatest ? "🎉 這次更新了什麼" : "更新內容（已是最新版本）"}
+      onClose={onClose}
+      footer={
+        <button className="btn btn-primary block" onClick={onClose}>
+          知道了
+        </button>
+      }
+    >
+      {list.map((c) => (
+        <div key={c.id} className="changelog">
+          <div className="changelog-head">
+            <strong>{c.title}</strong>
+            <span className="muted small">{c.date}</span>
+          </div>
+          <ul>
+            {c.items.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </Modal>
+  );
+}
+
+const SEEN_KEY = "g29.seenChangelog";
+
 export function UpdateChecker() {
   const [newer, setNewer] = useState(false);
+  const [upcoming, setUpcoming] = useState<ChangeEntry | null>(null);
+  // 更新完第一次打開：跳出這次的更新內容（第一次安裝不跳）
+  const [whatsNew, setWhatsNew] = useState(() => {
+    try {
+      const seen = localStorage.getItem(SEEN_KEY);
+      localStorage.setItem(SEEN_KEY, LATEST.id);
+      return !!seen && seen !== LATEST.id;
+    } catch {
+      return false;
+    }
+  });
   useEffect(() => {
     if (import.meta.env.DEV) return;
     let stop = false;
     const check = async () => {
       try {
         const r = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
-        const { build } = await r.json();
+        const { build, notes } = await r.json();
         if (stop || !build || build === __BUILD_ID__) return;
+        if (notes) setUpcoming(notes);
         if (!cartBusy() && !document.querySelector(".modal")) location.reload();
         else setNewer(true);
       } catch {
@@ -76,10 +129,10 @@ export function UpdateChecker() {
       clearInterval(t);
     };
   }, []);
-  if (!newer) return null;
+  if (!newer) return whatsNew ? <ChangelogDialog onlyLatest onClose={() => setWhatsNew(false)} /> : null;
   return (
     <div className="update-bar">
-      有新版本
+      有新版本{upcoming ? `：${upcoming.items.slice(0, 2).join("、")}${upcoming.items.length > 2 ? "…" : ""}` : ""}
       <button className="btn btn-sm" onClick={() => location.reload()}>
         立即更新
       </button>

@@ -716,3 +716,7 @@ span.tier-switch { cursor: default; }
 .pinfo-edit-row { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .pinfo-edit-row img { width: 64px; height: 96px; object-fit: cover; border-radius: 6px; }
 .pinfo-edit-row { flex-direction: row; flex-wrap: wrap; width: 120px; justify-content: center; }
+.changelog { margin-bottom: 14px; }
+.changelog-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--border); padding-bottom: 4px; margin-bottom: 6px; }
+.changelog ul { margin: 0; padding-left: 20px; }
+.changelog li { margin: 4px 0; line-height: 1.6; }
