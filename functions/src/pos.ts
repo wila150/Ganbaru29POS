@@ -382,6 +382,37 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
       }
     }
   }
+  // --- 4b. 顧客名單即時更新（消費、已用購物金、餘額）；每天凌晨的重算會再校正一次 ---
+  if (order.shopper) {
+    try {
+      const first = await db.runTransaction(async (tx) => {
+        const o = (await tx.get(ref)).data();
+        if (o?.shopperStatsApplied) return false;
+        tx.update(ref, { shopperStatsApplied: true });
+        return true;
+      });
+      if (first) {
+        const used = Math.max(0, order.rewardPoints ?? 0); // 走到這裡代表購物金已扣成功
+        const patch: Record<string, unknown> = {
+          spend12m: FieldValue.increment(order.total),
+          spendStore12m: FieldValue.increment(order.total),
+          spendTotal: FieldValue.increment(order.total),
+          ordersTotal: FieldValue.increment(1),
+          orders12m: FieldValue.increment(1),
+          orders6m: FieldValue.increment(1),
+          orders3m: FieldValue.increment(1),
+          lastOrderAt: FieldValue.serverTimestamp(),
+          pointsUsed: FieldValue.increment(used),
+          pointsUsedStore: FieldValue.increment(used),
+        };
+        const live = await meep.getShopper(order.shopper.id).catch(() => null);
+        if (live) patch.points = live.usableRewardPoints;
+        await db.doc(`shoppers/${order.shopper.id}`).set(patch, { merge: true });
+      }
+    } catch (e) {
+      logger.warn(`shopper stats ${id}`, e);
+    }
+  }
   // --- 5. 電子發票（啟用時；失敗不影響交易，可在交易瀏覽重開） ---
   await issueForOrder(id);
   if (d.holdId) await db.doc(`posHolds/${str(d.holdId, "掛單", { max: 64 })}`).delete().catch(() => undefined);
