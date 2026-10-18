@@ -8,7 +8,7 @@ import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
 import type { RewardRule, ShopSettings, TierCond, TierDef } from "../../types";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
 import { QrImg } from "../../components/QrImg";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { ref, uploadBytes } from "firebase/storage";
 import { storage } from "../../firebase";
 import { DEFAULT_SOUND, playCheckoutSound, SOUND_PRESETS, SOUND_WHEN_LABEL, type CheckoutSound, type SoundChoice, type SoundPreset, type SoundRule, type SoundWhen } from "../../lib/sound";
 
@@ -271,17 +271,28 @@ function Alerts() {
   );
 }
 
-/** 選一種聲音：內建或上傳音檔，可試聽 */
+/** 選一種聲音：內建或上傳音樂／影片（自動轉 mp3、剪成短音效），可試聽 */
 function SoundPicker({ value, volume, onChange }: { value: SoundChoice; volume: number; onChange: (v: SoundChoice) => void }) {
   const { busy, run } = useAction();
+  const [clip, setClip] = useState({ start: 0, duration: 5 });
+  const [step, setStep] = useState("");
   const upload = (file: File) =>
     run(async () => {
-      if (!file.type.startsWith("audio/")) throw new Error("請選擇音檔（mp3、m4a、wav）");
-      if (file.size > 2 * 1024 * 1024) throw new Error("音檔請小於 2MB（建議 1～5 秒的短音效）");
-      const path = `sounds/checkout-${Date.now()}.${(file.name.split(".").pop() || "mp3").toLowerCase()}`;
-      await uploadBytes(ref(storage, path), file, { contentType: file.type });
-      onChange({ preset: "custom", customUrl: await getDownloadURL(ref(storage, path)), customName: file.name });
-    }, "已上傳，記得按儲存");
+      if (!/^(audio|video)\//.test(file.type)) throw new Error("請選擇音檔或影片（mp3、m4a、wav、mp4、mov）");
+      if (file.size > 100 * 1024 * 1024) throw new Error("檔案請小於 100MB");
+      try {
+        setStep("上傳中…");
+        const path = `soundsrc/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${(file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+        await uploadBytes(ref(storage, path), file, { contentType: file.type });
+        setStep("轉成 mp3…");
+        const r = await call<{ url: string }>("convertSound", { path, start: clip.start, duration: clip.duration });
+        const name = `${file.name.replace(/\.[^.]+$/, "")}（${clip.start}～${clip.start + clip.duration} 秒）.mp3`;
+        onChange({ preset: "custom", customUrl: r.url, customName: name });
+        playCheckoutSound({ preset: "custom", customUrl: r.url, enabled: true, volume }, true);
+      } finally {
+        setStep("");
+      }
+    }, "已轉成 mp3，記得按儲存");
   return (
     <div className="sound-picker">
       <select value={value.preset} onChange={(e) => onChange({ ...value, preset: e.target.value as SoundPreset })}>
@@ -297,9 +308,20 @@ function SoundPicker({ value, volume, onChange }: { value: SoundChoice; volume: 
       <button type="button" className="btn btn-sm" onClick={() => playCheckoutSound({ ...value, enabled: true, volume }, true)}>
         ▶ 試聽
       </button>
+      <span className="clip-range small muted">
+        取第
+        <input type="number" min={0} max={600} value={clip.start} onChange={(e) => setClip({ ...clip, start: Math.max(0, Number(e.target.value)) })} />
+        秒起
+        <input type="number" min={1} max={30} value={clip.duration} onChange={(e) => setClip({ ...clip, duration: Math.min(30, Math.max(1, Number(e.target.value))) })} />
+        秒
+      </span>
       <label className="btn btn-sm">
-        {busy ? "上傳中…" : "上傳音樂"}
-        <input type="file" accept="audio/*" hidden disabled={busy} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
+        {busy ? step || "處理中…" : "上傳音樂／影片"}
+        <input type="file" accept="audio/*,video/*" hidden disabled={busy} onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) upload(f);
+        }} />
       </label>
     </div>
   );
@@ -318,7 +340,7 @@ function SoundSettings() {
   return (
     <section className="card">
       <h2>結帳音效</h2>
-      <p className="muted small">結帳完成時播放。可以依條件換聲音（例：會員生日播生日歌），由上到下第一個符合的條件生效，都不符合就播預設音效。iPad 請打開音量、關閉靜音。</p>
+      <p className="muted small">可以上傳音樂或影片（mp4、mov 等），系統會自動取出聲音轉成 mp3，並剪成你設定的片段（例：取第 0 秒起 5 秒）。結帳完成時播放。可以依條件換聲音（例：會員生日播生日歌），由上到下第一個符合的條件生效，都不符合就播預設音效。iPad 請打開音量、關閉靜音。</p>
       <label className="check">
         <input type="checkbox" checked={snd.enabled} onChange={(e) => upd({ enabled: e.target.checked })} /> 結帳完成時播放音效
       </label>

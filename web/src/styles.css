@@ -584,3 +584,4 @@ span.tier-switch { cursor: default; }
 .sidebar nav { overflow-y: auto; min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-bottom: 8px; }
 .pos-menu { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .nav-pos-fixed { margin: 8px 0 10px; flex-shrink: 0; }
+.clip-range { display: inline-flex; align-items: center; gap: 4px; } .clip-range input { width: 56px; padding: 4px 6px; }
