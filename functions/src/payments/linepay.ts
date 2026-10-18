@@ -9,7 +9,7 @@ import { assert, db, errMsg, FieldValue, HttpsError, sleep, str } from "../lib/u
  * LINE Pay 線下支付（Offline API v4）：店員掃客人 LINE Pay「付款碼」(My Code / oneTimeKey) 直接扣款。
  * 文件：https://developers-pay.line.me/offline-api-v4
  *  - 簽章：Base64(HMAC-SHA256(key = channelSecret, channelSecret + apiPath + (body | queryString) + nonce))
- *  - 付款請求等 20 秒；逾時（或回「付款處理中」）就每秒查一次狀態，AUTH_READY = 客人還在 LINE 上確認
+ *  - 付款請求等 40 秒（官方建議）；逾時（或回「付款處理中」）就每秒查一次狀態，AUTH_READY = 客人還在 LINE 上確認
  *  - 交易編號是 19 位數，一律當字串處理（JS number 會失真）
  * 金鑰只在 Secret Manager（LINEPAY：{channelId, channelSecret}）；settings/shop.linePay = { enabled, stage }。
  */
@@ -21,7 +21,8 @@ export interface LinePayCreds {
 }
 
 export const LINEPAY_HOST = (stage: boolean) => (stage ? "https://sandbox-api-pay.line.me" : "https://api-pay.line.me");
-const PAY_TIMEOUT_MS = 20_000;
+/** 官方建議付款請求的讀取逾時至少 40 秒 */
+const PAY_TIMEOUT_MS = 40_000;
 const CALL_TIMEOUT_MS = 15_000;
 /** 付款請求逾時後最多再查多久（客人可能要在 LINE 上輸入密碼） */
 const POLL_MS = 45_000;
@@ -172,7 +173,19 @@ async function paymentDetail(c: LinePayCreds, orderId: string, host?: string): P
 export async function charge(c: LinePayCreds, o: { orderId: string; amount: number; oneTimeKey: string; productName: string }, host?: string, pollMs?: number): Promise<ChargeOutcome> {
   let r: LpResponse;
   try {
-    r = await lpCall(c, "POST", "/v4/payments/oneTimeKeys/pay", { body: { productName: o.productName.slice(0, 100), amount: o.amount, currency: "TWD", orderId: o.orderId, oneTimeKey: o.oneTimeKey }, timeoutMs: PAY_TIMEOUT_MS, host });
+    r = await lpCall(c, "POST", "/v4/payments/oneTimeKeys/pay", {
+        body: {
+          amount: o.amount,
+          currency: "TWD",
+          oneTimeKey: o.oneTimeKey,
+          orderId: o.orderId,
+          // v4 用 packages 帶品名（沒有 productName 欄位）
+          packages: [{ id: "1", amount: o.amount, products: [{ name: o.productName.slice(0, 100), quantity: 1, price: o.amount }] }],
+          options: { extra: { branchId: "main", branchName: "ganbaru29" } },
+        },
+        timeoutMs: PAY_TIMEOUT_MS,
+        host,
+      });
   } catch (e) {
     logger.warn("linepay pay: no response, checking status", errMsg(e));
     return waitForResult(c, o.orderId, pollMs, undefined, host);
@@ -204,7 +217,7 @@ export const linePayCharge = onCall({ timeoutSeconds: 120 }, async (req) => {
   const amount = Math.round(Number(req.data?.amount));
   assert(Number.isInteger(amount) && amount > 0 && amount <= 1e7, "金額不正確");
   const oneTimeKey = str(req.data?.oneTimeKey, "付款碼", { max: 40 }).replace(/\s/g, "");
-  assert(/^\d{12,24}$/.test(oneTimeKey), "這不是 LINE Pay 付款碼，請掃客人 LINE Pay 的「付款」條碼");
+  assert(/^\d{18}$/.test(oneTimeKey), "這不是 LINE Pay 付款碼（台灣的付款碼是 18 碼數字），請掃客人 LINE Pay 的「付款」條碼");
   const c = await linePayCreds();
   const ref = db.collection("posPayments").doc();
   const orderId = `GB${ref.id}`;
