@@ -116,6 +116,8 @@ export interface ShopSettings {
   hotRule?: { sales30: number };
   /** 網店寄件的寄件人（7-11 交貨便、全家匯入檔用），全店共用 */
   shipSenders?: { name: string; phone: string; email: string }[];
+  /** 付款方式：順序、名稱、開關；key 以 c_ 開頭的是自訂（街口、悠遊付、禮券…） */
+  payMethods?: { key: string; label: string; enabled: boolean }[];
   /** 每日 LINE 提醒要送哪些項目 */
   alerts?: AlertPrefs;
   /** 側邊選單：順序（主項目路徑）與隱藏的項目 */

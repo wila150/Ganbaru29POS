@@ -741,3 +741,19 @@ span.tier-switch { cursor: default; }
 .r { text-align: right; }
 .row-done { background: var(--ok-bg); }
 .sender-opt { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; }
+.paym-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 12px; }
+.paym-row { display: grid; grid-template-columns: 60px 1fr 110px 80px 40px; gap: 10px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border); }
+.paym-row.paym-head { border-top: 0; background: var(--surface-2); color: var(--muted); font-size: 13px; padding: 8px 14px; }
+.paym-row .tier-switch { margin: 0; }
+.paym-row input { padding: 6px 10px; }
+.paym-row.off input { opacity: 0.5; }
+@media (max-width: 600px) { .paym-row { grid-template-columns: 50px 1fr 70px; } .paym-row > :nth-child(3) { display: none; } }
+/* 設定首頁（同 meepShop 分類卡片） */
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.settings-tile { display: flex; gap: 18px; align-items: center; padding: 24px 22px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; text-decoration: none; color: inherit; transition: box-shadow .15s; }
+.settings-tile:hover { box-shadow: var(--shadow); border-color: #7dd3e0; }
+.settings-tile strong { display: block; color: #1e9fb4; font-size: 19px; margin-bottom: 4px; }
+.settings-tile small { color: var(--muted); line-height: 1.5; }
+.settings-icon { width: 64px; height: 64px; flex-shrink: 0; border-radius: 50%; background: #e3f6f9; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+.settings-back { margin-bottom: 4px; }
+@media (prefers-color-scheme: dark) { .settings-icon { background: #12333a; } }

@@ -4,6 +4,7 @@ import { useAuth } from "./auth";
 import { db } from "./firebase";
 import type { Promotion } from "./lib/promo";
 import type { ShopSettings, Variant } from "./types";
+import { applyPayMethods } from "./lib/util";
 
 interface DataState {
   ready: boolean;
@@ -43,7 +44,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setVariants(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Variant));
       setReady(true);
     });
-    const u2 = onSnapshot(doc(db, "settings", "shop"), (s) => setSettings((s.data() as ShopSettings) ?? {}));
+    const u2 = onSnapshot(doc(db, "settings", "shop"), (s) => {
+      const st = (s.data() as ShopSettings) ?? {};
+      applyPayMethods(st.payMethods); // 付款方式名稱、順序、開關（先更新再讓畫面重畫）
+      setSettings(st);
+    });
     const u3 = onSnapshot(query(collection(db, "promotions"), where("active", "==", true)), (s) => setPromotions(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Promotion)));
     return () => {
       u1();

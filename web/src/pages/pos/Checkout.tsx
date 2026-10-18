@@ -101,7 +101,7 @@ export function Checkout({ total, itemName, onClose, submit }: { total: number; 
           onPaid={(paymentId) => run(() => submit([{ method: "linepay", amount: total, ref: paymentId }], invoicePayload))}
         />
       )}
-      {PAY_LABEL[method] && method !== "cash" && !scanLinePay && <p className="center big">請以 {PAY_LABEL[method]} 收款 {money(total)}（刷卡機另外操作）</p>}
+      {PAY_LABEL[method] && method !== "cash" && !scanLinePay && <p className="center big">請以 {PAY_LABEL[method]} 收款 {money(total)}{method === "card" ? "（刷卡機另外操作）" : ""}</p>}
       {method === "online" && provider && (
         <OnlinePay
           provider={provider}

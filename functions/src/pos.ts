@@ -24,6 +24,10 @@ const METHODS = ["cash", "card", "linepay", "transfer"] as const;
 type Method = (typeof METHODS)[number] | "exchange" | "ecpay" | "newebpay";
 /** 線上付款（掃 QR）：必須帶 posPayments 的 id（ref），posCheckout 會確認已付款 */
 const ONLINE_METHODS = ["ecpay", "newebpay"];
+/** 設定 → 付款方式 新增的自訂方式（例：街口、悠遊付、禮券），key = c_xxxx，當作非現金記帳 */
+const isCustomMethod = (m: unknown, settings: FirebaseFirestore.DocumentData) =>
+  typeof m === "string" && /^c_[a-z0-9]{3,16}$/.test(m) && ((settings.payMethods ?? []) as { key: string }[]).some((x) => x.key === m);
+const manualMethod = (m: unknown, settings: FirebaseFirestore.DocumentData) => (METHODS as readonly string[]).includes(m as string) || isCustomMethod(m, settings);
 const opts = { maxInstances: 5 };
 
 interface Line {
@@ -249,7 +253,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   const payments = (Array.isArray(d.payments) ? d.payments : []).map((p: Record<string, unknown>) => {
     // LINE Pay 有 ref = 串接扣款（posPayments），沒有 ref = 店員另外收款後手動記帳
     const online = ONLINE_METHODS.includes(p.method as string) || (p.method === "linepay" && typeof p.ref === "string" && p.ref.length > 0);
-    assert(online || (METHODS as readonly string[]).includes(p.method as string), "付款方式不正確");
+    assert(online || manualMethod(p.method, settings), "付款方式不正確");
     return { method: p.method as Method, amount: num(p.amount, "付款金額", { min: 0, max: 1e8 }), ...(online ? { ref: str(p.ref, "線上付款編號", { max: 40 }) } : {}) };
   }).filter((p: { amount: number }) => p.amount > 0) as { method: Method; amount: number; ref?: string }[];
   const invoiceRequest = parseInvoiceRequest(d.invoice);
@@ -261,7 +265,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
     assert(actorCanRefund, "換貨限店長以上");
     const q = await quoteExchange(d.exchange);
     const used = Math.min(q.credit, total);
-    const refundMethod = (METHODS as readonly string[]).includes(d.exchangeRefundMethod) ? (d.exchangeRefundMethod as Method) : "cash";
+    const refundMethod = manualMethod(d.exchangeRefundMethod, settings) ? (d.exchangeRefundMethod as Method) : "cash";
     exchange = { ...q, refundDue: q.credit - used, refundMethod };
   }
   if (exchange) {
@@ -586,7 +590,7 @@ export const posRefund = onCall({ ...opts, timeoutSeconds: 120 }, async (req) =>
   const actor = await requireRole(req, "staff");
   await canRefund(actor);
   const d = req.data ?? {};
-  const method = d.method === "original" || METHODS.includes(d.method) ? d.method : "original";
+  const method = d.method === "original" || manualMethod(d.method, await shopSettings()) ? d.method : "original";
   const lines = (Array.isArray(d.lines) ? d.lines : []).map((l: Record<string, unknown>) => ({ index: int(l.index, "項目", { min: 0, max: 99 }), qty: int(l.qty, "數量", { min: 0, max: 999 }) }));
   return doRefund(actor, str(d.orderId, "訂單", { max: 64 }), str(d.refundId, "退貨 id", { max: 64 }), lines, method, str(d.reason, "原因", { optional: true, max: 200 }), false, undefined, str(d.locationId, "地點", { optional: true, max: 40 }) || null);
 });
@@ -618,6 +622,7 @@ export const posEditOrder = onCall(opts, async (req) => {
   // 更換商品（例：先用「新品」結帳，上架後換成真正的商品）：價格不變，庫存一加一減
   const swaps: { index: number; from: string; to: string; qty: number; moveBase: string }[] = [];
   const order0 = (await ref.get()).data();
+  const shopCfg = await shopSettings();
   const swapReq = Array.isArray(req.data?.replace) ? (req.data.replace as { index: number; variantId: string }[]) : [];
   const newVariants = new Map<string, FirebaseFirestore.DocumentData>();
   for (const r of swapReq) {
@@ -672,7 +677,7 @@ export const posEditOrder = onCall(opts, async (req) => {
       assert(!old.some((p) => p.ref || p.method === "exchange" || ONLINE_METHODS.includes(p.method)), "線上付款、換貨抵用的單不能改付款方式", "failed-precondition");
       const pays = (req.data.payments as Record<string, unknown>[])
         .map((p) => {
-          assert((METHODS as readonly string[]).includes(p.method as string), "付款方式不正確");
+          assert(manualMethod(p.method, shopCfg), "付款方式不正確");
           return { method: p.method as Method, amount: num(p.amount, "付款金額", { min: 0, max: 1e8 }) };
         })
         .filter((p) => p.amount > 0);

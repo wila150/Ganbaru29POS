@@ -26,9 +26,37 @@ export const STATUS_LABEL: Record<string, string> = {
 };
 
 /** Methods the cashier picks at checkout. */
+/** 結帳可選的付款方式（依「設定 → 付款方式」的順序與開關；applyPayMethods 會更新這個物件） */
 export const PAY_LABEL: Record<string, string> = { cash: "現金", card: "信用卡", linepay: "LINE Pay", transfer: "轉帳" };
-/** Every method that can appear on an order (display). */
+/** Every method that can appear on an order (display), incl. disabled / custom ones. */
 export const PAY_NAME: Record<string, string> = { ...PAY_LABEL, exchange: "換貨抵用", ecpay: "綠界線上付款", newebpay: "藍新線上付款" };
+
+export interface PayMethodDef {
+  key: string;
+  label: string;
+  enabled: boolean;
+}
+export const BUILTIN_PAY: PayMethodDef[] = [
+  { key: "cash", label: "現金", enabled: true },
+  { key: "card", label: "信用卡", enabled: true },
+  { key: "linepay", label: "LINE Pay", enabled: true },
+  { key: "transfer", label: "轉帳", enabled: true },
+];
+/** 合併設定與內建：內建的一定在清單裡（可改名、關閉），自訂的接在後面；現金不能關 */
+export function payMethodList(cfg?: PayMethodDef[] | null): PayMethodDef[] {
+  const list = [...(cfg ?? [])].filter((m) => m && m.key && m.label);
+  for (const b of BUILTIN_PAY) if (!list.some((m) => m.key === b.key)) list.push({ ...b });
+  return list.map((m) => (m.key === "cash" ? { ...m, enabled: true } : m));
+}
+/** 設定變了就更新 PAY_LABEL／PAY_NAME（所有畫面共用） */
+export function applyPayMethods(cfg?: PayMethodDef[] | null) {
+  const list = payMethodList(cfg);
+  for (const k of Object.keys(PAY_LABEL)) delete PAY_LABEL[k];
+  for (const m of list) {
+    if (m.enabled) PAY_LABEL[m.key] = m.label;
+    PAY_NAME[m.key] = m.label;
+  }
+}
 
 /** Same rule as the backend: Firestore ids cannot contain "/". */
 export const codeKey = (code: string) => encodeURIComponent(code.trim());

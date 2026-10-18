@@ -1,11 +1,11 @@
 import { collection, doc, onSnapshot, orderBy, query, setDoc, type Timestamp } from "firebase/firestore";
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth";
 import { Badge, Field, useAction, useToast } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
-import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
+import { BUILTIN_PAY, fmtTime, payMethodList, ROLE_LABEL, type PayMethodDef, type Role } from "../../lib/util";
 import type { AlertPrefs, RewardRule, ShopSettings, TierCond, TierDef } from "../../types";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
 import { ADMIN_NAV, applyNavConfig, NAV_LOCKED } from "../../components/Layout";
@@ -14,29 +14,89 @@ import { ref, uploadBytes } from "firebase/storage";
 import { storage } from "../../firebase";
 import { DEFAULT_SOUND, playCheckoutSound, SOUND_PRESETS, SOUND_WHEN_LABEL, type CheckoutSound, type SoundChoice, type SoundPreset, type SoundRule, type SoundWhen } from "../../lib/sound";
 
+/** 設定分類（同 meepShop 設定頁：先選分類，再進去設定） */
+const SECTIONS: { id: string; icon: string; title: string; desc: string; render: () => ReactNode }[] = [
+  { id: "staff", icon: "👥", title: "員工管理", desc: "邀請員工、改角色、停用帳號", render: () => <Staff /> },
+  {
+    id: "shop",
+    icon: "🏪",
+    title: "商店設定",
+    desc: "店名、收據表頭表尾、班別、服務費、門市（多店）",
+    render: () => (
+      <>
+        <PosSettings />
+        <LocationSettings />
+      </>
+    ),
+  },
+  {
+    id: "payment",
+    icon: "💲",
+    title: "金流管理",
+    desc: "付款方式、綠界／藍新掃碼付款、LINE Pay、電子發票",
+    render: () => (
+      <>
+        <PayMethodSettings />
+        <PaymentSettings />
+      </>
+    ),
+  },
+  { id: "sound", icon: "🔔", title: "結帳音效", desc: "結帳完成的聲音、上傳音樂、依會員生日／群組換聲音", render: () => <SoundSettings /> },
+  { id: "notify", icon: "📣", title: "通知設定", desc: "每天 9:00 LINE 提醒：營業額、低庫存、滯銷、壽星", render: () => <Alerts /> },
+  {
+    id: "integrations",
+    icon: "🔌",
+    title: "第三方設定",
+    desc: "meepShop API 金鑰、Google Merchant Center 商品圖、LINE 會員卡",
+    render: () => (
+      <>
+        <ApiKey />
+        <MerchantSettings />
+        <LineLoginSettings />
+      </>
+    ),
+  },
+  { id: "money", icon: "🧮", title: "抽成與開支", desc: "員工業績抽成、開支分類", render: () => <StaffMoneySettings /> },
+  { id: "menu", icon: "☰", title: "側邊選單", desc: "調整後台選單順序、隱藏不用的項目", render: () => <NavSettings /> },
+];
+
 export function Settings() {
+  const { section } = useParams();
+  const nav = useNavigate();
+  const cur = SECTIONS.find((x) => x.id === section);
+  if (cur)
+    return (
+      <div className="page">
+        <div className="settings-back">
+          <button className="link-btn" onClick={() => nav("/admin/settings")}>
+            ‹ 設定
+          </button>
+        </div>
+        <h1>{cur.title}</h1>
+        {cur.render()}
+      </div>
+    );
   return (
     <div className="page">
       <h1>設定</h1>
-      <Link to="/admin/help" className="card help-banner">
-        <span className="help-banner-icon">📖</span>
-        <div>
-          <strong>使用說明書</strong>
-          <div className="muted small">開班、收銀、退貨、日結、會員、進貨、盤點、折扣…每一步都有圖解</div>
-        </div>
-        <span className="grow" />›
-      </Link>
-      <Staff />
-      <ApiKey />
-      <Alerts />
-      <NavSettings />
-      <PosSettings />
-      <SoundSettings />
-      <PaymentSettings />
-      <LocationSettings />
-      <MerchantSettings />
-      <LineLoginSettings />
-      <StaffMoneySettings />
+      <div className="settings-grid">
+        {SECTIONS.map((x) => (
+          <Link key={x.id} to={`/admin/settings/${x.id}`} className="settings-tile">
+            <span className="settings-icon">{x.icon}</span>
+            <span>
+              <strong>{x.title}</strong>
+              <small>{x.desc}</small>
+            </span>
+          </Link>
+        ))}
+        <Link to="/admin/help" className="settings-tile">
+          <span className="settings-icon">📖</span>
+          <span>
+            <strong>使用說明書</strong>
+            <small>開班、收銀、退貨、日結、會員、進貨、盤點…每一步都有圖解</small>
+          </span>
+        </Link>
+      </div>
     </div>
   );
 }
@@ -760,6 +820,80 @@ function CredForm({ kind, current, onSaved }: { kind: string; current: string | 
         </button>
       </div>
     </div>
+  );
+}
+
+/** 付款方式（同 meepShop「物流管理」的樣子）：開關、改名、排序、新增自訂方式 */
+function PayMethodSettings() {
+  const { settings } = useData();
+  const [list, setList] = useState<PayMethodDef[]>(() => payMethodList(settings.payMethods));
+  const [adding, setAdding] = useState("");
+  const { busy, run } = useAction();
+  const dirty = JSON.stringify(list) !== JSON.stringify(payMethodList(settings.payMethods));
+  const upd = (i: number, patch: Partial<PayMethodDef>) => setList((l) => l.map((m, j) => (j === i ? { ...m, ...patch } : m)));
+  const move = (i: number, d: number) =>
+    setList((l) => {
+      const n = [...l];
+      [n[i], n[i + d]] = [n[i + d], n[i]];
+      return n;
+    });
+  const builtin = (k: string) => BUILTIN_PAY.some((b) => b.key === k);
+  return (
+    <section className="card">
+      <div className="row-between">
+        <h2>付款方式</h2>
+      </div>
+      <p className="muted small">POS 結帳畫面的付款按鈕。可以開關、改名稱、調整順序，也可以新增自訂方式（例：街口支付、悠遊付、全支付、禮券），自訂方式都是另外收款後在 POS 記帳。日結、報表會分開統計。</p>
+      <div className="paym-list">
+        <div className="paym-row paym-head">
+          <span />
+          <span>名稱</span>
+          <span>類型</span>
+          <span>排序</span>
+          <span />
+        </div>
+        {list.map((m, i) => (
+          <div key={m.key} className={`paym-row ${m.enabled ? "" : "off"}`}>
+            <button type="button" className={`tier-switch ${m.enabled ? "on" : ""}`} disabled={m.key === "cash"} title={m.key === "cash" ? "現金不能關閉（找零、錢櫃要用）" : m.enabled ? "關閉" : "開啟"} onClick={() => upd(i, { enabled: !m.enabled })} />
+            <input value={m.label} maxLength={12} onChange={(e) => upd(i, { label: e.target.value })} />
+            <span className="muted small">{builtin(m.key) ? (m.key === "cash" ? "內建（可找零）" : "內建") : "自訂"}</span>
+            <span>
+              <button type="button" className="btn-icon" disabled={i === 0} onClick={() => move(i, -1)}>
+                ↑
+              </button>
+              <button type="button" className="btn-icon" disabled={i === list.length - 1} onClick={() => move(i, 1)}>
+                ↓
+              </button>
+            </span>
+            <span>
+              {!builtin(m.key) && (
+                <button type="button" className="btn-icon danger" title="刪除（過去的交易紀錄不受影響）" onClick={() => confirm(`刪除「${m.label}」？過去用這個方式的交易紀錄不受影響。`) && setList((l) => l.filter((_, j) => j !== i))}>
+                  ✕
+                </button>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="inline-form">
+        <input placeholder="新增付款方式，例：街口支付" maxLength={12} value={adding} onChange={(e) => setAdding(e.target.value)} />
+        <button
+          type="button"
+          className="btn"
+          disabled={!adding.trim() || list.some((m) => m.label === adding.trim())}
+          onClick={() => {
+            setList((l) => [...l, { key: `c_${Date.now().toString(36)}`, label: adding.trim(), enabled: true }]);
+            setAdding("");
+          }}
+        >
+          ＋ 新增
+        </button>
+      </div>
+      <p className="muted small">「掃碼付款（綠界／藍新）」「LINE Pay 串接」在下方金流設定開啟；開啟後 POS 會自動出現。</p>
+      <button className="btn btn-primary" disabled={busy || !dirty || list.some((m) => !m.label.trim())} onClick={() => run(() => setDoc(doc(db, "settings", "shop"), { payMethods: list.map((m) => ({ ...m, label: m.label.trim() })) }, { merge: true }), "已儲存付款方式")}>
+        儲存付款方式
+      </button>
+    </section>
   );
 }
 

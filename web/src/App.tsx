@@ -120,6 +120,7 @@ export function App() {
                 <Route path="movements" element={<Guard min="manager"><Movements /></Guard>} />
                 <Route path="reports" element={<Guard min="manager"><Reports /></Guard>} />
                 <Route path="settings" element={<Guard min="owner"><Settings /></Guard>} />
+                <Route path="settings/:section" element={<Guard min="owner"><Settings /></Guard>} />
                 <Route path="more" element={<MoreMenu />} />
                 <Route path="help" element={<Help />} />
               </Route>
