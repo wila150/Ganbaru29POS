@@ -96,7 +96,15 @@ interface MOrder {
   totalPrice: number;
   createdAt: string;
   shopper: { name: string | null; email: string } | null;
-  shipmentDetail: { name: string; phone: string | null; receiverName: string | null; note: string | null };
+  shipmentDetail: {
+    name: string;
+    phone: string | null;
+    receiverName: string | null;
+    note: string | null;
+    shippingAddress?: string | null;
+    trackingCode?: string | null;
+    convenienceStore?: { name: string | null; address: string | null; storeCode: string | null } | null;
+  };
   paymentDetail: { name: string };
   lineItems: { id: string; title: string; quantity: number; totalPrice: number; variant: { id: string } | null }[] | null;
 }
@@ -198,7 +206,27 @@ export function OnlineOrders() {
                     <tr className="row-detail">
                       <td colSpan={6}>
                         <div>
-                          {o.shipmentDetail.name} · {o.shipmentDetail.phone} {o.shipmentDetail.note && `· 備註：${o.shipmentDetail.note}`}
+                          <b>收件人：{o.shipmentDetail.receiverName || o.shopper?.name}</b>　{o.shipmentDetail.phone}
+                          <br />
+                          {o.shipmentDetail.name}　
+                          {o.shipmentDetail.convenienceStore?.name ? (
+                            <>
+                              <b>
+                                {o.shipmentDetail.convenienceStore.name}
+                                {o.shipmentDetail.convenienceStore.storeCode && `（店號 ${o.shipmentDetail.convenienceStore.storeCode}）`}
+                              </b>
+                              　{o.shipmentDetail.convenienceStore.address}
+                            </>
+                          ) : (
+                            o.shipmentDetail.shippingAddress && <b>{o.shipmentDetail.shippingAddress}</b>
+                          )}
+                          {o.shipmentDetail.trackingCode && <>　寄件單號 {o.shipmentDetail.trackingCode}</>}
+                          {o.shipmentDetail.note && (
+                            <>
+                              <br />
+                              備註：{o.shipmentDetail.note}
+                            </>
+                          )}
                         </div>
                         <ul>
                           {(o.lineItems ?? []).map((li) => (

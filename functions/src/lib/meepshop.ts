@@ -253,7 +253,7 @@ export async function getVariant(id: string) {
 
 const ORDER_FIELDS = `id orderNumber status paymentStatus shipmentStatus totalPrice rewardPointUsed createdAt
   shopper { id name email }
-  shipmentDetail { name phone receiverName carrier note }
+  shipmentDetail { name phone receiverName carrier note shippingAddress trackingCode convenienceStore { name address storeCode } }
   paymentDetail { name }
   lineItems { id title quantity unitPrice totalPrice variant { id } }`;
 
