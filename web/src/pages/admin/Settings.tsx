@@ -1,5 +1,6 @@
 import { collection, doc, onSnapshot, orderBy, query, setDoc, type Timestamp } from "firebase/firestore";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../auth";
 import { Badge, Field, useAction, useToast } from "../../components/ui";
 import { useData } from "../../data";
@@ -16,6 +17,14 @@ export function Settings() {
   return (
     <div className="page">
       <h1>設定</h1>
+      <Link to="/admin/help" className="card help-banner">
+        <span className="help-banner-icon">📖</span>
+        <div>
+          <strong>使用說明書</strong>
+          <div className="muted small">開班、收銀、退貨、日結、會員、進貨、盤點、折扣…每一步都有圖解</div>
+        </div>
+        <span className="grow" />›
+      </Link>
       <Staff />
       <ApiKey />
       <Alerts />

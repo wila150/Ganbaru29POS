@@ -62,6 +62,7 @@ const Transactions = page(tx, "Transactions");
 const Members = page(tx, "Members");
 const MemberCard = page(() => import("./pages/MemberCard"), "MemberCard");
 const LineCard = page(() => import("./pages/LineCard"), "LineCard");
+const Help = page(() => import("./pages/admin/Help"), "Help");
 
 /** 登入後，閒置時把所有頁面預先載入 */
 function Prefetch() {
@@ -119,6 +120,7 @@ export function App() {
                 <Route path="reports" element={<Guard min="manager"><Reports /></Guard>} />
                 <Route path="settings" element={<Guard min="owner"><Settings /></Guard>} />
                 <Route path="more" element={<MoreMenu />} />
+                <Route path="help" element={<Help />} />
               </Route>
               <Route path="/pos" element={<Guard><PosLayout /></Guard>}>
                 <Route index element={<Register />} />

@@ -100,6 +100,7 @@ export function AdminLayout() {
             {profile?.name} · {profile && ROLE_LABEL[profile.role]}
           </div>
           <small className="muted">商品同步：{fmtTime(settings.lastIncrementalSyncAt ?? settings.lastCatalogSyncAt)}</small>
+          <NavLink to="/admin/help" className="link-btn small">📖 使用說明</NavLink>
           <UpdateButton />
           <LogoutButton className="btn btn-ghost btn-sm">登出</LogoutButton>
         </div>

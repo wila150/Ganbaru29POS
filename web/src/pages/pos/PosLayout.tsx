@@ -79,6 +79,9 @@ export function PosLayout() {
             {m.label}
           </NavLink>
         ))}
+        <NavLink to="/admin/help" className="pos-menu-item">
+          <span aria-hidden>📖</span>說明
+        </NavLink>
         <UpdateButton className="pos-menu-item pos-update" />
         <LogoutButton className="pos-menu-item">
           <span aria-hidden>⎋</span>登出

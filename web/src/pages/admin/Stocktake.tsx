@@ -160,6 +160,10 @@ export function StocktakeDetail() {
   const [view, setView] = useState<View>("all");
   const [last, setLast] = useState<{ title: string; counted: number; inScope: boolean } | null>(null);
   const [edit, setEdit] = useState<Item | null>(null);
+  const { run } = useAction();
+  // 表格裡直接 −／＋，或一鍵「= 帳面」（數量跟帳面一樣時）
+  const bump = (variantId: string, delta: number) => run(() => call("stocktakeCount", { id, variantId, delta }));
+  const setCount = (variantId: string, n: number) => run(() => call("stocktakeCount", { id, variantId, set: n }));
   const [applyOpen, setApplyOpen] = useState(false);
   const scanRef = useRef<ScanInputHandle>(null);
   const isManager = atLeast(profile?.role, "manager");
@@ -241,7 +245,7 @@ export function StocktakeDetail() {
               {!last.inScope && <Badge tone="warn">不在範圍內</Badge>}
             </div>
           )}
-          <p className="muted small">多支手機可以同時掃。數錯了點表格裡的數字直接修改。</p>
+          <p className="muted small">多支手機可以同時掃。數錯了用表格裡的 −／＋ 調整，或點數字直接輸入；數量跟帳面一樣按「= 帳面」。</p>
         </div>
       )}
 
@@ -285,9 +289,22 @@ export function StocktakeDetail() {
                   <td className="num">{i.book}</td>
                   <td className="num">
                     {open ? (
-                      <button className="link-btn strong" onClick={() => setEdit(i)}>
-                        {i.touched ? i.counted : "—"}
-                      </button>
+                      <span className="stepper">
+                        <button type="button" aria-label="減 1" disabled={!i.touched || i.counted <= 0} onClick={() => bump(i.id, -1)}>
+                          −
+                        </button>
+                        <button type="button" className="link-btn strong" onClick={() => setEdit(i)}>
+                          {i.touched ? i.counted : "—"}
+                        </button>
+                        <button type="button" aria-label="加 1" onClick={() => bump(i.id, 1)}>
+                          ＋
+                        </button>
+                        {!i.touched && (
+                          <button type="button" className="same" title="實盤和帳面一樣" onClick={() => setCount(i.id, i.book)}>
+                            = 帳面
+                          </button>
+                        )}
+                      </span>
                     ) : i.touched ? (
                       i.counted
                     ) : (
