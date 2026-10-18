@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Modal } from "./ui";
 
-export function Keypad({ value, onChange, allowDot = false }: { value: string; onChange: (v: string) => void; allowDot?: boolean }) {
+/** digits：輸入手機、條碼這類「數字字串」，0 可以開頭（金額、數量才會去掉開頭的 0） */
+export function Keypad({ value, onChange, allowDot = false, digits = false }: { value: string; onChange: (v: string) => void; allowDot?: boolean; digits?: boolean }) {
   const press = (k: string) => {
     if (k === "C") return onChange("");
     if (k === "⌫") return onChange(value.slice(0, -1));
+    if (digits) return onChange(value + k);
     if (k === "." && (!allowDot || value.includes("."))) return;
     if (k === "00" && !value) return;
     onChange((value === "0" && k !== "." ? "" : value) + k);

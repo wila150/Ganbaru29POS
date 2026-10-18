@@ -617,7 +617,7 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
               查詢
             </button>
           </div>
-          {!q.includes("@") && <Keypad value={q} onChange={setQ} />}
+          {!q.includes("@") && <Keypad value={q} onChange={setQ} digits />}
           {list && (
             <ul className="pick-list">
               {list.length === 0 && <li className="muted">找不到會員</li>}
