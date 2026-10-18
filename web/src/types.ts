@@ -38,6 +38,8 @@ export interface Variant {
   material?: string | null;
   careText?: string | null;
   imageUrl: string | null;
+  /** 360px 縮圖（列表、POS 商品格用；沒有就用原圖） */
+  thumbUrl?: string | null;
   imageSource: "auto" | "manual" | null;
   searchText: string;
   sales30?: number;

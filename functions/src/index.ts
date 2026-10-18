@@ -18,3 +18,4 @@ export { reportCenter } from "./reports";
 export { clockIn, clockOut, fixAttendance } from "./attendance";
 export { ensureAllMemberCodes, memberCard, resetMemberCard, createCoupons, setCouponActive } from "./cards";
 export { lineConfig, lineMemberCard, lineBindMember, lineRegisterMember, lineUnbindMember } from "./lineMember";
+export { buildThumbs } from "./thumbs";

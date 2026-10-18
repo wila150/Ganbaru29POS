@@ -387,7 +387,7 @@ export function Promotions() {
           <ul className="pick-list">
             {[...new Map(variants.filter((v) => viewing.scope.kind === "products" && viewing.scope.productIds.includes(v.productId)).map((v) => [v.productId, v])).values()].map((v) => (
               <li key={v.productId} className="row-inline">
-                {v.imageUrl && <img src={v.imageUrl} alt="" className="thumb-sm" />}
+                {v.imageUrl && <img src={v.thumbUrl || v.imageUrl} alt="" className="thumb-sm" loading="lazy" />}
                 {v.productTitle}
               </li>
             ))}
@@ -968,7 +968,7 @@ function ProductPicker({ value, onChange, onClose }: { value: string[]; onChange
     const map = new Map<string, ProductRow>();
     const vs: Variant[] = q.trim() ? searchVariants(variants, q) : variants;
     for (const v of vs) {
-      const r = map.get(v.productId) ?? { productId: v.productId, title: v.productTitle, imageUrl: v.imageUrl, price: v.price, stock: 0, sales30: 0, lastSoldDays: null, hasStats: false };
+      const r = map.get(v.productId) ?? { productId: v.productId, title: v.productTitle, imageUrl: v.thumbUrl || v.imageUrl, price: v.price, stock: 0, sales30: 0, lastSoldDays: null, hasStats: false };
       r.stock += Math.max(0, v.shopStock ?? 0);
       r.sales30 += v.sales30 ?? 0;
       r.hasStats ||= !!v.statsAt;
@@ -1059,7 +1059,7 @@ function ProductPicker({ value, onChange, onClose }: { value: string[]; onChange
                 </td>
                 <td>
                   <div className="row-inline">
-                    {r.imageUrl && <img src={r.imageUrl} alt="" className="thumb-sm" />}
+                    {r.imageUrl && <img src={r.imageUrl} alt="" className="thumb-sm" loading="lazy" />}
                     {r.title}
                   </div>
                 </td>

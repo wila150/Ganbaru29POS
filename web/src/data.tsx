@@ -53,7 +53,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [enabled]);
 
   const byId = useMemo(() => new Map(variants.map((v) => [v.id, v])), [variants]);
-  return <Ctx.Provider value={{ ready, variants, byId, settings, promotions, locStock }}>{children}</Ctx.Provider>;
+  // 同一個物件才不會讓所有頁面跟著重畫
+  const value = useMemo(() => ({ ready, variants, byId, settings, promotions, locStock }), [ready, variants, byId, settings, promotions, locStock]);
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export const variantName = (v: Pick<Variant, "productTitle" | "options">) => (v.options ? `${v.productTitle}（${v.options}）` : v.productTitle);

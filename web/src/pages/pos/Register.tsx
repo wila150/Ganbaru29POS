@@ -224,6 +224,36 @@ export function Register() {
   const stockOf = (v: Variant) => (multi && locationId ? locStock.get(v.id)?.[locationId] ?? 0 : v.shopStock ?? 0);
   const inCart = (variantId: string) => cart.filter((l) => l.variantId === variantId).reduce((s, l) => s + l.qty, 0);
 
+  // 商品格很大（上百張圖）：只在商品、庫存改變時重畫，加減購物車不重畫
+  const onProductRef = useRef(onProduct);
+  onProductRef.current = onProduct;
+  const grid = useMemo(
+    () => (
+      <div className="product-grid">
+        {products.slice(0, 300).map((vs) => {
+          const v = vs[0];
+          const stock = vs.reduce((s, x) => s + (multi && locationId ? locStock.get(x.id)?.[locationId] ?? 0 : x.shopStock ?? 0), 0);
+          const img = v.thumbUrl || v.imageUrl;
+          return (
+            <button key={v.productId} className="product-card" onClick={() => onProductRef.current(vs)}>
+              <div className="product-img">{img ? <img src={img} alt="" loading="lazy" decoding="async" /> : <span>{v.productTitle.slice(0, 6)}</span>}</div>
+              <div className="product-name">{v.productTitle}</div>
+              <div className="product-meta">
+                <span>
+                  {money(Math.min(...vs.map((x) => x.price ?? 0)))}
+                  {vs.length > 1 && " 起"}
+                </span>
+              </div>
+              <span className={`stock-corner ${stock <= 0 ? "out" : ""}`}>{stock}</span>
+            </button>
+          );
+        })}
+        {products.length === 0 && <p className="muted">沒有商品</p>}
+      </div>
+    ),
+    [products, multi, locationId, locStock]
+  );
+
   return (
     <div className="register">
       <section className="reg-products">
@@ -238,23 +268,7 @@ export function Register() {
             </button>
           ))}
         </div>
-        <div className="product-grid">
-          {products.slice(0, 300).map((vs) => {
-            const v = vs[0];
-            const stock = vs.reduce((s, x) => s + stockOf(x), 0);
-            return (
-              <button key={v.productId} className="product-card" onClick={() => onProduct(vs)}>
-                <div className="product-img">{v.imageUrl ? <img src={v.imageUrl} alt="" loading="lazy" /> : <span>{v.productTitle.slice(0, 6)}</span>}</div>
-                <div className="product-name">{v.productTitle}</div>
-                <div className="product-meta">
-                  <span>{money(Math.min(...vs.map((x) => x.price ?? 0)))}{vs.length > 1 && " 起"}</span>
-                </div>
-                <span className={`stock-corner ${stock <= 0 ? "out" : ""}`}>{stock}</span>
-              </button>
-            );
-          })}
-          {products.length === 0 && <p className="muted">沒有商品</p>}
-        </div>
+        {grid}
       </section>
 
       <aside className="reg-cart">

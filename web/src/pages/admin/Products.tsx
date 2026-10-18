@@ -14,6 +14,7 @@ interface Group {
   productId: string;
   title: string;
   imageUrl: string | null;
+  thumbUrl?: string | null;
   status: string;
   variants: Variant[];
 }
@@ -40,7 +41,7 @@ export function Products() {
     if (onlyMissing === "unprinted") list = list.filter((v) => v.labelPrinted !== true);
     const map = new Map<string, Group>();
     for (const v of list) {
-      const g = map.get(v.productId) ?? { productId: v.productId, title: v.productTitle, imageUrl: v.imageUrl, status: v.productStatus, variants: [] };
+      const g = map.get(v.productId) ?? { productId: v.productId, title: v.productTitle, imageUrl: v.imageUrl, thumbUrl: v.thumbUrl, status: v.productStatus, variants: [] };
       g.variants.push(v);
       map.set(v.productId, g);
     }
@@ -157,7 +158,7 @@ export function Products() {
                 <div className="product-head">
                   <input type="checkbox" checked={all} onChange={(e) => toggle(ids, e.target.checked)} aria-label="全選此商品" />
                   <button className="thumb" onClick={() => setImgFor(g)} title="更換圖片">
-                    {g.imageUrl ? <img src={g.imageUrl} alt="" /> : <span>無圖</span>}
+                    {g.imageUrl ? <img src={g.thumbUrl || g.imageUrl} alt="" loading="lazy" decoding="async" /> : <span>無圖</span>}
                   </button>
                   <div className="grow">
                     <strong>{g.title}</strong> {g.status !== "LISTED" && <Badge>未上架</Badge>} {missingImg.has(g.productId) && <Badge tone="warn">缺圖片</Badge>}

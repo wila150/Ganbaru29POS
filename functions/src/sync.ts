@@ -2,6 +2,7 @@ import { logger } from "firebase-functions";
 import { onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { getStorage, getDownloadURL } from "firebase-admin/storage";
+import { ensureThumbs } from "./thumbs";
 import { requireRole } from "./lib/auth";
 import { MProduct, productsPage, shoppersPage } from "./lib/meepshop";
 import { Batch, consumeFifo } from "./lib/movements";
@@ -285,6 +286,7 @@ export const catalogIncremental = onSchedule({ schedule: "every 15 minutes", tim
     logger.warn("shopper sync failed", e);
   }
   await processPendingImages(deadline);
+  await ensureThumbs(deadline).catch((e) => logger.warn("thumbs failed", e));
 });
 
 /** 每天 04:00：完整同步所有款式、會員 */
@@ -298,6 +300,7 @@ export const catalogDaily = onSchedule({ schedule: "0 4 * * *", timeZone: TZ, ti
     logger.warn("shopper sync failed", e);
   }
   await processPendingImages(deadline);
+  await ensureThumbs(deadline).catch((e) => logger.warn("thumbs failed", e));
 });
 
 // ---------- 商品圖：匯入 meepShop 的 Google 商品 Feed（老闆用瀏覽器下載的 .tsv） ----------

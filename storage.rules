@@ -15,6 +15,10 @@ service firebase.storage {
       allow write: if isManager() && request.resource.size < 10 * 1024 * 1024
         && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
     }
+    // 商品縮圖（Cloud Functions 產生）
+    match /thumbs/{path=**} {
+      allow read: if active();
+    }
     // 結帳音效（設定頁上傳）
     match /sounds/{file} {
       allow read: if active();
