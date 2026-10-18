@@ -737,8 +737,8 @@ function MerchantSettings() {
         新商品隔天會自動有圖；手動上傳的圖不會被覆蓋。
       </p>
       <div className="inline-form">
-        <input placeholder="Merchant Center ID（網址 a= 後面的數字）" value={form.merchantId ?? ""} onChange={(e) => set("merchantId", e.target.value.trim())} />
-        <button className="btn" disabled={busy} onClick={save}>
+        <input placeholder="Merchant Center ID（網址 a= 後面的數字）" inputMode="numeric" value={form.merchantId ?? ""} onChange={(e) => set("merchantId", e.target.value.trim())} />
+        <button className="btn" disabled={busy || !/^\d{6,20}$/.test(form.merchantId ?? "")} title="Merchant Center ID 只有數字" onClick={save}>
           儲存
         </button>
         <button
@@ -754,6 +754,7 @@ function MerchantSettings() {
           {b2 ? "補圖中（約 1～3 分鐘）…" : "立即補圖"}
         </button>
       </div>
+      {form.merchantId && !/^\d{6,20}$/.test(form.merchantId) && <p className="error small">Merchant Center ID 只有數字（例：5876463536），在 Merchant Center 網址 a= 後面或右上角帳戶名稱下方。</p>}
       {m && (
         <p className={`small ${m.error ? "error" : "muted"}`}>
           上次執行：{fmtTime(m.at)}（{m.trigger === "daily" ? "每日自動" : "手動"}）

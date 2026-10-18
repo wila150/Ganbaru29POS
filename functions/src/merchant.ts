@@ -43,6 +43,7 @@ async function syncFromMerchant(trigger: string) {
   const settings = (await db.doc("settings/shop").get()).data() ?? {};
   const merchantId = String(settings.merchantId ?? "").trim();
   if (!merchantId) return { skipped: "尚未設定 Merchant Center ID" };
+  if (!/^\d{6,20}$/.test(merchantId)) throw new Error(`Merchant Center ID 應該只有數字，現在設定的是「${merchantId.slice(0, 12)}…」，請到設定頁改正`);
   try {
     const rows = await listMerchantImages(merchantId);
     // 官網換了主圖時，網址會不同 → 重新下載（手動上傳的不覆蓋）
