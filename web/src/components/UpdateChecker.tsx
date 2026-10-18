@@ -145,11 +145,37 @@ export function UpdateChecker() {
   }, []);
 
   if (!found) return whatsNew ? <ChangelogDialog onlyLatest onClose={() => setWhatsNew(false)} /> : null;
-  // 結帳視窗開著或按了「稍後」：上方提示列
-  if (modalOpen || later)
+  return <UpdatePrompt upcoming={upcoming} modalOpen={modalOpen} later={later} setLater={setLater} />;
+}
+
+const AUTO_SECONDS = 60;
+
+/** 有新版本：跳出視窗並倒數，沒人操作就自動更新（購物車會保留）；正在付款等視窗開著時不倒數 */
+function UpdatePrompt({ upcoming, modalOpen, later, setLater }: { upcoming: ChangeEntry | null; modalOpen: boolean; later: boolean; setLater: (v: boolean) => void }) {
+  const [left, setLeft] = useState(AUTO_SECONDS);
+  const waiting = modalOpen || later;
+  useEffect(() => {
+    if (modalOpen) return;
+    setLeft(AUTO_SECONDS);
+    const t = setInterval(() => setLeft((x) => x - 1), 1000);
+    // 有人在操作（點畫面、打字）就重新倒數
+    const reset = () => setLeft(AUTO_SECONDS);
+    window.addEventListener("pointerdown", reset, true);
+    window.addEventListener("keydown", reset, true);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("pointerdown", reset, true);
+      window.removeEventListener("keydown", reset, true);
+    };
+  }, [modalOpen, later]);
+  useEffect(() => {
+    if (left <= 0 && !modalOpen) location.reload();
+  }, [left, modalOpen]);
+  if (waiting)
     return (
       <div className="update-bar">
         🔔 有新版本{upcoming ? `：${upcoming.title}` : ""}
+        {!modalOpen && <span className="small">（{left} 秒沒操作會自動更新）</span>}
         <button className="btn btn-sm" onClick={() => location.reload()}>
           立即更新
         </button>
@@ -165,7 +191,7 @@ export function UpdateChecker() {
             稍後
           </button>
           <button className="btn btn-primary" onClick={() => location.reload()}>
-            立即更新
+            立即更新（{left}）
           </button>
         </>
       }
@@ -181,11 +207,12 @@ export function UpdateChecker() {
               <li key={x}>{x}</li>
             ))}
           </ul>
-          {cartBusy() && <p className="muted small">購物車裡的商品會保留，更新後還在。</p>}
         </div>
       ) : (
-        <p>系統有新版本，按「立即更新」就會套用（不用重開 App）。</p>
+        <p>系統有新版本。</p>
       )}
+      <p className="muted small">{left} 秒後自動更新{cartBusy() ? "，購物車裡的商品會保留" : ""}。</p>
     </Modal>
   );
 }
+

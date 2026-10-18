@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-18-o",
+    date: "2026-10-18",
+    title: "自動更新",
+    items: [
+      "有新版本時跳出視窗並倒數 60 秒，沒人操作就自動更新，不用按「檢查更新」",
+      "有人在操作會重新倒數；正在付款時不會更新；購物車裡的商品會保留",
+    ],
+  },
+  {
     id: "2026-10-18-n",
     date: "2026-10-18",
     title: "交易編輯、更新提示",
