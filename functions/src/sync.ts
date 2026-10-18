@@ -244,6 +244,7 @@ export async function runShopperSync(mode: "full" | "incremental") {
           memberGroup: s.memberGroup?.title ?? null,
           birthMonth: birthMonth(s.birthDate),
           updatedAt: s.updatedAt,
+          joinedAt: s.createdAt ?? null,
           syncedAt: FieldValue.serverTimestamp(),
         }, { merge: true }); // merge keeps tier / spend computed by memberTiersJob
       }

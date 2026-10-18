@@ -4,7 +4,10 @@ import { useData } from "../data";
 import { db } from "../firebase";
 import { downloadCsv, money, todayStr } from "../lib/util";
 import type { Shopper } from "../types";
-import { Badge, Empty } from "./ui";
+import { Badge, Empty, useAction } from "./ui";
+import { useAuth } from "../auth";
+import { call } from "../firebase";
+import { atLeast } from "../lib/util";
 
 interface Row extends Shopper {
   birthDate?: string | null;
@@ -13,9 +16,13 @@ interface Row extends Shopper {
   pointsUsed?: number;
   pointsUsedStore?: number;
   pointsUsedOnline?: number;
+  joinedAt?: string | null;
+  lastOrderMs?: number;
+  pinned?: boolean;
+  pinnedMs?: number;
 }
 
-type Sort = "spend" | "points" | "used" | "name";
+type Sort = "newest" | "recent" | "spend" | "points" | "used" | "name";
 
 /** 顧客名單：每 15 分鐘從 meepShop 同步的全部會員，可搜尋、篩選群組／等級、匯出 Excel。 */
 export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
@@ -24,7 +31,16 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
   const [tier, setTier] = useState("");
-  const [sort, setSort] = useState<Sort>("spend");
+  const [sort, setSort] = useState<Sort>(() => {
+    try {
+      return (localStorage.getItem("g29.memberSort") as Sort) || "newest";
+    } catch {
+      return "newest";
+    }
+  });
+  const { profile } = useAuth();
+  const canPin = atLeast(profile?.role, "manager");
+  const { run } = useAction();
   const [birthdayOnly, setBirthdayOnly] = useState(false);
   useEffect(
     () =>
@@ -32,7 +48,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
         setRows(
           s.docs.map((d) => {
             const x = d.data();
-            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0, pointsUsed: x.pointsUsed ?? 0, pointsUsedStore: x.pointsUsedStore ?? 0, pointsUsedOnline: x.pointsUsedOnline ?? 0 };
+            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0, pointsUsed: x.pointsUsed ?? 0, pointsUsedStore: x.pointsUsedStore ?? 0, pointsUsedOnline: x.pointsUsedOnline ?? 0, joinedAt: x.joinedAt ?? null, lastOrderMs: x.lastOrderAt?.toMillis?.() ?? 0, pinned: !!x.pinned, pinnedMs: x.pinnedAt?.toMillis?.() ?? 0 };
           })
         )
       ),
@@ -49,7 +65,25 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
       .filter((r) => !group || r.group === group)
       .filter((r) => !tier || r.tier === tier)
       .filter((r) => !birthdayOnly || r.birthMonth === month)
-      .sort((a, b) => (sort === "spend" ? (b.spend12m ?? 0) - (a.spend12m ?? 0) : sort === "points" ? b.points - a.points : sort === "used" ? (b.pointsUsed ?? 0) - (a.pointsUsed ?? 0) : a.name.localeCompare(b.name, "zh-Hant")));
+      .sort((a, b) => {
+        // 釘選的永遠在最上面（先釘的在前）
+        if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+        if (a.pinned && b.pinned) return (a.pinnedMs ?? 0) - (b.pinnedMs ?? 0);
+        switch (sort) {
+          case "newest":
+            return (b.joinedAt ?? "").localeCompare(a.joinedAt ?? "");
+          case "recent":
+            return (b.lastOrderMs ?? 0) - (a.lastOrderMs ?? 0);
+          case "spend":
+            return (b.spend12m ?? 0) - (a.spend12m ?? 0);
+          case "points":
+            return b.points - a.points;
+          case "used":
+            return (b.pointsUsed ?? 0) - (a.pointsUsed ?? 0);
+          default:
+            return a.name.localeCompare(b.name, "zh-Hant");
+        }
+      });
   }, [rows, q, group, tier, sort, birthdayOnly, month]);
 
   return (
@@ -61,8 +95,8 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
           disabled={!list.length}
           onClick={() =>
             downloadCsv(`顧客名單_${todayStr()}.csv`, [
-              ["姓名", "手機", "Email", "meepShop 群組", "本系統等級", "購物金", "已使用購物金", "門市已使用", "網店已使用", "近12個月消費", "門市", "網店", "生日"],
-              ...list.map((r) => [r.name, r.mobile, r.email, r.group, r.tier, r.points, r.pointsUsed, r.pointsUsedStore, r.pointsUsedOnline, r.spend12m, r.spendStore12m, r.spendOnline12m, r.birthDate]),
+              ["姓名", "手機", "Email", "加入日期", "meepShop 群組", "本系統等級", "購物金", "已使用購物金", "門市已使用", "網店已使用", "近12個月消費", "門市", "網店", "生日"],
+              ...list.map((r) => [r.name, r.mobile, r.email, r.joinedAt?.slice(0, 10) ?? "", r.group, r.tier, r.points, r.pointsUsed, r.pointsUsedStore, r.pointsUsedOnline, r.spend12m, r.spendStore12m, r.spendOnline12m, r.birthDate]),
             ])
           }
         >
@@ -85,7 +119,19 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
             ))}
           </select>
         )}
-        <select value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+        <select
+          value={sort}
+          onChange={(e) => {
+            setSort(e.target.value as Sort);
+            try {
+              localStorage.setItem("g29.memberSort", e.target.value);
+            } catch {
+              /* ignore */
+            }
+          }}
+        >
+          <option value="newest">最新加入在上面</option>
+          <option value="recent">最近消費在上面</option>
           <option value="spend">依近 12 個月消費</option>
           <option value="points">依購物金</option>
           <option value="used">依已使用購物金</option>
@@ -112,10 +158,26 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
             </thead>
             <tbody>
               {list.slice(0, 300).map((r) => (
-                <tr key={r.id} onClick={() => onPick(r)}>
+                <tr key={r.id} onClick={() => onPick(r)} className={r.pinned ? "row-pinned" : ""}>
                   <td>
+                    {canPin && (
+                      <button
+                        type="button"
+                        className={`pin-btn ${r.pinned ? "on" : ""}`}
+                        title={r.pinned ? "取消釘選" : "釘選在最上面"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          run(() => call("setShopperPin", { id: r.id, pinned: !r.pinned }), r.pinned ? "已取消釘選" : "已釘選在最上面");
+                        }}
+                      >
+                        📌
+                      </button>
+                    )}
                     {r.name || "(未填姓名)"} {r.birthMonth === month && "🎂"}
-                    <div className="muted small">{r.email}</div>
+                    <div className="muted small">
+                      {r.email}
+                      {r.joinedAt && `　${r.joinedAt.slice(0, 10)} 加入`}
+                    </div>
                   </td>
                   <td>{r.mobile || "—"}</td>
                   <td>

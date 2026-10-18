@@ -670,3 +670,6 @@ span.tier-switch { cursor: default; }
 .stepper > button:disabled { opacity: 0.35; }
 .stepper > button.same { width: auto; padding: 0 8px; font-size: 12px; }
 .stepper .link-btn { min-width: 28px; text-align: center; }
+.pin-btn { border: 0; background: none; cursor: pointer; font-size: 14px; padding: 0 4px 0 0; opacity: 0.25; filter: grayscale(1); }
+.pin-btn.on, .pin-btn:hover { opacity: 1; filter: none; }
+.row-pinned { background: #fffbeb; }

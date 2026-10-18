@@ -903,6 +903,15 @@ export const refreshShopper = onCall(opts, async (req) => {
   return { points: live.usableRewardPoints, group: live.memberGroup?.title ?? null, name: live.name ?? "" };
 });
 
+/** 顧客名單：把會員釘選在最上面（店長以上） */
+export const setShopperPin = onCall(opts, async (req) => {
+  await requireRole(req, "manager");
+  const id = str(req.data?.id, "會員", { max: 64 });
+  const pinned = req.data?.pinned === true;
+  await db.doc(`shoppers/${id}`).update({ pinned, pinnedAt: pinned ? FieldValue.serverTimestamp() : null });
+  return { pinned };
+});
+
 /** 現場新增會員（meepShop 規定一定要有 Email） */
 export const createShopper = onCall(opts, async (req) => {
   await requireRole(req, "staff");
@@ -912,7 +921,7 @@ export const createShopper = onCall(opts, async (req) => {
   const birthDate = birthDateInput(req.data?.birthDate);
   try {
     const s = await meep.createShopper({ email, name: str(req.data?.name, "姓名", { optional: true, max: 40 }) || undefined, mobile: mobile || undefined, birthDate });
-    await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? "", mobile: s.mobile ?? "", mobileKey: mobileKey(s.mobile), points: s.usableRewardPoints ?? 0, memberGroup: s.memberGroup?.title ?? null, birthDate: s.birthDate ?? birthDate, birthMonth: birthDate.slice(5, 7), updatedAt: s.updatedAt ?? null });
+    await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? "", mobile: s.mobile ?? "", mobileKey: mobileKey(s.mobile), points: s.usableRewardPoints ?? 0, memberGroup: s.memberGroup?.title ?? null, birthDate: s.birthDate ?? birthDate, birthMonth: birthDate.slice(5, 7), updatedAt: s.updatedAt ?? null, joinedAt: s.createdAt ?? new Date().toISOString() });
     await ensureMemberCodes([s.id]);
     return { id: s.id, name: s.name, email: s.email, mobile: s.mobile, points: s.usableRewardPoints ?? 0, group: s.memberGroup?.title ?? null, birthMonth: birthDate.slice(5, 7) };
   } catch (e) {

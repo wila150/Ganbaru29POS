@@ -137,6 +137,8 @@ export interface MProduct {
 }
 
 export interface MShopper {
+  /** 加入會員時間（ISO） */
+  createdAt?: string | null;
   id: string;
   email: string;
   name: string | null;
@@ -283,7 +285,7 @@ export async function updateOrderShipmentStatus(orderNumber: string, shipmentSta
 
 // ---------- Shoppers ----------
 
-const SHOPPER_FIELDS = `id email name mobile birthDate usableRewardPoints updatedAt memberGroup { title }`;
+const SHOPPER_FIELDS = `id email name mobile birthDate usableRewardPoints createdAt updatedAt memberGroup { title }`;
 
 export async function shoppersPage(after: string | null, updatedSince?: Date) {
   const data = await gql<{ shoppers: Connection<MShopper> }>(

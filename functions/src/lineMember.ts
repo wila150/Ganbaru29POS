@@ -93,7 +93,7 @@ export const lineRegisterMember = onCall({ maxInstances: 10 }, async (req) => {
   } catch (e) {
     throw new HttpsError("failed-precondition", `註冊失敗：${errMsg(e)}（如果這個 Email 已經是會員，請改用「我已經是會員」綁定）`);
   }
-  await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? name, mobile: s.mobile ?? mobile, mobileKey: mobileKey(s.mobile ?? mobile), points: s.usableRewardPoints ?? 0, birthDate: s.birthDate ?? birthDate, birthMonth: birthDate.slice(5, 7), lineUserId: sub, lineBoundAt: FieldValue.serverTimestamp() }, { merge: true });
+  await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? name, mobile: s.mobile ?? mobile, mobileKey: mobileKey(s.mobile ?? mobile), points: s.usableRewardPoints ?? 0, birthDate: s.birthDate ?? birthDate, birthMonth: birthDate.slice(5, 7), joinedAt: s.createdAt ?? new Date().toISOString(), lineUserId: sub, lineBoundAt: FieldValue.serverTimestamp() }, { merge: true });
   return { token: await cardFor(s.id) };
 });
 
