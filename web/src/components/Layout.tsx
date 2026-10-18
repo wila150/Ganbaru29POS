@@ -55,7 +55,16 @@ const ADMIN_NAV: NavItem[] = [
     ],
   },
   { to: "/admin/attendance", label: "打卡", icon: "◷", min: "staff" },
-  { to: "/admin/settings", label: "設定", icon: "⚙", min: "owner" },
+  {
+    to: "/admin/help",
+    label: "其他",
+    icon: "⋯",
+    min: "staff",
+    children: [
+      { to: "/admin/help", label: "使用說明", min: "staff" },
+      { to: "/admin/settings", label: "設定", min: "owner" },
+    ],
+  },
 ];
 
 export function AdminLayout() {
@@ -82,7 +91,7 @@ export function AdminLayout() {
                 <span className="nav-icon" aria-hidden>
                   {n.icon}
                 </span>
-                {kids?.length === 1 && n.label === "行銷" ? "折扣" : n.label}
+                {kids?.length === 1 ? kids[0].label : n.label}
               </NavLink>
             );
           })}
@@ -100,7 +109,6 @@ export function AdminLayout() {
             {profile?.name} · {profile && ROLE_LABEL[profile.role]}
           </div>
           <small className="muted">商品同步：{fmtTime(settings.lastIncrementalSyncAt ?? settings.lastCatalogSyncAt)}</small>
-          <NavLink to="/admin/help" className="link-btn small">📖 使用說明</NavLink>
           <UpdateButton />
           <LogoutButton className="btn btn-ghost btn-sm">登出</LogoutButton>
         </div>
