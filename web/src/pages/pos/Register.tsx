@@ -750,7 +750,8 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
       {!creating ? (
         <>
           <div className="inline-form">
-            <input autoFocus placeholder="手機號碼、Email 或掃會員條碼" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && q && search()} />
+            {/* 平板不跳出系統鍵盤：用下面的數字鍵或掃描槍輸入 */}
+            <input autoFocus inputMode="none" placeholder="手機號碼或掃會員條碼" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && q && search()} />
             <button className="btn btn-primary" disabled={busy || !q} onClick={search}>
               查詢
             </button>

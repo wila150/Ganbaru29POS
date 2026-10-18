@@ -228,7 +228,7 @@ function LinePayScan({ amount, itemName, invoiceOk, stage, onBusy, onPaid }: { a
           {state?.status === "failed" && <p className="error center">付款失敗：{state.message}</p>}
           {!invoiceOk && <p className="error small center">請先填好發票資料</p>}
           <div className="inline-form">
-            <input ref={input} autoFocus inputMode="numeric" placeholder="掃描 LINE Pay 付款碼" value={code} disabled={busy || !invoiceOk} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && charge(code)} />
+            <input ref={input} autoFocus inputMode="none" placeholder="掃描 LINE Pay 付款碼" value={code} disabled={busy || !invoiceOk} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && charge(code)} />
             <button className="btn btn-primary" disabled={busy || !code || !invoiceOk} onClick={() => charge(code)}>
               扣款
             </button>

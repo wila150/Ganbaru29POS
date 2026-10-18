@@ -11,6 +11,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-18-l",
+    date: "2026-10-18",
+    title: "平板輸入",
+    items: [
+      "會員查詢、LINE Pay 掃碼在平板上不再跳出系統鍵盤，直接用畫面上的數字鍵（掃描槍照常可用）",
+    ],
+  },
+  {
     id: "2026-10-18-k",
     date: "2026-10-18",
     title: "更新提示",
