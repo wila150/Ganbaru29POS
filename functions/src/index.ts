@@ -6,7 +6,7 @@ export { syncCatalog, syncShoppersNow, catalogIncremental, catalogDaily, importI
 export { createStocktake, stocktakeCount, applyStocktake, cancelStocktake } from "./stocktake";
 export { claimOwner, inviteStaff, acceptInvite, setRole, setActive, renameStaff } from "./staff";
 export { setApiKey, testConnection, setLineToken, testLine, secretStatus } from "./settings";
-export { posCheckout, posRefund, posVoid, exchangeQuote, openShift, cashMove, shiftSummary, closeShift, listOnlineOrders, updateShipment, searchShopper, createShopper, refreshShopper, setShopperPin, shopperOnlineOrders } from "./pos";
+export { posCheckout, posRefund, posVoid, posEditOrder, exchangeQuote, openShift, cashMove, shiftSummary, closeShift, listOnlineOrders, updateShipment, searchShopper, createShopper, refreshShopper, setShopperPin, shopperOnlineOrders } from "./pos";
 export { retryFailed, lowStockAlert, previewDailyAlert, refreshStats, salesReport } from "./jobs";
 export { memberTiersDaily, recomputeMemberTiers, birthdayGiftsMonthly } from "./members";
 export { createOnlinePayment, cancelOnlinePayment, checkOnlinePayment, payPage, payReturn, ecpayNotify, newebpayNotify, setPaymentCreds, paymentCredsStatus } from "./payments/index";

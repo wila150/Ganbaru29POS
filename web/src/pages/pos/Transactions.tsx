@@ -1,4 +1,4 @@
-import { collection, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth";
@@ -111,6 +111,7 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
   const { profile } = useAuth();
   const [refunding, setRefunding] = useState(false);
   const [exchanging, setExchanging] = useState(false);
+  const [editing, setEditing] = useState(false);
   const { busy, run } = useAction();
   const canRefund = atLeast(profile?.role, "manager") || settings.staffCanRefund;
   const open = o.status === "completed" || o.status === "partial";
@@ -125,6 +126,11 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
           <button className="btn" onClick={() => printReceipt(o, settings, { copy: true })}>
             補印收據
           </button>
+          {o.status !== "void" && o.status !== "canceled" && o.status !== "pending" && (
+            <button className="btn" onClick={() => setEditing(true)}>
+              編輯
+            </button>
+          )}
           {open && canRefund && (
             <>
               <button className="btn" onClick={() => setExchanging(true)}>
@@ -174,6 +180,7 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
               <td>
                 {l.productTitle} {l.options}
                 {l.note && <div className="small muted">📝 {l.note}</div>}
+                {l.replacedFrom && <div className="small muted">（原本是 {l.replacedFrom.productTitle} {l.replacedFrom.options}）</div>}
                 {l.discountPct > 0 && <span className="tag">-{l.discountPct}%</span>}
                 {(l.promoLabels ?? []).map((n) => (
                   <span key={n} className="tag tag-promo">{n}</span>
@@ -235,6 +242,17 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
         </dd>
       </dl>
       {o.note && <p>備註：{o.note}</p>}
+      {(o.edits ?? []).length > 0 && (
+        <details className="edit-log">
+          <summary>修改紀錄（{o.edits!.length}）</summary>
+          {o.edits!.map((e, i) => (
+            <div key={i} className="small">
+              {fmtTime(e.at as never)} {e.by}：{e.changes.join("；")}
+            </div>
+          ))}
+        </details>
+      )}
+      {editing && <EditOrder order={o} onClose={() => setEditing(false)} />}
       <InvoiceInfo order={o} />
       {(o.refunds ?? []).length > 0 && (
         <>
@@ -514,5 +532,166 @@ export function Members() {
       {showCard && shopper && <MemberCardDialog shopperId={shopper.id} name={shopper.name || shopper.mobile} onClose={() => setShowCard(false)} />}
       {picking && <MemberPicker current={null} onClose={() => setPicking(false)} onPick={setShopper} />}
     </div>
+  );
+}
+
+/**
+ * 編輯已完成的單：備註、更換商品（例：先用「新品」結帳，上架後換成真正的商品，價格不變、庫存一加一減）、
+ * 更正付款方式（店長以上、該班還沒結班）。商品數量、金額要改請用退貨／換貨。
+ */
+function EditOrder({ order: o, onClose }: { order: PosOrder; onClose: () => void }) {
+  const { profile } = useAuth();
+  const { variants, byId } = useData();
+  const isManager = atLeast(profile?.role, "manager");
+  const [note, setNote] = useState(o.note ?? "");
+  const [lineNotes, setLineNotes] = useState(o.lines.map((l) => l.note ?? ""));
+  const [replace, setReplace] = useState<Record<number, string>>({});
+  const [picking, setPicking] = useState<number | null>(null);
+  const [q, setQ] = useState("");
+  const [shiftOpen, setShiftOpen] = useState<boolean | null>(null);
+  const manualPays = !(o.payments as { method: string; amount: number; ref?: string }[]).some((p) => p.ref || p.method === "exchange" || p.method === "ecpay" || p.method === "newebpay");
+  const [pays, setPays] = useState(o.payments.map((p) => ({ method: p.method, amount: String(p.amount) })));
+  const [editPay, setEditPay] = useState(false);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  useEffect(() => {
+    if (!o.shiftId) return setShiftOpen(false);
+    getDoc(doc(db, "shifts", o.shiftId))
+      .then((d) => setShiftOpen(d.data()?.status !== "closed"))
+      .catch(() => setShiftOpen(false));
+  }, [o.shiftId]);
+  const results = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    if (!t) return [];
+    return variants.filter((v) => `${v.productTitle} ${v.options} ${v.sku ?? ""}`.toLowerCase().includes(t)).slice(0, 30);
+  }, [q, variants]);
+  const paid = pays.reduce((a, p) => a + (Number(p.amount) || 0), 0);
+
+  const save = () =>
+    run(async () => {
+      const payload: Record<string, unknown> = { orderId: o.id, note, lineNotes: lineNotes.map((n, index) => ({ index, note: n })) };
+      const rep = Object.entries(replace).map(([index, variantId]) => ({ index: Number(index), variantId }));
+      if (rep.length) payload.replace = rep;
+      if (editPay) payload.payments = pays.map((p) => ({ method: p.method, amount: Number(p.amount) || 0 }));
+      const r = await call<{ changes: string[] }>("posEditOrder", payload);
+      toast(r.changes.length ? `已修改 ${r.changes.length} 項` : "沒有變更", r.changes.length ? "ok" : "info");
+      onClose();
+    });
+
+  return (
+    <Modal
+      title={`編輯 ${o.orderNo}`}
+      onClose={onClose}
+      wide
+      footer={
+        <button className="btn btn-primary" disabled={busy || (editPay && paid < o.total)} onClick={save}>
+          {busy ? "儲存中…" : "儲存"}
+        </button>
+      }
+    >
+      <p className="muted small">可以改備註、把商品換成正確的商品（金額不變，庫存自動調整）、更正付款方式。要改數量或金額請用「退貨／換貨」。</p>
+      <h3>商品</h3>
+      {o.lines.map((l, i) => {
+        const to = replace[i] ? byId.get(replace[i]) : null;
+        return (
+          <div key={i} className="edit-line">
+            <div className="row-between">
+              <div>
+                <strong>
+                  {to ? (
+                    <>
+                      <s className="muted">
+                        {l.productTitle} {l.options}
+                      </s>{" "}
+                      → {to.productTitle} {to.options}
+                    </>
+                  ) : (
+                    `${l.productTitle} ${l.options}`
+                  )}
+                </strong>
+                <span className="muted small">
+                  　× {l.qty}　{money(l.total)}
+                </span>
+              </div>
+              {!l.refundedQty && (
+                <button className="btn btn-sm" onClick={() => (setPicking(i), setQ(""))}>
+                  {to ? "重選" : "更換商品"}
+                </button>
+              )}
+            </div>
+            <input placeholder="這一項的備註" value={lineNotes[i]} maxLength={100} onChange={(e) => setLineNotes((x) => x.map((n, j) => (j === i ? e.target.value : n)))} />
+          </div>
+        );
+      })}
+      <h3>整單備註</h3>
+      <textarea rows={2} value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} />
+      <h3>付款方式</h3>
+      {!isManager ? (
+        <p className="muted small">更正付款方式限店長以上。</p>
+      ) : !manualPays ? (
+        <p className="muted small">線上付款、換貨抵用的單不能改付款方式。</p>
+      ) : shiftOpen === false ? (
+        <p className="muted small">這一班已經結班，現金已點收，不能再改付款方式。</p>
+      ) : !editPay ? (
+        <button className="btn btn-sm" onClick={() => setEditPay(true)}>
+          更正付款方式（目前：{o.payments.map((p) => `${PAY_NAME[p.method]} ${money(p.amount)}`).join("、")}）
+        </button>
+      ) : (
+        <div>
+          {pays.map((p, i) => (
+            <div key={i} className="inline-form">
+              <select value={p.method} onChange={(e) => setPays((x) => x.map((y, j) => (j === i ? { ...y, method: e.target.value as typeof p.method } : y)))}>
+                {Object.entries(PAY_LABEL).map(([k, l]) => (
+                  <option key={k} value={k}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+              <input inputMode="numeric" value={p.amount} onChange={(e) => setPays((x) => x.map((y, j) => (j === i ? { ...y, amount: e.target.value.replace(/\D/g, "") } : y)))} />
+              {pays.length > 1 && (
+                <button className="btn-icon danger" onClick={() => setPays((x) => x.filter((_, j) => j !== i))}>
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
+          <button className="link-btn small" onClick={() => setPays((x) => [...x, { method: "card", amount: "0" }])}>
+            ＋ 再加一種付款
+          </button>
+          <p className={`small ${paid < o.total ? "error" : "muted"}`}>
+            應收 {money(o.total)}，付款合計 {money(paid)}
+            {paid > o.total && `（找零 ${money(paid - o.total)}，只有現金可以找零）`}
+          </p>
+        </div>
+      )}
+      {picking !== null && (
+        <Modal title={`把「${o.lines[picking].productTitle}」換成…`} onClose={() => setPicking(null)}>
+          <input autoFocus placeholder="搜尋商品名稱、編號" value={q} onChange={(e) => setQ(e.target.value)} />
+          <ul className="pick-list">
+            {results.map((v) => (
+              <li key={v.id}>
+                <button
+                  className="pick-row"
+                  onClick={() => {
+                    setReplace((x) => ({ ...x, [picking]: v.id }));
+                    setPicking(null);
+                  }}
+                >
+                  {v.thumbUrl || v.imageUrl ? <img src={v.thumbUrl || v.imageUrl!} alt="" className="thumb-sm" /> : null}
+                  <span>
+                    {v.productTitle} {v.options}
+                  </span>
+                  <span className="muted small">
+                    {money(v.price ?? 0)}・庫存 {v.shopStock ?? 0}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {q && results.length === 0 && <li className="muted">找不到商品（新商品上架後約 15 分鐘會同步過來）</li>}
+          </ul>
+          <p className="muted small">金額維持原本結帳的金額；庫存會把原商品加回、新商品扣掉，並同步到網店。</p>
+        </Modal>
+      )}
+    </Modal>
   );
 }

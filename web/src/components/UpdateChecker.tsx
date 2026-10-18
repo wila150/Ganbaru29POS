@@ -99,7 +99,14 @@ export function UpdateChecker() {
   const [upcoming, setUpcoming] = useState<ChangeEntry | null>(null);
   const [found, setFound] = useState(false);
   const [later, setLater] = useState(false);
-  const [busyCart, setBusyCart] = useState(false);
+  // 正在結帳（有視窗開著，例如付款、選規格）時先不跳，視窗關掉後再跳；購物車內容會保留，更新不會不見
+  const [modalOpen, setModalOpen] = useState(false);
+  useEffect(() => {
+    if (!found) return;
+    const t = setInterval(() => setModalOpen(!!document.querySelector('.modal:not([aria-label="🔔 有新版本"])')), 3000);
+    setModalOpen(!!document.querySelector('.modal:not([aria-label="🔔 有新版本"])'));
+    return () => clearInterval(t);
+  }, [found]);
   // 更新完打開：跳出這次的更新內容（每個版本只跳一次）
   const [whatsNew, setWhatsNew] = useState(() => {
     try {
@@ -119,7 +126,6 @@ export function UpdateChecker() {
         const { build, notes } = await r.json();
         if (stop || !build || build === __BUILD_ID__) return;
         if (notes) setUpcoming(notes);
-        setBusyCart(cartBusy());
         setFound(true);
       } catch {
         /* offline */
@@ -139,8 +145,8 @@ export function UpdateChecker() {
   }, []);
 
   if (!found) return whatsNew ? <ChangelogDialog onlyLatest onClose={() => setWhatsNew(false)} /> : null;
-  // 收銀中或按了「稍後」：上方提示列
-  if (busyCart || later)
+  // 結帳視窗開著或按了「稍後」：上方提示列
+  if (modalOpen || later)
     return (
       <div className="update-bar">
         🔔 有新版本{upcoming ? `：${upcoming.title}` : ""}
@@ -175,6 +181,7 @@ export function UpdateChecker() {
               <li key={x}>{x}</li>
             ))}
           </ul>
+          {cartBusy() && <p className="muted small">購物車裡的商品會保留，更新後還在。</p>}
         </div>
       ) : (
         <p>系統有新版本，按「立即更新」就會套用（不用重開 App）。</p>

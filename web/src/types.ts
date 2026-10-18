@@ -150,6 +150,8 @@ export interface PosLine {
   total: number;
   refundedQty: number;
   note?: string | null;
+  /** 更換商品前原本是什麼（例：新品） */
+  replacedFrom?: { variantId: string; productTitle: string; options: string } | null;
 }
 
 export interface Refund {
@@ -176,6 +178,7 @@ export interface PosOrder {
   guests: number | null;
   note: string | null;
   shopper: { id: string; name: string; email: string; mobile: string } | null;
+  edits?: { at: { toMillis(): number }; by: string; changes: string[] }[];
   lines: PosLine[];
   promotions?: { promoId: string; name: string; discount: number }[];
   promoTotal?: number;

@@ -602,6 +602,105 @@ export const posVoid = onCall({ ...opts, timeoutSeconds: 120 }, async (req) => {
   return doRefund(actor, orderId, `void_${orderId}`, lines, "original", str(req.data?.reason, "原因", { optional: true, max: 200 }) || "作廢", true, undefined, str(req.data?.locationId, "地點", { optional: true, max: 40 }) || null);
 });
 
+// ---------- 編輯已完成的單（只限不影響庫存、金額的欄位） ----------
+
+/**
+ * 交易瀏覽「編輯」：
+ *  - 備註（整單、各商品）：員工以上
+ *  - 付款方式更正（例：刷卡記成現金）：店長以上，而且那一班還沒結班（結班後現金已點收，不能再改）
+ * 商品、數量、金額要改請用退貨／換貨（才會同步庫存、購物金、發票）。每次修改都留紀錄。
+ */
+export const posEditOrder = onCall(opts, async (req) => {
+  const actor = await requireRole(req, "staff");
+  const orderId = str(req.data?.orderId, "訂單", { max: 64 });
+  const ref = db.doc(`posOrders/${orderId}`);
+  const changes: string[] = [];
+  // 更換商品（例：先用「新品」結帳，上架後換成真正的商品）：價格不變，庫存一加一減
+  const swaps: { index: number; from: string; to: string; qty: number; moveBase: string }[] = [];
+  const order0 = (await ref.get()).data();
+  const swapReq = Array.isArray(req.data?.replace) ? (req.data.replace as { index: number; variantId: string }[]) : [];
+  const newVariants = new Map<string, FirebaseFirestore.DocumentData>();
+  for (const r of swapReq) {
+    const v = (await db.doc(`variants/${str(r.variantId, "商品", { max: 100 })}`).get()).data();
+    assert(v, "找不到要換成的商品", "not-found");
+    newVariants.set(r.variantId, v);
+  }
+  await db.runTransaction(async (tx) => {
+    const o = (await tx.get(ref)).data();
+    assert(o, "找不到這張單", "not-found");
+    assert(["completed", "partial", "refunded"].includes(o.status), "這張單不能編輯", "failed-precondition");
+    const patch: Record<string, unknown> = {};
+    if (req.data?.note !== undefined) {
+      const note = str(req.data.note, "備註", { optional: true, max: 300 }) || "";
+      if (note !== (o.note ?? "")) {
+        patch.note = note;
+        changes.push(`整單備註：${o.note || "（空）"} → ${note || "（空）"}`);
+      }
+    }
+    if (Array.isArray(req.data?.lineNotes)) {
+      const lines = (o.lines as Line[]).map((l) => ({ ...l }));
+      for (const x of req.data.lineNotes as { index: number; note: string }[]) {
+        const i = int(x.index, "第幾項", { min: 0, max: lines.length - 1 });
+        const note = str(x.note, "備註", { optional: true, max: 100 }) || null;
+        if ((lines[i].note ?? null) !== note) {
+          changes.push(`${lines[i].productTitle} 備註：${lines[i].note || "（空）"} → ${note || "（空）"}`);
+          lines[i].note = note;
+        }
+      }
+      patch.lines = lines;
+    }
+    if (swapReq.length) {
+      const lines = ((patch.lines as Line[] | undefined) ?? (o.lines as Line[]).map((l) => ({ ...l })));
+      const n = (o.edits ?? []).length;
+      for (const r of swapReq) {
+        const i = int(r.index, "第幾項", { min: 0, max: lines.length - 1 });
+        const l = lines[i];
+        const v = newVariants.get(r.variantId)!;
+        if (l.variantId === r.variantId) continue;
+        assert(!l.refundedQty, `${l.productTitle} 已經退過貨，不能更換商品`, "failed-precondition");
+        swaps.push({ index: i, from: l.variantId, to: r.variantId, qty: l.qty, moveBase: `swap_${orderId}_${i}_${n}` });
+        changes.push(`更換商品：${l.productTitle} ${l.options} → ${v.productTitle} ${v.options ?? ""}（${l.qty} 件，金額不變）`);
+        lines[i] = { ...l, variantId: r.variantId, productTitle: v.productTitle, options: v.options ?? "", sku: v.sku ?? null, listPrice: v.price ?? 0, replacedFrom: { variantId: l.variantId, productTitle: l.productTitle, options: l.options } } as Line;
+      }
+      patch.lines = lines;
+    }
+    if (Array.isArray(req.data?.payments)) {
+      assert(atLeast(actor.role, "manager"), "更正付款方式限店長以上", "permission-denied");
+      const shift = o.shiftId ? (await tx.get(db.doc(`shifts/${o.shiftId}`))).data() : undefined;
+      assert(shift && shift.status !== "closed", "這一班已經結班，不能再改付款方式（請改用退貨後重新結帳）", "failed-precondition");
+      const old = o.payments as { method: string; amount: number; ref?: string }[];
+      assert(!old.some((p) => p.ref || p.method === "exchange" || ONLINE_METHODS.includes(p.method)), "線上付款、換貨抵用的單不能改付款方式", "failed-precondition");
+      const pays = (req.data.payments as Record<string, unknown>[])
+        .map((p) => {
+          assert((METHODS as readonly string[]).includes(p.method as string), "付款方式不正確");
+          return { method: p.method as Method, amount: num(p.amount, "付款金額", { min: 0, max: 1e8 }) };
+        })
+        .filter((p) => p.amount > 0);
+      const paid = pays.reduce((a, p) => a + p.amount, 0);
+      const nonCash = pays.filter((p) => p.method !== "cash").reduce((a, p) => a + p.amount, 0);
+      assert(paid >= o.total, `付款合計 $${paid} 少於應收 $${o.total}`);
+      assert(nonCash <= o.total, "刷卡、LINE Pay、轉帳不能超過應收金額（只有現金可以找零）");
+      patch.payments = pays;
+      patch.change = paid - o.total;
+      changes.push(`付款：${old.map((p) => `${p.method} ${p.amount}`).join("+")} → ${pays.map((p) => `${p.method} ${p.amount}`).join("+")}`);
+    }
+    if (!changes.length) return;
+    patch.edits = FieldValue.arrayUnion({ at: Timestamp.now(), by: actor.name, changes });
+    tx.update(ref, patch);
+  });
+  if (changes.length) await audit(actor, "pos.edit", { orderId, changes });
+  // 庫存：原商品加回、新商品扣掉（同步到 meepShop）
+  const moveIds: string[] = [];
+  for (const w of swaps) {
+    const note = `${order0?.orderNo ?? orderId} 更換商品`;
+    await createMovement({ id: `${w.moveBase}_back`, variantId: w.from, type: "refund", delta: w.qty, ref: orderId, note, status: "processing", locationId: order0?.locationId ?? null }, actor);
+    await createMovement({ id: `${w.moveBase}_out`, variantId: w.to, type: "sale", delta: -w.qty, ref: orderId, note, status: "processing", locationId: order0?.locationId ?? null }, actor);
+    moveIds.push(`${w.moveBase}_back`, `${w.moveBase}_out`);
+  }
+  if (moveIds.length) await pushBulk(moveIds);
+  return { changes };
+});
+
 // ---------- exchange (換貨) ----------
 
 type ExchangeInput =
