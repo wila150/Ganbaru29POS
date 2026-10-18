@@ -398,19 +398,41 @@ export function Members() {
           {orders.length === 0 ? (
             <Empty>沒有門市消費紀錄（網店訂單請看 meepShop 後台）</Empty>
           ) : (
+            <>
             <table className="table">
+              <thead>
+                <tr>
+                  <th>時間</th>
+                  <th>單號</th>
+                  <th>商品</th>
+                  <th className="num">金額</th>
+                  <th className="num">購物金</th>
+                  <th>狀態</th>
+                </tr>
+              </thead>
               <tbody>
-                {orders.map((o) => (
-                  <tr key={o.id}>
-                    <td>{fmtTime(o.createdAt)}</td>
-                    <td>{o.orderNo}</td>
-                    <td className="ellipsis">{o.lines.map((l) => l.productTitle).join("、")}</td>
-                    <td className="num">{money(o.total)}</td>
-                    <td>{ORDER_BADGE[o.status]}</td>
-                  </tr>
-                ))}
+                {orders.map((o) => {
+                  const back = (o.refunds ?? []).reduce((s2, r) => s2 + (r.pointsReclaimed ?? 0), 0);
+                  return (
+                    <tr key={o.id}>
+                      <td>{fmtTime(o.createdAt)}</td>
+                      <td>{o.orderNo}</td>
+                      <td className="ellipsis">{o.lines.map((l) => l.productTitle).join("、")}</td>
+                      <td className="num">{money(o.total)}</td>
+                      <td className="num points-cell">
+                        {o.rewardEarned > 0 && <span className="ok">+{o.rewardEarned}</span>}
+                        {o.rewardPoints > 0 && <span className="error">−{o.rewardPoints}</span>}
+                        {back > 0 && <span className="muted small">退貨收回 {back}</span>}
+                        {!o.rewardEarned && !o.rewardPoints && <span className="muted">—</span>}
+                      </td>
+                      <td>{ORDER_BADGE[o.status]}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+            <p className="muted small">購物金：＋ 本單回饋　− 本單折抵使用</p>
+            </>
           )}
         </>
       )}

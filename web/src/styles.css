@@ -578,3 +578,4 @@ span.tier-switch { cursor: default; }
 .sound-rule { padding: 8px 10px; background: var(--surface-2); border-radius: 8px; }
 /* 畫面外的商品卡不排版、不畫（iPad 切換頁面更順） */
 .product-card { content-visibility: auto; contain-intrinsic-size: auto 220px; }
+.points-cell span { display: block; white-space: nowrap; }
