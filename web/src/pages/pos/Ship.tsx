@@ -191,7 +191,7 @@ async function downloadImport(def: ExportDef, orders: ShipOrder[], sender: Sende
 }
 
 /** 撿貨單（合併所有選取訂單，同款加總）＋每張訂單一頁出貨單 */
-function printDocs(orders: ShipOrder[], label: (variantId: string | undefined, title: string) => string, paper: "a4" | "label") {
+function printDocs(orders: ShipOrder[], label: (variantId: string | undefined, title: string) => string, paper: "a4" | "label", what: { pick: boolean; slip: boolean }) {
   const w = window.open("", "_blank");
   if (!w) return alert("瀏覽器擋了彈出視窗，請允許後再按一次");
   const pick = new Map<string, { name: string; qty: number; orders: string[] }>();
@@ -225,7 +225,7 @@ body { font-family: -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; co
 h1 { font-size: 1.5em; margin: 0 0 6px; } .hd { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #000; margin-bottom: 6px; }
 table { width: 100%; border-collapse: collapse; margin: 8px 0; } th, td { border-bottom: 1px solid #999; padding: 4px; text-align: left; vertical-align: top; }
 .r { text-align: right; } .b { font-weight: 700; } .s { font-size: .85em; color: #333; } .big { font-size: 1.2em; font-weight: 700; margin: 4px 0; } p { margin: 3px 0; }
-</style></head><body>${pickPage}${slips}<script>onload = () => setTimeout(() => print(), 300)</script></body></html>`);
+</style></head><body>${what.pick ? pickPage : ""}${what.slip ? slips : ""}<script>onload = () => setTimeout(() => print(), 300)</script></body></html>`);
   w.document.close();
 }
 
@@ -236,6 +236,22 @@ export function Ship() {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [packing, setPacking] = useState<ShipOrder | null>(null);
   const [senderOpen, setSenderOpen] = useState(false);
+  // 要印哪些：撿貨單、出貨單（記在這台裝置）
+  const [what, setWhat] = useState<{ pick: boolean; slip: boolean }>(() => {
+    try {
+      return { pick: true, slip: true, ...JSON.parse(localStorage.getItem("g29.shipPrint") || "{}") };
+    } catch {
+      return { pick: true, slip: true };
+    }
+  });
+  const setWhatSave = (w: { pick: boolean; slip: boolean }) => {
+    setWhat(w);
+    try {
+      localStorage.setItem("g29.shipPrint", JSON.stringify(w));
+    } catch {
+      /* ignore */
+    }
+  };
   const [sender, setSender] = useState<Sender>(loadSender);
   const toast = useToast();
   const [paper, setPaper] = useState<"a4" | "label">(() => {
@@ -275,7 +291,7 @@ export function Ship() {
       <div className="page-head">
         <div>
           <h1>網店出貨</h1>
-          <div className="muted small">近 60 天還沒出貨的 meepShop 訂單（先下單的在前面）。勾選後列印撿貨單＋出貨單；包貨時按「包貨核對」掃吊牌確認。</div>
+          <div className="muted small">近 60 天還沒出貨的 meepShop 訂單（先下單的在前面）。勾選訂單、選要印撿貨單（同款加總，拿貨用）或出貨單（每張訂單一頁，放進包裹）；包貨時按「包貨核對」掃吊牌確認。</div>
         </div>
         <button className="btn" disabled={busy} onClick={load}>
           {busy ? "讀取中…" : "重新整理"}
@@ -306,8 +322,14 @@ export function Ship() {
           <option value="a4">A4 紙</option>
           <option value="label">標籤機 10×15 cm</option>
         </select>
-        <button className="btn btn-primary" disabled={!chosen.length} onClick={() => printDocs(chosen, label, paper)}>
-          列印撿貨單＋出貨單（{chosen.length}）
+        <label className="check">
+          <input type="checkbox" checked={what.pick} onChange={(e) => setWhatSave({ ...what, pick: e.target.checked })} /> 撿貨單
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={what.slip} onChange={(e) => setWhatSave({ ...what, slip: e.target.checked })} /> 出貨單
+        </label>
+        <button className="btn btn-primary" disabled={!chosen.length || (!what.pick && !what.slip)} onClick={() => printDocs(chosen, label, paper, what)}>
+          列印{what.pick && what.slip ? "撿貨單＋出貨單" : what.pick ? "撿貨單" : what.slip ? "出貨單" : ""}（{chosen.length}）
         </button>
         {(Object.keys(EXPORTS) as ExportKind[]).map((k) => {
           const def = EXPORTS[k];

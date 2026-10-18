@@ -11,6 +11,12 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-d",
+    date: "2026-10-19",
+    title: "出貨列印選擇",
+    items: ["網店出貨可以勾選要印「撿貨單」、「出貨單」或兩個都印（會記住你的選擇）"],
+  },
+  {
     id: "2026-10-19-c",
     date: "2026-10-19",
     title: "全家寄件匯入",
