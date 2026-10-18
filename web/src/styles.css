@@ -572,3 +572,7 @@ span.tier-switch { cursor: default; }
 .btn-block { width: 100%; }
 .linepay-box { border: 2px solid #06c755; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .linepay-box .inline-form input { flex: 1; font-size: 18px; letter-spacing: 1px; }
+.sound-picker { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sound-picker select { width: auto; }
+.sound-picker label.btn { cursor: pointer; }
+.sound-rule { padding: 8px 10px; background: var(--surface-2); border-radius: 8px; }

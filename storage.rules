@@ -15,6 +15,13 @@ service firebase.storage {
       allow write: if isManager() && request.resource.size < 10 * 1024 * 1024
         && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
     }
+    // 結帳音效（設定頁上傳）
+    match /sounds/{file} {
+      allow read: if active();
+      allow write: if isManager()
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('audio/.*');
+    }
     // 「商品與條碼」頁手動上傳的圖片
     match /manual/{productId}/{file} {
       allow read: if active();

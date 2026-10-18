@@ -11,6 +11,7 @@ import { useData, variantName } from "../../data";
 import { call, db } from "../../firebase";
 import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
 import { resolveCode, searchVariants } from "../../lib/lookup";
+import { playCheckoutSound, unlockAudio } from "../../lib/sound";
 import { beep, deviceId, money, newId, PAY_LABEL, todayStr } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useDeviceLocation } from "../../lib/location";
@@ -66,6 +67,9 @@ export function Register() {
   const [checkout, setCheckout] = useState(false);
   // One id per checkout attempt, reused on retry, so a dropped connection never records the sale twice.
   const orderId = useRef<string>(newId("o"));
+  // iPad 要在點畫面時解鎖聲音，結帳完成才能播放音效
+  const soundUrls = [settings.checkoutSound?.customUrl, ...(settings.checkoutSound?.rules ?? []).map((r) => r.customUrl)].filter(Boolean).join("|");
+  useEffect(() => unlockAudio(soundUrls ? soundUrls.split("|") : null), [soundUrls]);
   useEffect(() => {
     orderId.current = newId("o"); // the cart changed → it is a different sale
   }, [cart, disc, shopper, exchange, coupons]);
@@ -518,6 +522,13 @@ export function Register() {
             orderId.current = newId("o");
             const order = { id, ...(await getDoc(doc(db, "posOrders", id))).data() } as PosOrder;
             setCheckout(false);
+            void (async () => {
+              // 條件音效（例：會員生日）要知道會員生日、群組
+              let birthDate: string | null = null;
+              if (shopper && settings.checkoutSound?.rules?.some((x) => x.when.startsWith("birthday")))
+                birthDate = ((await getDoc(doc(db, "shoppers", shopper.id)).catch(() => null))?.data()?.birthDate as string | undefined) ?? null;
+              playCheckoutSound(settings.checkoutSound, false, { isMember: !!shopper, birthDate, group: shopper?.group ?? null, total: due, today: todayStr() });
+            })();
             setDone({ order, issues: r.stockIssues });
             reset();
           }}

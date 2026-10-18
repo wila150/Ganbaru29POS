@@ -8,6 +8,9 @@ import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
 import type { RewardRule, ShopSettings, TierCond, TierDef } from "../../types";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
 import { QrImg } from "../../components/QrImg";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { storage } from "../../firebase";
+import { DEFAULT_SOUND, playCheckoutSound, SOUND_PRESETS, SOUND_WHEN_LABEL, type CheckoutSound, type SoundChoice, type SoundPreset, type SoundRule, type SoundWhen } from "../../lib/sound";
 
 export function Settings() {
   return (
@@ -17,6 +20,7 @@ export function Settings() {
       <ApiKey />
       <Alerts />
       <PosSettings />
+      <SoundSettings />
       <PaymentSettings />
       <LocationSettings />
       <MerchantSettings />
@@ -263,6 +267,106 @@ function Alerts() {
           傳測試訊息
         </button>
       </div>
+    </section>
+  );
+}
+
+/** 選一種聲音：內建或上傳音檔，可試聽 */
+function SoundPicker({ value, volume, onChange }: { value: SoundChoice; volume: number; onChange: (v: SoundChoice) => void }) {
+  const { busy, run } = useAction();
+  const upload = (file: File) =>
+    run(async () => {
+      if (!file.type.startsWith("audio/")) throw new Error("請選擇音檔（mp3、m4a、wav）");
+      if (file.size > 2 * 1024 * 1024) throw new Error("音檔請小於 2MB（建議 1～5 秒的短音效）");
+      const path = `sounds/checkout-${Date.now()}.${(file.name.split(".").pop() || "mp3").toLowerCase()}`;
+      await uploadBytes(ref(storage, path), file, { contentType: file.type });
+      onChange({ preset: "custom", customUrl: await getDownloadURL(ref(storage, path)), customName: file.name });
+    }, "已上傳，記得按儲存");
+  return (
+    <div className="sound-picker">
+      <select value={value.preset} onChange={(e) => onChange({ ...value, preset: e.target.value as SoundPreset })}>
+        {SOUND_PRESETS.map((p) => (
+          <option key={p.key} value={p.key}>
+            {p.label}
+          </option>
+        ))}
+        <option value="custom" disabled={!value.customUrl}>
+          自訂音樂{value.customName ? `：${value.customName}` : "（先上傳）"}
+        </option>
+      </select>
+      <button type="button" className="btn btn-sm" onClick={() => playCheckoutSound({ ...value, enabled: true, volume }, true)}>
+        ▶ 試聽
+      </button>
+      <label className="btn btn-sm">
+        {busy ? "上傳中…" : "上傳音樂"}
+        <input type="file" accept="audio/*" hidden disabled={busy} onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
+      </label>
+    </div>
+  );
+}
+
+/** 結帳音效：預設聲音＋條件音效（例：會員生日播生日歌） */
+function SoundSettings() {
+  const { settings } = useData();
+  const { form, set, save, busy } = useSettingsForm(["checkoutSound"]);
+  const snd = form.checkoutSound ?? DEFAULT_SOUND;
+  const vol = snd.volume ?? 0.6;
+  const upd = (patch: Partial<CheckoutSound>) => set("checkoutSound", { ...snd, ...patch });
+  const rules = snd.rules ?? [];
+  const setRule = (i: number, patch: Partial<SoundRule>) => upd({ rules: rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
+  const groups = settings.memberGroups ?? [];
+  return (
+    <section className="card">
+      <h2>結帳音效</h2>
+      <p className="muted small">結帳完成時播放。可以依條件換聲音（例：會員生日播生日歌），由上到下第一個符合的條件生效，都不符合就播預設音效。iPad 請打開音量、關閉靜音。</p>
+      <label className="check">
+        <input type="checkbox" checked={snd.enabled} onChange={(e) => upd({ enabled: e.target.checked })} /> 結帳完成時播放音效
+      </label>
+      <div className="tier-body">
+        <div className="tier-label">預設音效</div>
+        <SoundPicker value={snd} volume={vol} onChange={(v) => upd(v)} />
+        <div className="tier-label">條件音效</div>
+        <div>
+          {rules.map((r, i) => (
+            <div key={i} className="cond-row sound-rule">
+              <span>如果</span>
+              <select value={r.when} onChange={(e) => setRule(i, { when: e.target.value as SoundWhen, value: e.target.value === "min_total" ? 5000 : e.target.value === "group" ? groups[0] ?? "" : null })}>
+                {(Object.keys(SOUND_WHEN_LABEL) as SoundWhen[]).map((k) => (
+                  <option key={k} value={k}>
+                    {SOUND_WHEN_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+              {r.when === "group" && (
+                <select value={String(r.value ?? "")} onChange={(e) => setRule(i, { value: e.target.value })}>
+                  {groups.map((g) => (
+                    <option key={g}>{g}</option>
+                  ))}
+                </select>
+              )}
+              {r.when === "min_total" && <input type="number" min={1} style={{ width: 110 }} value={Number(r.value ?? 0)} onChange={(e) => setRule(i, { value: Number(e.target.value) })} />}
+              <span>就播</span>
+              <SoundPicker value={r} volume={vol} onChange={(v) => setRule(i, v)} />
+              <button type="button" className="btn-icon" title="上移" disabled={i === 0} onClick={() => upd({ rules: rules.map((x, j) => (j === i - 1 ? rules[i] : j === i ? rules[i - 1] : x)) })}>
+                ↑
+              </button>
+              <button type="button" className="btn-icon danger" title="刪除" onClick={() => upd({ rules: rules.filter((_, j) => j !== i) })}>
+                ✕
+              </button>
+            </div>
+          ))}
+          <button type="button" className="link-btn" onClick={() => upd({ rules: [...rules, { when: "birthday_today", preset: "success" }] })}>
+            ⊕ 新增條件
+          </button>
+        </div>
+        <div className="tier-label">音量</div>
+        <div className="cond-row">
+          <input type="range" min={0.1} max={1} step={0.1} value={vol} onChange={(e) => upd({ volume: Number(e.target.value) })} style={{ width: 200 }} /> {Math.round(vol * 100)}%
+        </div>
+      </div>
+      <button className="btn btn-primary" disabled={busy} onClick={save}>
+        儲存音效設定
+      </button>
     </section>
   );
 }
