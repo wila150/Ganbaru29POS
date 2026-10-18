@@ -903,6 +903,29 @@ export const refreshShopper = onCall(opts, async (req) => {
   return { points: live.usableRewardPoints, group: live.memberGroup?.title ?? null, name: live.name ?? "" };
 });
 
+/** 會員的網店訂單（meepShop），會員頁和門市紀錄一起顯示 */
+export const shopperOnlineOrders = onCall({ ...opts, timeoutSeconds: 60 }, async (req) => {
+  await requireRole(req, "staff");
+  const id = str(req.data?.id, "會員", { max: 64 });
+  const page = await meep.ordersPage({ first: 50, query: { shopperId: id } });
+  const orders = page.edges
+    .map((e) => e.node)
+    .filter((o): o is NonNullable<typeof o> => !!o)
+    .map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      createdAt: o.createdAt,
+      status: o.status,
+      paymentStatus: o.paymentStatus ?? null,
+      shipmentStatus: o.shipmentStatus ?? null,
+      total: o.totalPrice,
+      pointsUsed: Math.round(o.rewardPointUsed ?? 0),
+      items: (o.lineItems ?? []).map((l) => `${l.title}${l.quantity > 1 ? ` ×${l.quantity}` : ""}`),
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return { orders, more: page.pageInfo.hasNextPage };
+});
+
 /** 顧客名單：把會員釘選在最上面（店長以上） */
 export const setShopperPin = onCall(opts, async (req) => {
   await requireRole(req, "manager");

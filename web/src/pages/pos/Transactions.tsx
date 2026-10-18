@@ -15,6 +15,17 @@ import { MemberCardDialog } from "../../components/MemberCardDialog";
 import { MemberList } from "../../components/MemberList";
 import { MemberPicker } from "./Register";
 
+interface OnlineOrder {
+  id: string;
+  orderNumber: string;
+  createdAt: string;
+  status: string;
+  total: number;
+  pointsUsed: number;
+  items: string[];
+}
+const ONLINE_STATUS: Record<string, string> = { PROCESSING: "處理中", CLOSED: "已結案", CANCELED: "已取消", RETURN: "退貨" };
+
 const ORDER_BADGE: Record<PosOrder["status"], React.ReactNode> = {
   pending: <Badge tone="warn">處理中</Badge>,
   completed: <Badge tone="ok">完成</Badge>,
@@ -332,7 +343,22 @@ export function Members() {
   const [picking, setPicking] = useState(false);
   const [showCard, setShowCard] = useState(false);
   const [orders, setOrders] = useState<PosOrder[]>([]);
+  const [online, setOnline] = useState<OnlineOrder[] | null>(null);
+  const [onlineErr, setOnlineErr] = useState<string | null>(null);
+  const [src, setSrc] = useState<"all" | "store" | "online">("all");
   const nav = useNavigate();
+  useEffect(() => {
+    setOnline(null);
+    setOnlineErr(null);
+    if (!shopper) return;
+    let alive = true;
+    call<{ orders: OnlineOrder[] }>("shopperOnlineOrders", { id: shopper.id })
+      .then((r) => alive && setOnline(r.orders))
+      .catch((e) => alive && setOnlineErr((e as Error).message));
+    return () => {
+      alive = false;
+    };
+  }, [shopper?.id]);
 
   useEffect(() => {
     if (!shopper) return setOrders([]);
@@ -375,7 +401,7 @@ export function Members() {
                 <div className="muted">
                   {shopper.mobile} · {shopper.email}
                 </div>
-                <div className="small">近 12 個月消費 {money(shopper.spend12m ?? 0)}（門市＋網店，每天凌晨更新）</div>
+                <div className="small">近 12 個月消費 {money(shopper.spend12m ?? 0)}（門市＋網店「已結案」訂單；網店處理中的訂單結案後才計入）</div>
               </div>
               <div className="center">
                 <div className="kpi-value">{shopper.points}</div>
@@ -394,46 +420,94 @@ export function Members() {
               </button>
             </div>
           </div>
-          <h2>門市消費紀錄</h2>
-          {orders.length === 0 ? (
-            <Empty>沒有門市消費紀錄（網店訂單請看 meepShop 後台）</Empty>
-          ) : (
-            <>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>時間</th>
-                  <th>單號</th>
-                  <th>商品</th>
-                  <th className="num">金額</th>
-                  <th className="num">購物金</th>
-                  <th>狀態</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => {
-                  const back = (o.refunds ?? []).reduce((s2, r) => s2 + (r.pointsReclaimed ?? 0), 0);
-                  return (
-                    <tr key={o.id}>
-                      <td>{fmtTime(o.createdAt)}</td>
-                      <td>{o.orderNo}</td>
-                      <td className="ellipsis">{o.lines.map((l) => l.productTitle).join("、")}</td>
-                      <td className="num">{money(o.total)}</td>
-                      <td className="num points-cell">
-                        {o.rewardEarned > 0 && <span className="ok">+{o.rewardEarned}</span>}
-                        {o.rewardPoints > 0 && <span className="error">−{o.rewardPoints}</span>}
-                        {back > 0 && <span className="muted small">退貨收回 {back}</span>}
-                        {!o.rewardEarned && !o.rewardPoints && <span className="muted">—</span>}
-                      </td>
-                      <td>{ORDER_BADGE[o.status]}</td>
+          <div className="row-between">
+            <h2>消費紀錄</h2>
+            <div className="chips">
+              {(
+                [
+                  ["all", `全部 ${orders.length + (online?.length ?? 0)}`],
+                  ["store", `門市 ${orders.length}`],
+                  ["online", `網店 ${online?.length ?? "…"}`],
+                ] as const
+              ).map(([k, l]) => (
+                <button key={k} className={`chip ${src === k ? "active" : ""}`} onClick={() => setSrc(k)}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          {onlineErr && src !== "store" && <p className="notice notice-warn">網店訂單讀取失敗：{onlineErr}</p>}
+          {(() => {
+            type Row = { key: string; src: "store" | "online"; at: number; no: string; items: string; total: number; earned: number; used: number; back: number; status: React.ReactNode };
+            const rows: Row[] = [
+              ...(src === "online"
+                ? []
+                : orders.map((o) => ({
+                    key: o.id,
+                    src: "store" as const,
+                    at: o.createdAt?.toMillis?.() ?? 0,
+                    no: o.orderNo,
+                    items: o.lines.map((l) => l.productTitle).join("、"),
+                    total: o.total,
+                    earned: o.rewardEarned ?? 0,
+                    used: o.rewardPoints ?? 0,
+                    back: (o.refunds ?? []).reduce((s2, r) => s2 + (r.pointsReclaimed ?? 0), 0),
+                    status: ORDER_BADGE[o.status],
+                  }))),
+              ...(src === "store"
+                ? []
+                : (online ?? []).map((o) => ({
+                    key: o.id,
+                    src: "online" as const,
+                    at: new Date(o.createdAt).getTime(),
+                    no: o.orderNumber,
+                    items: o.items.join("、"),
+                    total: o.total,
+                    earned: 0,
+                    used: o.pointsUsed,
+                    back: 0,
+                    status: <Badge tone={o.status === "CLOSED" ? "ok" : o.status === "PROCESSING" ? "warn" : o.status === "CANCELED" ? "mute" : "bad"}>{ONLINE_STATUS[o.status] ?? o.status}</Badge>,
+                  }))),
+            ].sort((a, b) => b.at - a.at);
+            if (src !== "store" && online === null && !onlineErr && rows.length === 0) return <p className="muted">讀取網店訂單中…</p>;
+            if (!rows.length) return <Empty>{src === "online" ? "沒有網店訂單" : src === "store" ? "沒有門市消費紀錄" : "沒有消費紀錄"}</Empty>;
+            return (
+              <>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>時間</th>
+                      <th>來源</th>
+                      <th>單號</th>
+                      <th>商品</th>
+                      <th className="num">金額</th>
+                      <th className="num">購物金</th>
+                      <th>狀態</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <p className="muted small">購物金：＋ 本單回饋　− 本單折抵使用</p>
-            </>
-          )}
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.key}>
+                        <td>{new Date(r.at).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</td>
+                        <td>{r.src === "store" ? <Badge>門市</Badge> : <Badge tone="info">網店</Badge>}</td>
+                        <td>{r.no}</td>
+                        <td className="ellipsis">{r.items}</td>
+                        <td className="num">{money(r.total)}</td>
+                        <td className="num points-cell">
+                          {r.earned > 0 && <span className="ok">+{r.earned}</span>}
+                          {r.used > 0 && <span className="error">−{r.used}</span>}
+                          {r.back > 0 && <span className="muted small">退貨收回 {r.back}</span>}
+                          {!r.earned && !r.used && <span className="muted">—</span>}
+                        </td>
+                        <td>{r.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="muted small">購物金：＋ 本單回饋　− 本單折抵使用。網店訂單的回饋由 meepShop 發送，這裡只顯示使用的購物金；網店最多顯示最近 50 筆。</p>
+              </>
+            );
+          })()}
         </>
       )}
       {showCard && shopper && <MemberCardDialog shopperId={shopper.id} name={shopper.name || shopper.mobile} onClose={() => setShowCard(false)} />}
