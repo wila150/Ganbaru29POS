@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, limit, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth";
@@ -89,6 +89,28 @@ export function Register() {
 
   const pointValue = settings.pointValue ?? 1;
   const promo = useMemo(() => cartPromos(cart, byId, promotions, shopper, coupons.map((c) => c.promoId)), [cart, byId, promotions, shopper, coupons]);
+
+  // 帶入的會員：資料改了（購物金、群組、等級）畫面跟著更新
+  const shopperId = shopper?.id;
+  useEffect(() => {
+    if (!shopperId) return;
+    return onSnapshot(doc(db, "shoppers", shopperId), (d) => {
+      const x = d.data();
+      if (!x) return;
+      setShopper((cur) =>
+        cur?.id === shopperId && (cur.points !== (x.points ?? 0) || cur.group !== (x.memberGroup ?? null) || cur.tier !== (x.tier ?? null) || cur.name !== (x.name ?? ""))
+          ? { ...cur, name: x.name ?? cur.name, points: x.points ?? 0, group: x.memberGroup ?? null, tier: x.tier ?? null, birthMonth: x.birthMonth ?? cur.birthMonth }
+          : cur
+      );
+    });
+  }, [shopperId]);
+  // 剛新增的會員：meepShop 幾秒後才補上入會禮購物金與預設群組 → 再讀幾次
+  const newMemberId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!shopperId || newMemberId.current !== shopperId) return;
+    const timers = [3000, 8000, 20000].map((ms) => setTimeout(() => call("refreshShopper", { id: shopperId }).catch(() => undefined), ms));
+    return () => timers.forEach(clearTimeout);
+  }, [shopperId]);
 
   /** 會員條碼（M + 9 碼）→ 帶入會員 */
   const scanMember = async (code: string) => {
@@ -486,7 +508,8 @@ export function Register() {
         <MemberPicker
           current={shopper}
           onClose={() => setMemberOpen(false)}
-          onPick={(s) => {
+          onPick={(s, created) => {
+            if (created && s) newMemberId.current = s.id;
             setShopper(s);
             if (!s) setDisc((d) => ({ ...d, rewardPoints: 0 }));
           }}
@@ -598,7 +621,7 @@ function LineEditor({ line, title, onClose, onSave, onDelete }: { line: CartLine
   );
 }
 
-export function MemberPicker({ current, onClose, onPick }: { current: Shopper | null; onClose: () => void; onPick: (s: Shopper | null) => void }) {
+export function MemberPicker({ current, onClose, onPick }: { current: Shopper | null; onClose: () => void; onPick: (s: Shopper | null, created?: boolean) => void }) {
   const [q, setQ] = useState("");
   const [list, setList] = useState<(Shopper & { live?: boolean })[] | null>(null);
   const [creating, setCreating] = useState(false);
@@ -614,8 +637,8 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
       }
       setList((await call<{ shoppers: Shopper[] }>("searchShopper", { q })).shoppers);
     });
-  const choose = (s: Shopper) => {
-    onPick(s);
+  const choose = (s: Shopper, created = false) => {
+    onPick(s, created);
     onClose();
   };
   return (
@@ -676,7 +699,7 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
             <button className="btn" onClick={() => setCreating(false)}>
               返回
             </button>
-            <button className="btn btn-primary" disabled={busy || !form.email || !form.birthDate} onClick={() => run(async () => choose(await call<Shopper>("createShopper", form)), "已新增會員")}>
+            <button className="btn btn-primary" disabled={busy || !form.email || !form.birthDate} onClick={() => run(async () => choose(await call<Shopper>("createShopper", form), true), "已新增會員")}>
               新增並帶入
             </button>
           </div>

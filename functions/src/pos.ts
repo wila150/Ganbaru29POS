@@ -859,6 +859,19 @@ export const searchShopper = onCall(opts, async (req) => {
   return { shoppers: out };
 });
 
+/**
+ * 重新向 meepShop 讀一位會員（購物金、群組）。新會員的入會禮購物金、預設群組是 meepShop 建好之後才補上的，
+ * POS 會在新增後幾秒再呼叫這個，畫面上的群組、購物金就會自己更新。
+ */
+export const refreshShopper = onCall(opts, async (req) => {
+  await requireRole(req, "staff");
+  const id = str(req.data?.id, "會員", { max: 64 });
+  const live = await meep.getShopper(id);
+  assert(live, "找不到這位會員", "not-found");
+  await db.doc(`shoppers/${id}`).set({ points: live.usableRewardPoints, name: live.name ?? "", mobile: live.mobile ?? "", mobileKey: mobileKey(live.mobile), memberGroup: live.memberGroup?.title ?? null, ...(live.birthDate ? { birthDate: live.birthDate } : {}) }, { merge: true });
+  return { points: live.usableRewardPoints, group: live.memberGroup?.title ?? null, name: live.name ?? "" };
+});
+
 /** 現場新增會員（meepShop 規定一定要有 Email） */
 export const createShopper = onCall(opts, async (req) => {
   await requireRole(req, "staff");
@@ -868,9 +881,9 @@ export const createShopper = onCall(opts, async (req) => {
   const birthDate = birthDateInput(req.data?.birthDate);
   try {
     const s = await meep.createShopper({ email, name: str(req.data?.name, "姓名", { optional: true, max: 40 }) || undefined, mobile: mobile || undefined, birthDate });
-    await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? "", mobile: s.mobile ?? "", mobileKey: mobileKey(s.mobile), points: s.usableRewardPoints ?? 0, birthDate: s.birthDate ?? birthDate, birthMonth: birthDate.slice(5, 7), updatedAt: s.updatedAt ?? null });
+    await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? "", mobile: s.mobile ?? "", mobileKey: mobileKey(s.mobile), points: s.usableRewardPoints ?? 0, memberGroup: s.memberGroup?.title ?? null, birthDate: s.birthDate ?? birthDate, birthMonth: birthDate.slice(5, 7), updatedAt: s.updatedAt ?? null });
     await ensureMemberCodes([s.id]);
-    return { id: s.id, name: s.name, email: s.email, mobile: s.mobile, points: s.usableRewardPoints ?? 0 };
+    return { id: s.id, name: s.name, email: s.email, mobile: s.mobile, points: s.usableRewardPoints ?? 0, group: s.memberGroup?.title ?? null, birthMonth: birthDate.slice(5, 7) };
   } catch (e) {
     throw new HttpsError("failed-precondition", `新增會員失敗：${errMsg(e)}`);
   }
