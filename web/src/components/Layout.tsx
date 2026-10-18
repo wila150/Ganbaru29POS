@@ -85,13 +85,14 @@ export function AdminLayout() {
               </NavLink>
             );
           })}
-          <NavLink to="/pos" className="nav-item nav-pos">
-            <span className="nav-icon" aria-hidden>
-              ¤
-            </span>
-            POS 收銀
-          </NavLink>
         </nav>
+        {/* 固定在選單下方：選單展開很多也不會被捲走 */}
+        <NavLink to="/pos" className="nav-item nav-pos nav-pos-fixed">
+          <span className="nav-icon" aria-hidden>
+            ¤
+          </span>
+          POS 收銀
+        </NavLink>
         <div className="sidebar-foot">
           <LocationSelect />
           <div>
