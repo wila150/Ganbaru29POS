@@ -12,7 +12,7 @@ import { call, db } from "../../firebase";
 import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
 import { resolveCode, searchVariants } from "../../lib/lookup";
 import { playCheckoutSound, unlockAudio } from "../../lib/sound";
-import { beep, deviceId, money, newId, PAY_LABEL, todayStr } from "../../lib/util";
+import { beep, deviceId, money, newId, PAY_LABEL, pctToZhe, todayStr, zheToPct } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useDeviceLocation } from "../../lib/location";
 import { Checkout, Done } from "./Checkout";
@@ -374,7 +374,7 @@ export function Register() {
                   <div className="cl-name">{v ? variantName(v) : l.variantId}</div>
                   <div className="cl-sub">
                     {money(l.unitPrice)}
-                    {l.discountPct > 0 && <span className="tag">-{l.discountPct}%</span>}
+                    {l.discountPct > 0 && <span className="tag">{pctToZhe(l.discountPct)} 折</span>}
                     {(promo.lineLabels[l.key] ?? []).map((n) => (
                       <span key={n} className="tag tag-promo">{n}</span>
                     ))}
@@ -410,8 +410,8 @@ export function Register() {
           <button onClick={() => setKeypad({ key: "serviceFeePct", title: "服務費", suffix: "%" })}>
             服務費<strong>{disc.serviceFeePct}%</strong>
           </button>
-          <button onClick={() => setKeypad({ key: "orderDiscountPct", title: "整單打折（折扣 %）", suffix: "%", hint: "例：打 9 折 = 輸入 10" })}>
-            整單折扣<strong>{disc.orderDiscountPct}%</strong>
+          <button onClick={() => setKeypad({ key: "orderDiscountPct", title: "整單打折", suffix: "折", hint: "直接輸入幾折：85 = 85 折、9 = 9 折、8.5 = 85 折；輸入 0 取消" })}>
+            整單打折<strong>{disc.orderDiscountPct ? `${pctToZhe(disc.orderDiscountPct)} 折` : "無"}</strong>
           </button>
           <button onClick={() => setKeypad({ key: "allowance", title: "折讓金額", suffix: "元" })}>
             折讓<strong>{money(disc.allowance)}</strong>
@@ -435,7 +435,7 @@ export function Register() {
           {t.memberDiscount > 0 && (
             <div className="promo-row">
               <span>
-                會員折扣（{tier?.name} {tier?.discountPct}%）
+                會員折扣（{tier?.name} {pctToZhe(tier?.discountPct)} 折）
               </span>
               <span>-{money(t.memberDiscount)}</span>
             </div>
@@ -489,7 +489,8 @@ export function Register() {
           title={keypad.title}
           suffix={keypad.suffix}
           hint={keypad.hint}
-          initial={String(keypad.key === "guests" ? guests : disc[keypad.key] || "")}
+          initial={keypad.key === "orderDiscountPct" ? pctToZhe(disc.orderDiscountPct) : String(keypad.key === "guests" ? guests : disc[keypad.key] || "")}
+          allowDot={keypad.key === "orderDiscountPct"}
           onClose={() => setKeypad(null)}
           onOk={(n) => {
             if (keypad.key === "guests") return setGuests(Math.max(0, Math.floor(n)));
@@ -498,6 +499,7 @@ export function Register() {
               if (n > max) toast(`最多可折抵 ${max} 點`, "bad");
               return setDisc((d) => ({ ...d, rewardPoints: Math.min(Math.floor(n), max) }));
             }
+            if (keypad.key === "orderDiscountPct") return setDisc((d) => ({ ...d, orderDiscountPct: zheToPct(n) }));
             if (keypad.key.endsWith("Pct")) n = Math.min(100, n);
             setDisc((d) => ({ ...d, [keypad.key]: n }));
           }}
@@ -579,8 +581,9 @@ export function Register() {
 
 function LineEditor({ line, title, onClose, onSave, onDelete }: { line: CartLine; title: string; onClose: () => void; onSave: (l: CartLine) => void; onDelete: () => void }) {
   const [field, setField] = useState<"qty" | "discountPct" | "unitPrice">("qty");
-  const [vals, setVals] = useState({ qty: String(line.qty), discountPct: String(line.discountPct || ""), unitPrice: String(line.unitPrice) });
-  const labels = { qty: "數量", discountPct: "單品折扣 %", unitPrice: "單價" };
+  // 單品打折用「幾折」輸入（85 = 85 折），存的時候換成折扣 %
+  const [vals, setVals] = useState({ qty: String(line.qty), discountPct: pctToZhe(line.discountPct), unitPrice: String(line.unitPrice) });
+  const labels = { qty: "數量", discountPct: "單品打折（折）", unitPrice: "單價" };
   return (
     <Modal
       title={title}
@@ -599,7 +602,7 @@ function LineEditor({ line, title, onClose, onSave, onDelete }: { line: CartLine
           <button
             className="btn btn-primary"
             onClick={() => {
-              onSave({ ...line, qty: Math.max(1, Math.floor(Number(vals.qty) || 1)), discountPct: Math.min(100, Number(vals.discountPct) || 0), unitPrice: Math.max(0, Number(vals.unitPrice) || 0) });
+              onSave({ ...line, qty: Math.max(1, Math.floor(Number(vals.qty) || 1)), discountPct: zheToPct(Number(vals.discountPct) || 0), unitPrice: Math.max(0, Number(vals.unitPrice) || 0) });
               onClose();
             }}
           >
@@ -612,7 +615,7 @@ function LineEditor({ line, title, onClose, onSave, onDelete }: { line: CartLine
         {(Object.keys(labels) as (keyof typeof labels)[]).map((k) => (
           <button key={k} className={field === k ? "active" : ""} onClick={() => setField(k)}>
             {labels[k]}
-            <small>{vals[k] || "0"}</small>
+            <small>{k === "discountPct" ? (vals[k] ? `${vals[k]} 折` : "無") : vals[k] || "0"}</small>
           </button>
         ))}
       </div>

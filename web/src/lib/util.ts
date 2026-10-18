@@ -108,3 +108,19 @@ export function beep(ok = true) {
     /* no audio */
   }
 }
+
+/**
+ * 台灣習慣的「幾折」↔ 折扣 %：85 或 8.5 → 85 折（打掉 15%）；9 → 9 折（10%）；95 → 95 折（5%）。
+ * 0、10、空白 = 不打折。
+ */
+export function zheToPct(z: number): number {
+  if (!(z > 0) || z >= 100 || z === 10) return 0;
+  const pct = z < 10 ? 100 - z * 10 : 100 - z;
+  return Math.round(Math.min(100, Math.max(0, pct)) * 10) / 10;
+}
+/** 15 → "85"、10 → "9"、0 → "" */
+export function pctToZhe(pct: number | undefined): string {
+  if (!pct) return "";
+  const z = Math.round((100 - pct) * 10) / 10;
+  return String(z % 10 === 0 ? z / 10 : z);
+}
