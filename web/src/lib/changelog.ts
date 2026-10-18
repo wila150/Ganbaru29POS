@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-f",
+    date: "2026-10-19",
+    title: "黑貓宅急便匯入",
+    items: [
+      "本島宅配的訂單可以下載「黑貓宅急便」匯入檔（溫層常溫、服飾配件、寄件日期今天、手機自動轉成 09XX-XXXXXX）",
+      "宅配訂單可以選全家寄宅配（全+郵）或黑貓，兩個按鈕都會出現",
+    ],
+  },
+  {
     id: "2026-10-19-e",
     date: "2026-10-19",
     title: "寄件人共用",

@@ -75,7 +75,7 @@ export function splitAddress(raw: string): { city: string; district: string; res
   return m ? { city: m[1], district: m[2], rest: m[3] } : null;
 }
 
-type ExportKind = "711" | "family" | "home";
+type ExportKind = "711" | "family" | "home" | "cat";
 interface ExportDef {
   label: string;
   file: string;
@@ -85,9 +85,16 @@ interface ExportDef {
   match: (o: ShipOrder) => boolean;
   /** 檢查問題（名字太長、沒有店號…），有問題的不匯出 */
   problem: (o: ShipOrder, s: Sender) => string | null;
-  row: (o: ShipOrder, s: Sender) => [string, string | number][];
+  row: (o: ShipOrder, s: Sender) => [string, string | number | { date: number }][];
   name: string;
 }
+/** 今天（台灣時間）的 Excel 日期序號 */
+const excelToday = () => {
+  const t = new Date(Date.now() + 8 * 3600_000);
+  return Math.round((Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()) - Date.UTC(1899, 11, 30)) / 86400_000);
+};
+/** 去掉郵遞區號和「臺灣」，留下完整地址（含縣市、區） */
+const cleanAddress = (raw: string | null | undefined) => (raw ?? "").replace(/^\s*\d{3,6}\s*/, "").replace(/^(臺灣|台灣)\s*/, "").replace(/\s+/g, "");
 const receiver = (o: ShipOrder) => (o.shipmentDetail?.receiverName ?? o.shopper?.name ?? "").trim();
 const phone = (v: string | null | undefined) => (v ?? "").replace(/[^\d]/g, "");
 const len = (t: string) => [...t].length;
@@ -163,6 +170,32 @@ export const EXPORTS: Record<ExportKind, ExportDef> = {
       ];
     },
   },
+  cat: {
+    label: "黑貓宅急便",
+    name: "黑貓宅急便匯入",
+    file: "/templates/blackcat.xlsx",
+    start: 2,
+    lastCol: "I",
+    match: (o) => kindOf(o) === "home",
+    problem: (o) => {
+      const m = phone(o.shipmentDetail?.phone);
+      return len(receiver(o)) > 14 ? `收件人姓名超過 14 個字` : !/^09\d{8}$/.test(m) ? "收件人不是台灣手機號碼，請手動處理" : !splitAddress(o.shipmentDetail?.shippingAddress ?? "") ? "地址沒有縣市、區（可能是海外），請手動處理" : null;
+    },
+    row: (o) => {
+      const m = phone(o.shipmentDetail?.phone);
+      const qty = (o.lineItems ?? []).reduce((a, l) => a + l.quantity, 0);
+      return [
+        ["A", "常溫"],
+        ["B", receiver(o)],
+        ["D", `${m.slice(0, 4)}-${m.slice(4)}`], // 黑貓規定 09XX-XXXXXX
+        ["E", cleanAddress(o.shipmentDetail?.shippingAddress)],
+        ["F", { date: excelToday() }], // 寄件日期：今天（只接受 7 天內）
+        ["G", `服飾${qty}件`.slice(0, 10)],
+        ["H", "服飾配件"],
+        ["I", "不指定"],
+      ];
+    },
+  },
 };
 
 /** 用官方範本產生批次匯入檔：範本標題列保留，資料從 def.start 列開始（範例列會被蓋掉）。電話、店號用文字格式，開頭的 0 不會不見。 */
@@ -173,8 +206,25 @@ async function downloadImport(def: ExportDef, orders: ShipOrder[], sender: Sende
   const path = "xl/worksheets/sheet1.xml";
   let xml = await zip.file(path)!.async("string");
   const x = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-  const cell = (col: string, row: number, v: string | number) =>
-    typeof v === "number" ? `<c r="${col}${row}"><v>${v}</v></c>` : `<c r="${col}${row}" t="inlineStr"><is><t>${x(v)}</t></is></c>`;
+  // 日期欄位：在 styles.xml 加一個日期格式（內建 14 = yyyy/m/d），讓 Excel 顯示成日期
+  let dateStyle = -1;
+  const needDate = orders.some((o) => def.row(o, sender).some(([, v]) => typeof v === "object"));
+  if (needDate) {
+    const sp = "xl/styles.xml";
+    let st = await zip.file(sp)!.async("string");
+    const m = st.match(/<cellXfs count="(\d+)">/);
+    if (m) {
+      dateStyle = Number(m[1]);
+      st = st.replace(m[0], `<cellXfs count="${dateStyle + 1}">`).replace("</cellXfs>", `<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>`);
+      zip.file(sp, st);
+    }
+  }
+  const cell = (col: string, row: number, v: string | number | { date: number }) =>
+    typeof v === "object"
+      ? `<c r="${col}${row}"${dateStyle >= 0 ? ` s="${dateStyle}"` : ""}><v>${v.date}</v></c>`
+      : typeof v === "number"
+        ? `<c r="${col}${row}"><v>${v}</v></c>`
+        : `<c r="${col}${row}" t="inlineStr"><is><t>${x(v)}</t></is></c>`;
   const rows = orders.map((o, i) => {
     const r = i + def.start;
     return `<row r="${r}">${def.row(o, sender).map(([c, v]) => cell(c, r, v)).join("")}</row>`;
