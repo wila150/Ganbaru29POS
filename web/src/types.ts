@@ -110,6 +110,8 @@ export interface ShopSettings {
   birthdayPointMultiplier?: number;
   tiersAt?: Timestamp;
   payment?: { provider: "ecpay" | "newebpay" | null; stage: boolean };
+  /** 側邊選單：順序（主項目路徑）與隱藏的項目 */
+  navConfig?: { order?: string[]; hidden?: string[] };
   /** 結帳完成音效 */
   checkoutSound?: import("./lib/sound").CheckoutSound;
   /** LINE Pay 線下支付串接（掃客人付款碼） */

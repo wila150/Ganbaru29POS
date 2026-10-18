@@ -7,7 +7,7 @@ import { atLeast, fmtTime, ROLE_LABEL, type Role } from "../lib/util";
 import { LocationSelect } from "./LocationSelect";
 import { LogoutButton } from "./LogoutButton";
 
-interface NavItem {
+export interface NavItem {
   to: string;
   label: string;
   icon: string;
@@ -16,7 +16,7 @@ interface NavItem {
   children?: { to: string; label: string; min: Role }[];
 }
 
-const ADMIN_NAV: NavItem[] = [
+export const ADMIN_NAV: NavItem[] = [
   { to: "/admin/scan", label: "進貨掃碼", icon: "⌁", min: "staff" },
   { to: "/admin/inventory", label: "庫存查詢", icon: "▤", min: "staff" },
   { to: "/admin/stocktake", label: "盤點", icon: "✓", min: "staff" },
@@ -70,7 +70,7 @@ const ADMIN_NAV: NavItem[] = [
 export function AdminLayout() {
   const { profile } = useAuth();
   const { settings, ready } = useData();
-  const nav = ADMIN_NAV.filter((n) => atLeast(profile?.role, n.min));
+  const nav = applyNavConfig(ADMIN_NAV, settings.navConfig).filter((n) => atLeast(profile?.role, n.min));
   return (
     <div className="admin">
       <aside className="sidebar">
@@ -132,7 +132,9 @@ export function AdminLayout() {
 /** Phone "more" menu: everything that doesn't fit the bottom bar. */
 export function MoreMenu() {
   const { profile } = useAuth();
-  const nav = ADMIN_NAV.filter((n) => atLeast(profile?.role, n.min))
+  const { settings } = useData();
+  const nav = applyNavConfig(ADMIN_NAV, settings.navConfig)
+    .filter((n) => atLeast(profile?.role, n.min))
     .flatMap((n) => (n.children ? n.children.filter((c) => atLeast(profile?.role, c.min)).map((c) => ({ ...n, to: c.to, label: c.label })) : [n]))
     .slice(4);
   return (
@@ -152,6 +154,24 @@ export function MoreMenu() {
       </div>
     </div>
   );
+}
+
+/** 這些一定顯示（避免把自己鎖在設定頁外面） */
+export const NAV_LOCKED = ["/admin/settings", "/admin/help"];
+
+/** 套用「設定 → 側邊選單」：排序、隱藏（主項目與子項目都可以隱藏） */
+export function applyNavConfig(items: NavItem[], cfg?: { order?: string[]; hidden?: string[] } | null): NavItem[] {
+  const hidden = new Set((cfg?.hidden ?? []).filter((h) => !NAV_LOCKED.includes(h)));
+  const order = cfg?.order ?? [];
+  const rank = (to: string) => {
+    const i = order.indexOf(to);
+    return i < 0 ? 1000 + items.findIndex((x) => x.to === to) : i;
+  };
+  return [...items]
+    .sort((a, b) => rank(a.to) - rank(b.to))
+    .map((n) => (n.children ? { ...n, children: n.children.filter((c) => !hidden.has(c.to)) } : n))
+    // 有子項目的：子項目全隱藏才不顯示；單一項目：沒被隱藏才顯示
+    .filter((n) => (n.children ? n.children.length > 0 : !hidden.has(n.to)));
 }
 
 /** 側邊欄下拉：點標題展開／收合，所在頁面屬於這一組時自動展開 */

@@ -674,3 +674,8 @@ span.tier-switch { cursor: default; }
 .pin-btn.on, .pin-btn:hover { opacity: 1; filter: none; }
 .row-pinned { background: #fffbeb; }
 .member-conds { margin: -4px 0 12px; } .member-conds .cond-row select, .member-conds .cond-row input { width: auto; }
+.nav-cfg { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; max-width: 520px; }
+.nav-cfg-item { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.nav-cfg-row { display: flex; align-items: center; gap: 8px; }
+.nav-cfg-row .check { margin: 0; }
+.nav-cfg-sub { margin: 4px 0 0 28px; }

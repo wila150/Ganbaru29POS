@@ -8,6 +8,7 @@ import { call, db } from "../../firebase";
 import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
 import type { RewardRule, ShopSettings, TierCond, TierDef } from "../../types";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
+import { ADMIN_NAV, applyNavConfig, NAV_LOCKED } from "../../components/Layout";
 import { QrImg } from "../../components/QrImg";
 import { ref, uploadBytes } from "firebase/storage";
 import { storage } from "../../firebase";
@@ -28,6 +29,7 @@ export function Settings() {
       <Staff />
       <ApiKey />
       <Alerts />
+      <NavSettings />
       <PosSettings />
       <SoundSettings />
       <PaymentSettings />
@@ -274,6 +276,67 @@ function Alerts() {
         </button>
         <button className="btn btn-ghost" disabled={b2} onClick={() => run(() => call("testLine"), "已送出測試訊息")}>
           傳測試訊息
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/** 側邊選單：調整順序、隱藏不用的項目（全店員工一起套用） */
+function NavSettings() {
+  const { form, set, save, busy } = useSettingsForm(["navConfig"]);
+  const cfg = form.navConfig ?? {};
+  const hidden = new Set(cfg.hidden ?? []);
+  const ordered = applyNavConfig(ADMIN_NAV, { order: cfg.order }); // 只排序、不隱藏，才能在這裡全部列出
+  const order = ordered.map((n) => n.to);
+  const move = (i: number, d: number) => {
+    const next = [...order];
+    [next[i], next[i + d]] = [next[i + d], next[i]];
+    set("navConfig", { ...cfg, order: next });
+  };
+  const toggle = (to: string) => {
+    const h = new Set(hidden);
+    if (h.has(to)) h.delete(to);
+    else h.add(to);
+    set("navConfig", { ...cfg, order, hidden: [...h] });
+  };
+  const roleText = (r: Role) => (r === "owner" ? "老闆" : r === "manager" ? "店長以上" : "所有人");
+  return (
+    <section className="card">
+      <h2>側邊選單</h2>
+      <p className="muted small">調整後台左邊選單的順序（↑↓），取消勾選就不顯示（例：沒在用調貨就隱藏）。全店一起套用；每個人還是只看得到自己權限內的項目。「設定」「使用說明」一定會顯示。</p>
+      <div className="nav-cfg">
+        {ordered.map((n, i) => (
+          <div key={n.to} className="nav-cfg-item">
+            <div className="nav-cfg-row">
+              <label className="check">
+                <input type="checkbox" checked={!hidden.has(n.to) || NAV_LOCKED.includes(n.to)} disabled={NAV_LOCKED.includes(n.to) || !!n.children} onChange={() => toggle(n.to)} />
+                <span className="nav-icon">{n.icon}</span> {n.label}
+              </label>
+              <span className="muted small">{roleText(n.min)}</span>
+              <span className="grow" />
+              <button type="button" className="btn-icon" disabled={i === 0} onClick={() => move(i, -1)} title="上移">
+                ↑
+              </button>
+              <button type="button" className="btn-icon" disabled={i === ordered.length - 1} onClick={() => move(i, 1)} title="下移">
+                ↓
+              </button>
+            </div>
+            {n.children?.map((c) => (
+              <label key={c.to} className="check nav-cfg-sub">
+                <input type="checkbox" checked={!hidden.has(c.to) || NAV_LOCKED.includes(c.to)} disabled={NAV_LOCKED.includes(c.to)} onChange={() => toggle(c.to)} /> {c.label}
+                <span className="muted small">　{roleText(c.min)}</span>
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="btn-row">
+        <button className="btn btn-primary" disabled={busy} onClick={save}>
+          儲存側邊選單
+        </button>
+        <button className="btn btn-ghost" onClick={() => set("navConfig", { order: [], hidden: [] })}>
+          恢復預設
         </button>
       </div>
     </section>
