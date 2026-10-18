@@ -21,7 +21,16 @@ export const ADMIN_NAV: NavItem[] = [
   { to: "/admin/inventory", label: "庫存查詢", icon: "▤", min: "staff" },
   { to: "/admin/stocktake", label: "盤點", icon: "✓", min: "staff" },
   { to: "/admin/transfers", label: "調貨", icon: "⇄", min: "staff" },
-  { to: "/admin/products", label: "商品與條碼", icon: "▦", min: "manager" },
+  {
+    to: "/admin/products",
+    label: "商品",
+    icon: "▦",
+    min: "manager",
+    children: [
+      { to: "/admin/products", label: "商品與條碼", min: "manager" },
+      { to: "/admin/costs", label: "商品成本", min: "owner" },
+    ],
+  },
   {
     to: "/admin/members",
     label: "顧客管理",

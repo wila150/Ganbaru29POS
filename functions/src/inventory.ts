@@ -254,3 +254,24 @@ export const setProductImage = onCall(opts, async (req) => {
   await batch.commit();
   return { url };
 });
+
+/**
+ * 商品成本（老闆）：直接設定每個款式的成本（沒有進貨紀錄的現有庫存用）。
+ * 存在 costs/{variantId}.avgCost；之後掃碼進貨有填進貨單價，會用加權平均繼續更新。
+ */
+export const setCosts = onCall({ ...opts, timeoutSeconds: 120 }, async (req) => {
+  const actor = await requireRole(req, "owner");
+  const items = Array.isArray(req.data?.items) ? (req.data.items as { variantId: string; cost: number | null }[]) : [];
+  assert(items.length > 0 && items.length <= 2000, "沒有要更新的成本");
+  const writer = db.bulkWriter();
+  let n = 0;
+  for (const it of items) {
+    const id = str(it.variantId, "款式", { max: 100 });
+    const cost = it.cost === null ? null : num(it.cost, "成本", { min: 0, max: 1e6 });
+    writer.set(db.doc(`costs/${id}`), { avgCost: cost === null ? null : Math.round(cost * 100) / 100, manualCostAt: FieldValue.serverTimestamp(), manualCostBy: actor.name }, { merge: true });
+    n++;
+  }
+  await writer.close();
+  await audit(actor, "cost.set", { count: n, sample: items.slice(0, 5) });
+  return { updated: n };
+});

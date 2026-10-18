@@ -64,6 +64,7 @@ const Ship = page(() => import("./pages/pos/Ship"), "Ship");
 const MemberCard = page(() => import("./pages/MemberCard"), "MemberCard");
 const LineCard = page(() => import("./pages/LineCard"), "LineCard");
 const Help = page(() => import("./pages/admin/Help"), "Help");
+const Costs = page(() => import("./pages/admin/Costs"), "Costs");
 
 /** 登入後，閒置時把所有頁面預先載入 */
 function Prefetch() {
@@ -123,6 +124,7 @@ export function App() {
                 <Route path="settings/:section" element={<Guard min="owner"><Settings /></Guard>} />
                 <Route path="more" element={<MoreMenu />} />
                 <Route path="help" element={<Help />} />
+                <Route path="costs" element={<Guard min="owner"><Costs /></Guard>} />
               </Route>
               <Route path="/pos" element={<Guard><PosLayout /></Guard>}>
                 <Route index element={<Register />} />
