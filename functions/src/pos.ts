@@ -948,6 +948,25 @@ export const listOnlineOrders = onCall({ ...opts, timeoutSeconds: 60 }, async (r
   return { total: page.total, next: page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null, orders: page.edges.flatMap((e) => (e.node ? [e.node] : [])) };
 });
 
+/** 網店待出貨：近 N 天、還沒出貨（處理中／備貨中／缺貨／預購）的有效訂單，含收件資料與商品 */
+export const pendingShipments = onCall({ ...opts, timeoutSeconds: 120 }, async (req) => {
+  await requireRole(req, "staff");
+  const days = int(req.data?.days ?? 60, "天數", { min: 1, max: 180 });
+  const out: meep.ShipOrder[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const p = await meep.shipOrdersPage({ after, query: { createdAt: { start: new Date(Date.now() - days * 86400_000).toISOString() } } });
+    for (const e of p.edges) {
+      const o = e.node;
+      if (o && o.status === "PROCESSING" && ["PROCESSING", "PREPARING", "OUT_OF_STOCK", "PRE_ORDER"].includes(o.shipmentStatus)) out.push(o);
+    }
+    if (!p.pageInfo.hasNextPage || !p.pageInfo.endCursor) break;
+    after = p.pageInfo.endCursor;
+  }
+  out.sort((a, b) => a.createdAt.localeCompare(b.createdAt)); // 先下單的先出
+  return { orders: out };
+});
+
 export const updateShipment = onCall(opts, async (req) => {
   await requireRole(req, "staff");
   const status = str(req.data?.status, "出貨狀態", { max: 30 });

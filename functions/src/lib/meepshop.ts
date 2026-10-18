@@ -272,6 +272,48 @@ export async function ordersPage(args: { first?: number; after?: string | null; 
   return data.orders;
 }
 
+/** 待出貨：網店訂單的收件資料（地址、超商門市）＋商品 */
+export interface ShipOrder {
+  id: string;
+  orderNumber: string;
+  status: string;
+  paymentStatus: string;
+  shipmentStatus: string;
+  totalPrice: number;
+  createdAt: string;
+  shopper: { name: string | null; email: string | null } | null;
+  shipmentDetail: {
+    carrier: string | null;
+    name: string | null;
+    receiverName: string | null;
+    phone: string | null;
+    note: string | null;
+    shippingAddress: string | null;
+    trackingCode: string | null;
+    convenienceStore: { name: string | null; address: string | null; storeCode: string | null } | null;
+  } | null;
+  paymentDetail: { name: string | null } | null;
+  lineItems: { title: string; quantity: number; unitPrice: number; variant: { id: string } | null }[] | null;
+}
+
+export async function shipOrdersPage(args: { after?: string | null; query: Record<string, unknown> }) {
+  const data = await gql<{ orders: Connection<ShipOrder> }>(
+    `query Ship($after: String, $query: OrderQueryTermsInput) {
+      orders(first: 50, after: $after, query: $query) {
+        pageInfo { hasNextPage endCursor }
+        edges { node { id orderNumber status paymentStatus shipmentStatus totalPrice createdAt
+          shopper { name email }
+          shipmentDetail { carrier name receiverName phone note shippingAddress trackingCode convenienceStore { name address storeCode } }
+          paymentDetail { name }
+          lineItems { title quantity unitPrice variant { id } } } }
+      }
+    }`,
+    { after: args.after ?? null, query: args.query },
+    { read: true, estimate: 150 }
+  );
+  return data.orders;
+}
+
 export async function updateOrderShipmentStatus(orderNumber: string, shipmentStatus: string) {
   const data = await gql<{ updateOrderShipmentStatus: { __typename: string; message?: string } }>(
     `mutation Ship($input: UpdateOrderShipmentStatusInput!) {

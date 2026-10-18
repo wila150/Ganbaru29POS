@@ -60,6 +60,7 @@ const DayClose = page(shift, "DayClose");
 const tx = () => import("./pages/pos/Transactions");
 const Transactions = page(tx, "Transactions");
 const Members = page(tx, "Members");
+const Ship = page(() => import("./pages/pos/Ship"), "Ship");
 const MemberCard = page(() => import("./pages/MemberCard"), "MemberCard");
 const LineCard = page(() => import("./pages/LineCard"), "LineCard");
 const Help = page(() => import("./pages/admin/Help"), "Help");
@@ -126,6 +127,7 @@ export function App() {
                 <Route index element={<Register />} />
                 <Route path="holds" element={<Holds />} />
                 <Route path="online" element={<OnlineOrders />} />
+                <Route path="ship" element={<Ship />} />
                 <Route path="drawer" element={<Drawer />} />
                 <Route path="close" element={<DayClose />} />
                 <Route path="transactions" element={<Transactions />} />

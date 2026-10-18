@@ -14,6 +14,7 @@ const MENU = [
   { to: "/pos", label: "收銀", icon: "¤", end: true },
   { to: "/pos/holds", label: "訂單", icon: "▣" },
   { to: "/pos/online", label: "線上訂單", icon: "⇅" },
+  { to: "/pos/ship", label: "網店出貨", icon: "📦" },
   { to: "/pos/drawer", label: "錢櫃", icon: "▭" },
   { to: "/pos/close", label: "日結", icon: "✓" },
   { to: "/pos/transactions", label: "交易瀏覽", icon: "≡" },
