@@ -762,3 +762,11 @@ span.tier-switch { cursor: default; }
 .cost-input { width: 100px; text-align: right; padding: 6px 8px; }
 .cost-head td { vertical-align: middle; }
 .cost-sub td { background: var(--surface-2); font-size: 14px; }
+/* 折扣工具列：購物車最上面 */
+.disc-top { border-top: 0; border-bottom: 1px solid var(--border); }
+.disc-top button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; }
+.disc-top .disc-ic { width: 30px; height: 30px; border-radius: 50%; background: #eef2ff; display: flex; align-items: center; justify-content: center; font-size: 15px; margin-bottom: 2px; }
+.disc-top button.on { background: #fffbeb; }
+.disc-top button.on .disc-ic { background: #f59e0b; color: #fff; }
+.disc-top button.on strong { color: #b45309; }
+.disc-top button:disabled .disc-ic { opacity: 0.4; }

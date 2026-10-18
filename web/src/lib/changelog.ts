@@ -11,6 +11,12 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-i",
+    date: "2026-10-19",
+    title: "收銀畫面",
+    items: ["服務費、整單打折、折讓、購物金移到購物車最上面，有設定的會變色提醒"],
+  },
+  {
     id: "2026-10-19-h",
     date: "2026-10-19",
     title: "商品成本",

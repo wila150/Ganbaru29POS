@@ -386,6 +386,26 @@ export function Register() {
             </button>
           </div>
         )}
+        {/* 折扣工具列放在購物車最上面（同 BV SHOP：先決定優惠，再看明細） */}
+        <div className="disc-row disc-top">
+          <button className={disc.serviceFeePct ? "on" : ""} onClick={() => setKeypad({ key: "serviceFeePct", title: "服務費", suffix: "%" })}>
+            <span className="disc-ic">％</span>
+            服務費<strong>{disc.serviceFeePct}%</strong>
+          </button>
+          <button className={disc.orderDiscountPct ? "on" : ""} onClick={() => setKeypad({ key: "orderDiscountPct", title: "整單打折", suffix: "折", hint: "直接輸入幾折：85 = 85 折、9 = 9 折、8.5 = 85 折；輸入 0 取消" })}>
+            <span className="disc-ic">🏷</span>
+            整單打折<strong>{disc.orderDiscountPct ? `${pctToZhe(disc.orderDiscountPct)} 折` : "無"}</strong>
+          </button>
+          <button className={disc.allowance ? "on" : ""} onClick={() => setKeypad({ key: "allowance", title: "折讓金額", suffix: "元" })}>
+            <span className="disc-ic">＄</span>
+            折讓<strong>{money(disc.allowance)}</strong>
+          </button>
+          <button className={disc.rewardPoints ? "on" : ""} disabled={!shopper} onClick={() => setKeypad({ key: "rewardPoints", title: "購物金折抵", suffix: "點", hint: shopper ? `可用 ${shopper.points} 點（1 點 = ${pointValue} 元）` : "" })}>
+            <span className="disc-ic">🪙</span>
+            購物金<strong>{disc.rewardPoints}</strong>
+          </button>
+        </div>
+
         <ul className="cart-lines">
           {cart.length === 0 && <li className="muted center cart-empty">點商品或掃條碼加入</li>}
           {cart.map((l) => {
@@ -440,20 +460,6 @@ export function Register() {
 
         <input className="cart-note" placeholder="備註" value={note} onChange={(e) => setNote(e.target.value)} />
 
-        <div className="disc-row">
-          <button onClick={() => setKeypad({ key: "serviceFeePct", title: "服務費", suffix: "%" })}>
-            服務費<strong>{disc.serviceFeePct}%</strong>
-          </button>
-          <button onClick={() => setKeypad({ key: "orderDiscountPct", title: "整單打折", suffix: "折", hint: "直接輸入幾折：85 = 85 折、9 = 9 折、8.5 = 85 折；輸入 0 取消" })}>
-            整單打折<strong>{disc.orderDiscountPct ? `${pctToZhe(disc.orderDiscountPct)} 折` : "無"}</strong>
-          </button>
-          <button onClick={() => setKeypad({ key: "allowance", title: "折讓金額", suffix: "元" })}>
-            折讓<strong>{money(disc.allowance)}</strong>
-          </button>
-          <button disabled={!shopper} onClick={() => setKeypad({ key: "rewardPoints", title: "購物金折抵", suffix: "點", hint: shopper ? `可用 ${shopper.points} 點（1 點 = ${pointValue} 元）` : "" })}>
-            購物金<strong>{disc.rewardPoints}</strong>
-          </button>
-        </div>
 
         <div className="cart-sum">
           {promo.applied.map((a) => (
