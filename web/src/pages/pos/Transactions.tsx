@@ -173,6 +173,7 @@ function OrderDetail({ order: o, onClose }: { order: PosOrder; onClose: () => vo
             <tr key={i}>
               <td>
                 {l.productTitle} {l.options}
+                {l.note && <div className="small muted">📝 {l.note}</div>}
                 {l.discountPct > 0 && <span className="tag">-{l.discountPct}%</span>}
                 {(l.promoLabels ?? []).map((n) => (
                   <span key={n} className="tag tag-promo">{n}</span>

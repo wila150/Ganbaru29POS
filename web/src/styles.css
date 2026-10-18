@@ -720,3 +720,5 @@ span.tier-switch { cursor: default; }
 .changelog-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--border); padding-bottom: 4px; margin-bottom: 6px; }
 .changelog ul { margin: 0; padding-left: 20px; }
 .changelog li { margin: 4px 0; line-height: 1.6; }
+.cl-note { display: block; border: 0; background: #fef3c7; color: #92400e; border-radius: 6px; padding: 2px 8px; margin-top: 4px; font: inherit; font-size: 12px; text-align: left; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-note.add { background: none; color: var(--info); padding: 2px 0; }

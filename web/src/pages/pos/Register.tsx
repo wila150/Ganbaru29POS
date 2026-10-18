@@ -173,7 +173,7 @@ export function Register() {
 
   const add = (v: Variant, qty = 1) => {
     setCart((c) => {
-      const i = c.findIndex((l) => l.variantId === v.id && l.unitPrice === v.price && l.discountPct === 0);
+      const i = c.findIndex((l) => l.variantId === v.id && l.unitPrice === v.price && l.discountPct === 0 && !l.note);
       if (i >= 0) {
         const n = [...c];
         n[i] = { ...n[i], qty: n[i].qty + qty };
@@ -249,6 +249,7 @@ export function Register() {
 
   // 商品格很大（上百張圖）：只在商品、庫存改變時重畫，加減購物車不重畫
   const [infoFor, setInfoFor] = useState<string | null>(null);
+  const [noteFor, setNoteFor] = useState<CartLine | null>(null);
   const onProductRef = useRef(onProduct);
   onProductRef.current = onProduct;
   const grid = useMemo(
@@ -393,6 +394,17 @@ export function Register() {
                     ))}
                     {over && <span className="tag tag-warn">庫存不足</span>}
                   </div>
+                  {l.note ? (
+                    <button className="cl-note" onClick={(e) => (e.stopPropagation(), setNoteFor(l))}>
+                      📝 {l.note}
+                    </button>
+                  ) : (
+                    selected === l.key && (
+                      <button className="cl-note add" onClick={(e) => (e.stopPropagation(), setNoteFor(l))}>
+                        ＋ 備註
+                      </button>
+                    )
+                  )}
                 </div>
                 <div className="cl-qty">
                   <button onClick={(e) => (e.stopPropagation(), setCart((c) => c.map((x) => (x.key === l.key ? { ...x, qty: Math.max(1, x.qty - 1) } : x))))}>−</button>
@@ -545,7 +557,7 @@ export function Register() {
               allowOversell,
               exchange: exchange ? { kind: exchange.kind, orderId: exchange.orderId, orderNumber: exchange.orderNumber, lines: exchange.lines.map((l) => ({ index: l.index, variantId: l.variantId, qty: l.qty })) } : null,
               exchangeRefundMethod: refundMethod,
-              items: cart.map((l) => ({ variantId: l.variantId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct })),
+              items: cart.map((l) => ({ variantId: l.variantId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct, note: l.note || null })),
               ...disc,
               shopperId: shopper?.id ?? null,
               payments,
@@ -588,8 +600,57 @@ export function Register() {
       )}
 
       {done && <Done order={done.order} issues={done.issues} onClose={() => setDone(null)} />}
+      {noteFor && (
+        <LineNote
+          line={noteFor}
+          title={(() => {
+            const v = byId.get(noteFor.variantId);
+            return v ? variantName(v) : "";
+          })()}
+          onClose={() => setNoteFor(null)}
+          onSave={(note) => setCart((c) => c.map((x) => (x.key === noteFor.key ? { ...x, note: note || undefined } : x)))}
+        />
+      )}
       {infoFor && <ProductInfo productId={infoFor} onClose={() => setInfoFor(null)} stockOf={(id) => { const v = byId.get(id); return v ? stockOf(v) : 0; }} />}
     </div>
+  );
+}
+
+const NOTE_PRESETS = ["修改褲長", "客人預留", "公關品", "瑕疵品折扣", "換貨"];
+
+/** 單一商品的備註（會印在收據、存在交易紀錄） */
+function LineNote({ line, title, onClose, onSave }: { line: CartLine; title: string; onClose: () => void; onSave: (note: string) => void }) {
+  const [v, setV] = useState(line.note ?? "");
+  const done = (text: string) => {
+    onSave(text.trim().slice(0, 100));
+    onClose();
+  };
+  return (
+    <Modal
+      title={`備註：${title}`}
+      onClose={onClose}
+      footer={
+        <>
+          {line.note && (
+            <button className="btn btn-ghost" onClick={() => done("")}>
+              清除備註
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={() => done(v)}>
+            確定
+          </button>
+        </>
+      }
+    >
+      <input autoFocus value={v} maxLength={100} placeholder="例：褲長改短 3cm、週六來拿" onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && done(v)} />
+      <div className="chips" style={{ marginTop: 10 }}>
+        {NOTE_PRESETS.map((p) => (
+          <button key={p} type="button" className="chip" onClick={() => setV((x) => (x ? `${x}、${p}` : p))}>
+            {p}
+          </button>
+        ))}
+      </div>
+    </Modal>
   );
 }
 

@@ -17,7 +17,7 @@ export function printReceipt(o: PosOrder, s: ShopSettings, opts: { copy?: boolea
   const width = opts.widthMm ?? 72;
   const rows = o.lines
     .map(
-      (l) => `<tr><td colspan="3">${esc(l.productTitle)}${l.options ? ` ${esc(l.options)}` : ""}</td></tr>
+      (l) => `<tr><td colspan="3">${esc(l.productTitle)}${l.options ? ` ${esc(l.options)}` : ""}${l.note ? `<br><small>※ ${esc(l.note)}</small>` : ""}</td></tr>
       <tr><td class="m">${l.qty} × ${money(l.unitPrice)}${l.discountPct ? ` (-${l.discountPct}%)` : ""}</td><td></td><td class="r">${money(l.total + (l.promoDiscount ?? 0))}</td></tr>`
     )
     .join("");

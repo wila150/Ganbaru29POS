@@ -149,6 +149,7 @@ export interface PosLine {
   promoLabels?: string[];
   total: number;
   refundedQty: number;
+  note?: string | null;
 }
 
 export interface Refund {

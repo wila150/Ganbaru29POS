@@ -8,6 +8,8 @@ export interface CartLine {
   qty: number;
   unitPrice: number;
   discountPct: number;
+  /** 這一項的備註（例：要修褲長、客人預留） */
+  note?: string;
 }
 export interface CartDiscounts {
   serviceFeePct: number;

@@ -40,6 +40,8 @@ interface Line {
   promoLabels: string[];
   total: number;
   refundedQty: number;
+  /** 這一項的備註 */
+  note?: string | null;
 }
 
 /**
@@ -173,6 +175,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
       promoLabels: [],
       total: Math.round((unitPrice * qty * (100 - discountPct)) / 100),
       refundedQty: 0,
+      note: str(i.note, "備註", { optional: true, max: 100 }) || null,
     };
   });
 

@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-18-h",
+    date: "2026-10-18",
+    title: "商品備註",
+    items: [
+      "購物車每一項商品可以加備註：點選商品後按「＋ 備註」（例：修改褲長、客人預留）",
+      "備註會印在收據上，交易瀏覽也看得到",
+    ],
+  },
+  {
     id: "2026-10-18-g",
     date: "2026-10-18",
     title: "商品資訊、更新內容",
