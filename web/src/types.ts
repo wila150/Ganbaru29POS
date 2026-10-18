@@ -108,6 +108,8 @@ export interface ShopSettings {
   birthdayPointMultiplier?: number;
   tiersAt?: Timestamp;
   payment?: { provider: "ecpay" | "newebpay" | null; stage: boolean };
+  /** LINE Pay 線下支付串接（掃客人付款碼） */
+  linePay?: { enabled: boolean; stage: boolean };
   invoice?: { enabled: boolean; stage: boolean; notifyEmail?: string; address?: string };
   credsSet?: Record<string, boolean>;
   locations?: { id: string; name: string; type: "store" | "warehouse" }[];

@@ -581,11 +581,67 @@ function PaymentSettings() {
       <button className="btn btn-primary" disabled={busy} onClick={save}>
         儲存金流與發票設定
       </button>
+      <LinePaySettings />
       <h3>商店代號與金鑰</h3>
       {(["ecpay_payment", "newebpay_payment", "ecpay_invoice"] as const).map((k) => (
         <CredForm key={k} kind={k} current={creds[k]} onSaved={load} />
       ))}
     </section>
+  );
+}
+
+/** LINE Pay 線下支付：掃客人付款碼直接扣款；金鑰只存在伺服器 */
+function LinePaySettings() {
+  const { form, set, save, busy } = useSettingsForm(["linePay"]);
+  const lp = form.linePay ?? { enabled: false, stage: true };
+  const [cur, setCur] = useState<string | null | undefined>(undefined);
+  const [f, setF] = useState({ channelId: "", channelSecret: "" });
+  const [test, setTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const { busy: b2, run } = useAction();
+  const load = () => call<{ channelId: string | null }>("linePayStatus").then((r) => setCur(r.channelId)).catch(() => setCur(null));
+  useEffect(() => {
+    load();
+  }, []);
+  return (
+    <div className="cred-form">
+      <div className="row-between">
+        <strong>LINE Pay 串接（掃客人付款碼）</strong>
+        {cur ? <Badge tone="ok">已設定：Channel ID {cur}</Badge> : <Badge>未設定</Badge>}
+      </div>
+      <p className="muted small">
+        啟用後，POS 選「LINE Pay」會改成掃客人 LINE Pay 的付款碼直接扣款，退貨也會自動退回。需先向 LINE Pay 申請「線下支付」特約商店，
+        在 LINE Pay 商家中心「開發工具 → 管理連結金鑰」取得 Channel ID 與 Channel Secret。測試請先用 Sandbox 帳號。
+      </p>
+      <div className="inline-form">
+        <input placeholder="Channel ID" inputMode="numeric" value={f.channelId} onChange={(e) => setF({ ...f, channelId: e.target.value.trim() })} />
+        <input type="password" autoComplete="off" placeholder="Channel Secret Key" value={f.channelSecret} onChange={(e) => setF({ ...f, channelSecret: e.target.value.trim() })} />
+        <button className="btn" disabled={b2 || !f.channelId || !f.channelSecret} onClick={() => run(async () => {
+          await call("setLinePayCreds", f);
+          setF({ channelId: "", channelSecret: "" });
+          load();
+        }, "已儲存")}>
+          儲存金鑰
+        </button>
+        <button className="btn" disabled={b2 || !cur} onClick={() => run(async () => setTest(await call<{ ok: boolean; message: string }>("testLinePay")))}>
+          測試連線
+        </button>
+      </div>
+      {test && <p className={test.ok ? "ok" : "error"}>{test.message}</p>}
+      <div className="grid-fields">
+        <Field label="LINE Pay 環境" hint="Sandbox 金鑰配測試環境；正式金鑰配正式環境">
+          <select value={lp.stage ? "stage" : "prod"} onChange={(e) => set("linePay", { ...lp, stage: e.target.value === "stage" })}>
+            <option value="stage">測試（Sandbox，不會真的扣款）</option>
+            <option value="prod">正式</option>
+          </select>
+        </Field>
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={!!lp.enabled} disabled={!cur} onChange={(e) => set("linePay", { ...lp, enabled: e.target.checked })} /> 啟用 LINE Pay 串接（POS 選 LINE Pay 時掃付款碼扣款）
+      </label>
+      <button className="btn btn-primary" disabled={busy} onClick={save}>
+        儲存 LINE Pay 設定
+      </button>
+    </div>
   );
 }
 

@@ -570,3 +570,5 @@ span.tier-switch { cursor: default; }
 .info-box { background: #eef3fb; border: 1px solid #b6c8e3; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 14px; }
 @media (prefers-color-scheme: dark) { .info-box { background: #1e2a3d; border-color: #33507a; } .chooser-icon { background: #3b2618; } .chooser-grid.order .chooser-icon { background: #12332f; } }
 .btn-block { width: 100%; }
+.linepay-box { border: 2px solid #06c755; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.linepay-box .inline-form input { flex: 1; font-size: 18px; letter-spacing: 1px; }

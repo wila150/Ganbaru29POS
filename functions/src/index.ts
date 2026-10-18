@@ -11,6 +11,7 @@ export { retryFailed, lowStockAlert, refreshStats, salesReport } from "./jobs";
 export { memberTiersDaily, recomputeMemberTiers, birthdayGiftsMonthly } from "./members";
 export { createOnlinePayment, cancelOnlinePayment, checkOnlinePayment, payPage, payReturn, ecpayNotify, newebpayNotify, setPaymentCreds, paymentCredsStatus } from "./payments/index";
 export { reissueInvoice, invoicePrint } from "./payments/invoice";
+export { linePayCharge, linePayCheck, linePayRefundUnused, setLinePayCreds, testLinePay, linePayStatus } from "./payments/linepay";
 export { initLocationStock, requestTransfer, shipTransfer, receiveTransfer, cancelTransfer } from "./locations";
 export { merchantImagesDaily, syncImagesFromMerchant } from "./merchant";
 export { reportCenter } from "./reports";

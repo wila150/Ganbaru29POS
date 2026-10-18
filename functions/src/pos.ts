@@ -6,6 +6,7 @@ import { createMovement, pushBulk } from "./lib/movements";
 import { assert, birthDateInput, db, errMsg, FieldValue, HttpsError, int, num, str, taipeiDate, Timestamp } from "./lib/util";
 import { applyPromotions, taipeiClock, type Promotion } from "./shared/promo";
 import { claimOnlinePayment } from "./payments/index";
+import { refundLinePay } from "./payments/linepay";
 import { invoiceAfterRefund, issueForOrder, parseInvoiceRequest } from "./payments/invoice";
 import { audit } from "./lib/audit";
 import { consumeCoupons, ensureMemberCodes, validateCoupons } from "./cards";
@@ -243,7 +244,8 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   assert(total >= 0, "折扣超過應收金額");
 
   const payments = (Array.isArray(d.payments) ? d.payments : []).map((p: Record<string, unknown>) => {
-    const online = ONLINE_METHODS.includes(p.method as string);
+    // LINE Pay 有 ref = 串接扣款（posPayments），沒有 ref = 店員另外收款後手動記帳
+    const online = ONLINE_METHODS.includes(p.method as string) || (p.method === "linepay" && typeof p.ref === "string" && p.ref.length > 0);
     assert(online || (METHODS as readonly string[]).includes(p.method as string), "付款方式不正確");
     return { method: p.method as Method, amount: num(p.amount, "付款金額", { min: 0, max: 1e8 }), ...(online ? { ref: str(p.ref, "線上付款編號", { max: 40 }) } : {}) };
   }).filter((p: { amount: number }) => p.amount > 0) as { method: Method; amount: number; ref?: string }[];
@@ -453,7 +455,7 @@ async function doRefund(
     if (done) return { already: true as const, o };
     const { lines, picked, amount, pointsReturned, pointsReclaimed, allBack } = planRefund(o, wanted);
 
-    let refundPayments: { method: Method; amount: number }[];
+    let refundPayments: { method: Method; amount: number; ref?: string }[];
     if (explicitPayments) {
       refundPayments = explicitPayments;
     } else if (method === "original") {
@@ -463,7 +465,7 @@ async function doRefund(
       refundPayments = [];
       for (const p of o.payments.filter((x: { method: Method }) => x.method !== "cash" && x.method !== "exchange")) {
         const a = Math.min(left, p.amount);
-        if (a > 0) refundPayments.push({ method: p.method, amount: a });
+        if (a > 0) refundPayments.push({ method: p.method, amount: a, ...((p as { ref?: string }).ref ? { ref: (p as { ref?: string }).ref } : {}) });
         left -= a;
       }
       if (left > 0) refundPayments.push({ method: "cash", amount: left });
@@ -507,6 +509,17 @@ async function doRefund(
 
   const notes: string[] = [];
   for (const p of plan.record.payments) {
+    if (p.method === "linepay") {
+      // 串接扣款的 LINE Pay 自動退回客人帳戶；手動記帳的照舊請店員另外處理
+      const ref = (p as { ref?: string }).ref ?? (o.payments as { method: string; ref?: string }[]).find((x) => x.method === "linepay" && x.ref)?.ref;
+      if (ref) {
+        try {
+          await refundLinePay(ref, p.amount);
+        } catch (e) {
+          notes.push(`LINE Pay 自動退款 $${p.amount} 失敗：${errMsg(e)}。請到 LINE Pay 商家中心手動退款`);
+        }
+      }
+    }
     if (p.method === "ecpay" || p.method === "newebpay") notes.push(`${p.method === "ecpay" ? "綠界" : "藍新"}線上付款 $${p.amount}：請到${p.method === "ecpay" ? "綠界" : "藍新"}商店後台辦理退款`);
   }
   if (o.shopper && plan.record.pointsReturned > 0 && o.pointsDeducted) {

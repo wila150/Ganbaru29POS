@@ -1,6 +1,7 @@
 import { doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import { Keypad } from "../../components/Keypad";
+import { CameraScanner } from "../../components/ScanInput";
 import { QrImg } from "../../components/QrImg";
 import { Modal, useAction, useToast } from "../../components/ui";
 import { useData } from "../../data";
@@ -25,6 +26,7 @@ const PROVIDER_LABEL: Record<string, string> = { ecpay: "綠界", newebpay: "藍
 export function Checkout({ total, itemName, onClose, submit }: { total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void> }) {
   const { settings } = useData();
   const provider = settings.payment?.provider ?? null;
+  const linePayApi = !!settings.linePay?.enabled && total > 0;
   const invoiceOn = !!settings.invoice?.enabled;
   const [method, setMethod] = useState<string>("cash");
   const [cash, setCash] = useState("");
@@ -40,7 +42,8 @@ export function Checkout({ total, itemName, onClose, submit }: { total: number; 
   const paid = payments.reduce((s, p) => s + p.amount, 0);
   const change = paid - total;
   const mixedLeft = total - mixed.reduce((s, p) => s + p.amount, 0);
-  const ok = method !== "online" && paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
+  const scanLinePay = method === "linepay" && linePayApi;
+  const ok = method !== "online" && !scanLinePay && paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
   const invoiceOk = !invoiceOn || inv.type === "print" || (inv.type === "mobile" && /^\/[0-9A-Z+\-.]{7}$/.test(inv.mobileBarcode ?? "")) || (inv.type === "taxId" && /^\d{8}$/.test(inv.taxId ?? "")) || (inv.type === "donate" && /^\d{3,7}$/.test(inv.loveCode ?? ""));
   const invoicePayload = invoiceOn ? inv : null;
 
@@ -52,7 +55,7 @@ export function Checkout({ total, itemName, onClose, submit }: { total: number; 
       onClose={() => !busy && !online && onClose()}
       wide
       footer={
-        method === "online" ? null : (
+        method === "online" || scanLinePay ? null : (
           <button className="btn btn-pay btn-lg block" disabled={!ok || !invoiceOk || busy} onClick={() => run(() => submit(payments, invoicePayload))}>
             {busy ? "結帳中…" : change > 0 ? `完成結帳（找零 ${money(change)}）` : "完成結帳"}
           </button>
@@ -88,7 +91,17 @@ export function Checkout({ total, itemName, onClose, submit }: { total: number; 
           <Keypad value={cash} onChange={setCash} />
         </div>
       )}
-      {PAY_LABEL[method] && method !== "cash" && <p className="center big">請以 {PAY_LABEL[method]} 收款 {money(total)}（刷卡機另外操作）</p>}
+      {scanLinePay && (
+        <LinePayScan
+          amount={total}
+          itemName={itemName}
+          invoiceOk={invoiceOk}
+          stage={settings.linePay?.stage !== false}
+          onBusy={(b) => setOnline(b ? { id: "linepay", url: "" } : null)}
+          onPaid={(paymentId) => run(() => submit([{ method: "linepay", amount: total, ref: paymentId }], invoicePayload))}
+        />
+      )}
+      {PAY_LABEL[method] && method !== "cash" && !scanLinePay && <p className="center big">請以 {PAY_LABEL[method]} 收款 {money(total)}（刷卡機另外操作）</p>}
       {method === "online" && provider && (
         <OnlinePay
           provider={provider}
@@ -136,6 +149,97 @@ export function Checkout({ total, itemName, onClose, submit }: { total: number; 
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * LINE Pay 串接：掃描槍或相機掃客人 LINE Pay 的「付款碼」→ 伺服器向 LINE Pay 扣款 → 成功就完成結帳。
+ * 客人如需在 LINE 上輸入密碼，伺服器會等最多約 45 秒；還不確定時可以按「查詢付款結果」。
+ */
+function LinePayScan({ amount, itemName, invoiceOk, stage, onBusy, onPaid }: { amount: number; itemName: string; invoiceOk: boolean; stage: boolean; onBusy: (b: boolean) => void; onPaid: (id: string) => void }) {
+  const [code, setCode] = useState("");
+  const [camera, setCamera] = useState(false);
+  const [state, setState] = useState<{ id: string; status: string; message: string | null } | null>(null);
+  const [waiting, setWaiting] = useState(false);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const input = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
+
+  const handle = (r: { id: string; status: string; message: string | null }) => {
+    setState(r);
+    if (r.status === "paid" && !done.current) {
+      done.current = true;
+      toast("LINE Pay 付款成功", "ok");
+      onPaid(r.id);
+    }
+  };
+  const charge = (key: string) => {
+    const k = key.replace(/\s/g, "");
+    if (!k) return;
+    setCode("");
+    setWaiting(true);
+    onBusy(true);
+    run(async () => {
+      try {
+        handle(await call<{ id: string; status: string; message: string | null }>("linePayCharge", { amount, itemName, oneTimeKey: k }));
+      } finally {
+        setWaiting(false);
+      }
+    }).finally(() => {
+      onBusy(false);
+      input.current?.focus();
+    });
+  };
+  const pending = state?.status === "unknown" || state?.status === "processing";
+
+  return (
+    <div className="linepay-box">
+      <div className="big strong center">LINE Pay {money(amount)}{stage && <span className="badge badge-warn" style={{ marginLeft: 8 }}>測試環境</span>}</div>
+      {state?.status === "paid" ? (
+        <div className="center">
+          <p className="ok">✅ LINE Pay 已扣款，正在完成結帳…</p>
+          <p className="muted small">如果一直沒有完成（例如網路中斷），按「再試一次」，不會重複扣款；客人不買了請店長按「退款」。</p>
+          <div className="btn-row" style={{ justifyContent: "center" }}>
+            <button className="btn" disabled={busy} onClick={() => onPaid(state.id)}>
+              再試一次完成結帳
+            </button>
+            <button className="btn btn-ghost" disabled={busy} onClick={() => confirm(`退回這筆 LINE Pay ${money(amount)}？`) && run(async () => {
+              await call("linePayRefundUnused", { id: state.id });
+              done.current = false;
+              setState(null);
+            }, "已退款")}>
+              退款（店長以上）
+            </button>
+          </div>
+        </div>
+      ) : waiting ? (
+        <p className="center">付款處理中…若客人的 LINE 要求輸入密碼，請客人在手機上完成（最多等約 45 秒）</p>
+      ) : pending ? (
+        <div className="center">
+          <p className="error">{state?.message ?? "還不確定是否付款成功"}。請勿重新扣款，先查詢結果。</p>
+          <button className="btn btn-primary" disabled={busy} onClick={() => run(async () => handle({ id: state!.id, ...(await call<{ status: string; message: string | null }>("linePayCheck", { id: state!.id })) }))}>
+            查詢付款結果
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="center">請客人打開 LINE Pay「付款」條碼，用掃描槍掃或按相機掃描。</p>
+          {state?.status === "failed" && <p className="error center">付款失敗：{state.message}</p>}
+          {!invoiceOk && <p className="error small center">請先填好發票資料</p>}
+          <div className="inline-form">
+            <input ref={input} autoFocus inputMode="numeric" placeholder="掃描 LINE Pay 付款碼" value={code} disabled={busy || !invoiceOk} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && charge(code)} />
+            <button className="btn btn-primary" disabled={busy || !code || !invoiceOk} onClick={() => charge(code)}>
+              扣款
+            </button>
+            <button className="btn" disabled={busy || !invoiceOk} onClick={() => setCamera(true)}>
+              📷 相機
+            </button>
+          </div>
+        </>
+      )}
+      {camera && <CameraScanner onClose={() => setCamera(false)} onCode={(c) => charge(c)} />}
+    </div>
   );
 }
 
