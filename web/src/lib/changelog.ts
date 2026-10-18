@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-18-i",
+    date: "2026-10-18",
+    title: "收銀分類",
+    items: [
+      "收銀的分類頁籤改成 meepShop 的所有標籤：商品有幾個標籤就出現在幾個頁籤（例：長褲現在會列出全部長褲）",
+      "頁籤依商品數量排序，商品多的在前面",
+    ],
+  },
+  {
     id: "2026-10-18-h",
     date: "2026-10-18",
     title: "商品備註",

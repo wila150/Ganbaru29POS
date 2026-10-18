@@ -160,10 +160,16 @@ export function Register() {
 
   // ---- product grid ----
   const sellable = useMemo(() => variants.filter((v) => !v.posHidden), [variants]);
-  const categories = useMemo(() => ["全部", ...[...new Set(sellable.map((v) => v.posCategory).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, "zh-Hant"))], [sellable]);
+  // 分類頁籤 = meepShop 商品的所有標籤（一個商品有幾個標籤就出現在幾個頁籤），商品多的排前面
+  const catsOf = (v: Variant) => [...new Set([v.posCategory, ...(v.tags ?? [])].filter(Boolean) as string[])];
+  const categories = useMemo(() => {
+    const count = new Map<string, Set<string>>();
+    for (const v of sellable) for (const c of catsOf(v)) (count.get(c) ?? count.set(c, new Set()).get(c)!).add(v.productId);
+    return ["全部", ...[...count.entries()].sort((a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0], "zh-Hant")).map(([c]) => c)];
+  }, [sellable]);
   const products = useMemo(() => {
     let list = q ? searchVariants(sellable, q) : sellable;
-    if (cat !== "全部") list = list.filter((v) => v.posCategory === cat);
+    if (cat !== "全部") list = list.filter((v) => catsOf(v).includes(cat));
     const map = new Map<string, Variant[]>();
     for (const v of list) map.set(v.productId, [...(map.get(v.productId) ?? []), v]);
     return [...map.values()]
