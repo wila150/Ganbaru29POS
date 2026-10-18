@@ -83,10 +83,17 @@ export function stockAge(v: Variant): { days: number; basis: "batch" | "listed" 
   return listed === null ? null : { days: listed, basis: "listed" };
 }
 
-/** 滯銷：有庫存，但 N 天內門市與網店都沒賣出 */
-export const SLOW_DAYS = 60;
-export function isSlow(v: Variant): boolean {
+/** 滯銷條件（設定 → 庫存查詢「滯銷條件」）：有庫存、超過 days 天門市和網店都沒賣出；上架未滿 newDays 天的新品不算 */
+export interface SlowRule {
+  days: number;
+  newDays: number;
+}
+export const DEFAULT_SLOW: SlowRule = { days: 60, newDays: 60 };
+export const SLOW_DAYS = DEFAULT_SLOW.days;
+export function isSlow(v: Variant, rule: SlowRule = DEFAULT_SLOW): boolean {
   if ((v.shopStock ?? 0) <= 0 || !v.statsAt) return false;
+  const listed = daysSince(v.shopCreatedAt);
+  if (listed !== null && listed < rule.newDays) return false; // 新品還在觀察期
   const d = daysSince(v.lastSoldAt);
-  return d === null || d >= SLOW_DAYS;
+  return d === null || d >= rule.days;
 }

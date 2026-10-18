@@ -6,7 +6,7 @@ import { Badge, Field, useAction, useToast } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { fmtTime, ROLE_LABEL, type Role } from "../../lib/util";
-import type { RewardRule, ShopSettings, TierCond, TierDef } from "../../types";
+import type { AlertPrefs, RewardRule, ShopSettings, TierCond, TierDef } from "../../types";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
 import { ADMIN_NAV, applyNavConfig, NAV_LOCKED } from "../../components/Layout";
 import { QrImg } from "../../components/QrImg";
@@ -243,31 +243,67 @@ function useSettingsForm<K extends keyof ShopSettings>(keys: K[]) {
   return { form, set, save, busy };
 }
 
+const ALERT_ITEMS: { key: keyof Omit<AlertPrefs, "slowDays">; label: string; desc: string }[] = [
+  { key: "dailySales", label: "昨天營業額", desc: "門市筆數與金額（扣退款）＋網店筆數與金額" },
+  { key: "lowStock", label: "低庫存", desc: "庫存低於「安全庫存」的款式（安全庫存在庫存查詢設定，0 = 不提醒）" },
+  { key: "slowMoving", label: "滯銷商品", desc: "有庫存、但超過指定天數門市和網店都沒賣出的款式" },
+  { key: "birthdays", label: "今天生日的會員", desc: "方便店員打招呼、傳祝福" },
+  { key: "sync", label: "庫存同步失敗", desc: "有異動沒同步到網店、或結果不明需要確認時" },
+  { key: "labels", label: "新商品還沒印 QR 標籤", desc: "meepShop 新上架、還沒印吊牌的款式" },
+  { key: "expiry", label: "批號快到期", desc: "進貨時有填「有效期限」的批次快到期（服飾通常不用，保養品、食品才需要）" },
+];
+const DEFAULT_ALERTS: AlertPrefs = { lowStock: true, expiry: false, sync: true, labels: true, dailySales: true, slowMoving: false, slowDays: 60, birthdays: false };
+
 function Alerts() {
   const { settings } = useData();
-  const { form, set, save, busy } = useSettingsForm(["lineTargets", "leadDays", "expiryDays"]);
+  const { form, set, save, busy } = useSettingsForm(["lineTargets", "leadDays", "expiryDays", "alerts"]);
   const [token, setToken] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
   const { busy: b2, run } = useAction();
+  const a = { ...DEFAULT_ALERTS, ...(form.alerts ?? {}) };
+  const upd = (patch: Partial<AlertPrefs>) => set("alerts", { ...a, ...patch });
   return (
     <section className="card">
       <h2>提醒</h2>
-      <p className="muted small">
-        每天 9:00 用 LINE 推播低庫存、快到期、同步失敗。需要一個 LINE 官方帳號的 Messaging API channel（LINE Notify 已停止服務）。
-      </p>
+      <p className="muted small">每天早上 9:00 用 LINE 推播給老闆。勾選要提醒的項目；沒有東西要提醒的項目不會出現。需要 LINE 官方帳號的 Messaging API channel（下方 token）。</p>
+      <div className="alert-items">
+        {ALERT_ITEMS.map((it) => (
+          <label key={it.key} className="check alert-item">
+            <input type="checkbox" checked={!!a[it.key]} onChange={(e) => upd({ [it.key]: e.target.checked })} />
+            <span>
+              <strong>{it.label}</strong>
+              <small className="muted">{it.desc}</small>
+              {it.key === "slowMoving" && a.slowMoving && (
+                <small>
+                  目前條件：{settings.slowRule?.days ?? 60} 天沒賣出、上架未滿 {settings.slowRule?.newDays ?? 60} 天不算（在「庫存查詢 → 滯銷條件」修改）
+                </small>
+              )}
+              {it.key === "expiry" && a.expiry && (
+                <span className="inline-num">
+                  到期前 <input inputMode="numeric" value={String(form.expiryDays ?? 30)} onChange={(e) => set("expiryDays", Number(e.target.value.replace(/\D/g, "")) || 0)} /> 天提醒
+                </span>
+              )}
+            </span>
+          </label>
+        ))}
+      </div>
       <div className="grid-fields">
         <Field label="LINE 推播對象（userId / groupId，一行一個）" hint="把官方帳號加為好友後，可從 webhook 或 LINE Developers 取得 userId">
           <textarea rows={3} value={(form.lineTargets ?? []).join("\n")} onChange={(e) => set("lineTargets", e.target.value.split(/\s+/).filter(Boolean))} />
         </Field>
-        <Field label="即將到期提醒（天）">
-          <input type="number" min={1} value={form.expiryDays ?? 30} onChange={(e) => set("expiryDays", Number(e.target.value))} />
-        </Field>
-        <Field label="補貨到貨天數" hint="用來算建議補貨量">
-          <input type="number" min={0} value={form.leadDays ?? 7} onChange={(e) => set("leadDays", Number(e.target.value))} />
+        <Field label="補貨到貨天數" hint="廠商下單到貨要幾天，用來算「建議補貨量」">
+          <input inputMode="numeric" value={String(form.leadDays ?? 7)} onChange={(e) => set("leadDays", Number(e.target.value.replace(/\D/g, "")) || 0)} />
         </Field>
       </div>
-      <button className="btn btn-primary" disabled={busy} onClick={save}>
-        儲存提醒設定
-      </button>
+      <div className="btn-row">
+        <button className="btn btn-primary" disabled={busy} onClick={save}>
+          儲存提醒設定
+        </button>
+        <button className="btn" disabled={b2} onClick={() => run(async () => setPreview((await call<{ text: string }>("previewDailyAlert")).text))}>
+          {b2 ? "產生中…" : "預覽今天的提醒"}
+        </button>
+      </div>
+      {preview && <pre className="alert-preview">{preview}</pre>}
       <h3>LINE Channel access token {settings.lineTokenSetAt ? <Badge tone="ok">已設定</Badge> : <Badge>未設定</Badge>}</h3>
       <div className="inline-form">
         <input type="password" autoComplete="off" placeholder="貼上 Channel access token（long-lived）" value={token} onChange={(e) => setToken(e.target.value)} />

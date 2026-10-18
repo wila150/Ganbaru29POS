@@ -103,39 +103,120 @@ export const refreshStats = onCall({ timeoutSeconds: 540, memory: "512MiB", maxI
 });
 
 /** 每天 9:00：更新銷售統計，低於安全庫存 / 快到期的商品用 LINE 推播給老闆。 */
-export const lowStockAlert = onSchedule({ schedule: "0 9 * * *", timeZone: TZ, timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
+/** 每天 9:00 的 LINE 提醒，哪些項目要送在「設定 → 提醒」勾選 */
+export interface AlertPrefs {
+  lowStock?: boolean;
+  expiry?: boolean;
+  sync?: boolean;
+  labels?: boolean;
+  dailySales?: boolean;
+  slowMoving?: boolean;
+  slowDays?: number;
+  birthdays?: boolean;
+}
+export const DEFAULT_ALERTS: Required<AlertPrefs> = { lowStock: true, expiry: false, sync: true, labels: true, dailySales: true, slowMoving: false, slowDays: 60, birthdays: false };
+
+export async function buildDailyAlert(): Promise<string | null> {
   const settings = (await db.doc("settings/shop").get()).data() ?? {};
+  const on: Required<AlertPrefs> = { ...DEFAULT_ALERTS, ...(settings.alerts ?? {}) };
   const expiryDays = Number(settings.expiryDays ?? 30);
+  const slowRule = { days: 60, newDays: 60, ...(settings.slowRule ?? {}) };
   await computeStats();
 
   const variants = await db.collection("variants").where("active", "==", true).get();
   const today = taipeiDate();
+  const yesterday = taipeiDate(new Date(Date.now() - DAY));
   const expiryLimit = taipeiDate(new Date(Date.now() + expiryDays * DAY));
   const low: string[] = [];
   const expiring: string[] = [];
+  const slow: { name: string; stock: number; days: number }[] = [];
   for (const v of variants.docs) {
     const d = v.data();
     const stock = d.shopStock ?? 0;
     const name = `${d.productTitle}${d.options ? " " + d.options : ""}`;
-    if ((d.safety ?? 0) > 0 && stock <= d.safety) low.push(`・${name}：剩 ${stock}（安全 ${d.safety}，建議補 ${d.reorderQty ?? 0}）`);
-    for (const b of d.batches ?? []) {
-      if (b.exp && b.exp <= expiryLimit) expiring.push(`・${name} 批號 ${b.lot ?? "-"}：${b.exp}${b.exp < today ? "（已過期）" : ""}，${b.qty} 件`);
+    if (on.lowStock && (d.safety ?? 0) > 0 && stock <= d.safety) low.push(`・${name}：剩 ${stock}（安全 ${d.safety}，建議補 ${d.reorderQty ?? 0}）`);
+    if (on.expiry)
+      for (const b of d.batches ?? []) {
+        if (b.exp && b.exp <= expiryLimit) expiring.push(`・${name} 批號 ${b.lot ?? "-"}：${b.exp}${b.exp < today ? "（已過期）" : ""}，${b.qty} 件`);
+      }
+    if (on.slowMoving && stock > 0 && d.statsAt) {
+      // 和庫存查詢的「滯銷」同一個條件（settings.slowRule）
+      const listed = d.shopCreatedAt?.toMillis?.() ? Math.floor((Date.now() - d.shopCreatedAt.toMillis()) / DAY) : null;
+      const sold = d.lastSoldAt?.toMillis?.() ? Math.floor((Date.now() - d.lastSoldAt.toMillis()) / DAY) : null;
+      const days = sold ?? 9999;
+      if ((listed === null || listed >= slowRule.newDays) && days >= slowRule.days) slow.push({ name, stock, days });
     }
   }
 
-  const [failed, unknown] = await Promise.all([
-    db.collection("movements").where("status", "==", "failed").count().get(),
-    db.collection("movements").where("status", "==", "unknown").count().get(),
-  ]);
-  const parts = [`【ganbaru29】${today} 庫存提醒`];
-  if (low.length) parts.push(`\n低於安全庫存（${low.length}）\n${low.slice(0, 40).join("\n")}${low.length > 40 ? "\n…其餘請看系統" : ""}`);
-  if (expiring.length) parts.push(`\n${expiryDays} 天內到期（${expiring.length}）\n${expiring.slice(0, 30).join("\n")}`);
-  const f = failed.data().count;
-  const u = unknown.data().count;
-  if (f || u) parts.push(`\n同步失敗 ${f} 筆、待確認 ${u} 筆`);
-  const unprinted = variants.docs.filter((v) => v.data().labelPrinted === false).length;
-  if (unprinted) parts.push(`\n有 ${unprinted} 款新商品還沒印 QR 標籤（商品與條碼 →「未印 QR」）`);
-  if (parts.length > 1) await notifyOwner(parts.join("\n"));
+  const parts = [`【ganbaru29】${today} 每日提醒`];
+  if (on.dailySales) {
+    const pos = await db.collection("posOrders").where("businessDate", "==", yesterday).get();
+    const done = pos.docs.map((d) => d.data()).filter((o) => ["completed", "partial", "refunded"].includes(o.status));
+    const refunds = done.reduce((s, o) => s + (o.refunds ?? []).reduce((a: number, r: { amount: number }) => a + (r.amount ?? 0), 0), 0);
+    const storeTotal = done.reduce((s, o) => s + (o.total ?? 0), 0) - refunds;
+    let online = "";
+    try {
+      const start = new Date(`${yesterday}T00:00:00+08:00`).toISOString();
+      const endIso = new Date(`${today}T00:00:00+08:00`).toISOString();
+      const p = await ordersPage({ first: 100, query: { createdAt: { start, end: endIso } } });
+      const os = p.edges.map((e) => e.node).filter((o) => o && o.status !== "CANCELED");
+      online = `
+網店：${os.length} 筆，$${os.reduce((s, o) => s + (o?.totalPrice ?? 0), 0).toLocaleString("zh-TW")}`;
+    } catch (e) {
+      logger.warn("daily alert online orders", e);
+    }
+    parts.push(`
+昨天（${yesterday}）營業
+門市：${done.length} 筆，$${storeTotal.toLocaleString("zh-TW")}${refunds ? `（已扣退款 $${refunds.toLocaleString("zh-TW")}）` : ""}${online}`);
+  }
+  if (low.length) parts.push(`
+低於安全庫存（${low.length}）
+${low.slice(0, 40).join("\n")}${low.length > 40 ? "\n…其餘請看系統" : ""}`);
+  if (expiring.length) parts.push(`
+${expiryDays} 天內到期（${expiring.length}）
+${expiring.slice(0, 30).join("\n")}`);
+  if (slow.length) {
+    slow.sort((a, b) => b.days - a.days);
+    parts.push(`
+滯銷：${slowRule.days} 天以上沒賣出（${slow.length} 款）
+${slow.slice(0, 20).map((x) => `・${x.name}：庫存 ${x.stock}，${x.days >= 9999 ? "沒賣過" : `${x.days} 天`}`).join("\n")}${slow.length > 20 ? "\n…其餘看「庫存查詢 → 滯銷」" : ""}`);
+  }
+  if (on.sync) {
+    const [failed, unknown] = await Promise.all([
+      db.collection("movements").where("status", "==", "failed").count().get(),
+      db.collection("movements").where("status", "==", "unknown").count().get(),
+    ]);
+    const f = failed.data().count;
+    const u = unknown.data().count;
+    if (f || u) parts.push(`
+同步失敗 ${f} 筆、待確認 ${u} 筆（異動紀錄）`);
+  }
+  if (on.labels) {
+    const unprinted = variants.docs.filter((v) => v.data().labelPrinted === false).length;
+    if (unprinted) parts.push(`
+有 ${unprinted} 款新商品還沒印 QR 標籤（商品與條碼 →「未印 QR」）`);
+  }
+  if (on.birthdays) {
+    const md = today.slice(5);
+    const month = today.slice(5, 7);
+    const sh = await db.collection("shoppers").where("birthMonth", "==", month).get();
+    const names = sh.docs.map((d) => d.data()).filter((x) => String(x.birthDate ?? "").replace(/\//g, "-").slice(5, 10) === md).map((x) => `・${x.name || x.mobile}（${x.memberGroup ?? "會員"}）`);
+    if (names.length) parts.push(`
+今天生日的會員（${names.length}）
+${names.slice(0, 30).join("\n")}`);
+  }
+  return parts.length > 1 ? parts.join("\n") : null;
+}
+
+export const lowStockAlert = onSchedule({ schedule: "0 9 * * *", timeZone: TZ, timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
+  const msg = await buildDailyAlert();
+  if (msg) await notifyOwner(msg);
+});
+
+/** 設定頁「預覽今天的提醒」：不推播，只回傳內容 */
+export const previewDailyAlert = onCall({ timeoutSeconds: 300, memory: "512MiB", maxInstances: 1 }, async (req) => {
+  await requireRole(req, "owner");
+  return { text: (await buildDailyAlert()) ?? "今天沒有需要提醒的項目" };
 });
 
 /**

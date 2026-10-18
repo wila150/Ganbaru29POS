@@ -1,10 +1,10 @@
-import { collection, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { collection, doc, limit, onSnapshot, orderBy, query, setDoc, where } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { QrImg } from "../../components/QrImg";
 import { VariantMatrix } from "../../components/VariantMatrix";
 import { useAuth } from "../../auth";
 import { Badge, Empty, Modal, SyncBadge, useAction } from "../../components/ui";
-import { daysSince, isSlow, SLOW_DAYS, stockAge, stockState, useData, variantName } from "../../data";
+import { daysSince, DEFAULT_SLOW, isSlow, stockAge, stockState, useData, variantName, type SlowRule } from "../../data";
 import { call, db } from "../../firebase";
 import { searchVariants } from "../../lib/lookup";
 import { useDeviceLocation } from "../../lib/location";
@@ -17,7 +17,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "low", label: "低庫存" },
   { key: "out", label: "缺貨" },
   { key: "expiring", label: "即將到期" },
-  { key: "slow", label: `滯銷（${SLOW_DAYS} 天沒賣）` },
+  { key: "slow", label: "滯銷" },
   { key: "failed", label: "同步失敗" },
 ];
 type Sort = "name" | "sales" | "lastSold" | "age" | "stock";
@@ -36,11 +36,11 @@ const STATE_BADGE = {
   ok: <Badge tone="ok">正常</Badge>,
 };
 
-export function LastSold({ v }: { v: Variant }) {
+export function LastSold({ v, slowDays = DEFAULT_SLOW.days }: { v: Variant; slowDays?: number }) {
   if (!v.statsAt) return <span className="muted">—</span>;
   const d = daysSince(v.lastSoldAt);
   if (d === null) return <span className="error">120 天以上</span>;
-  return <span className={d >= SLOW_DAYS ? "error" : ""}>{d === 0 ? "今天" : `${d} 天前`}</span>;
+  return <span className={d >= slowDays ? "error" : ""}>{d === 0 ? "今天" : `${d} 天前`}</span>;
 }
 
 export function AgeCell({ v }: { v: Variant }) {
@@ -56,6 +56,7 @@ export function AgeCell({ v }: { v: Variant }) {
 export function Inventory() {
   const { variants, settings, locStock } = useData();
   const { profile } = useAuth();
+  const isOwner = atLeast(profile?.role, "owner");
   const { multi, locationId, name: locName } = useDeviceLocation();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -64,6 +65,8 @@ export function Inventory() {
   const [open, setOpen] = useState<Variant | null>(null);
   const { busy, run } = useAction();
   const expiryDays = settings.expiryDays ?? 30;
+  const slowRule: SlowRule = { ...DEFAULT_SLOW, ...(settings.slowRule ?? {}) };
+  const [slowEdit, setSlowEdit] = useState(false);
 
   useEffect(
     () =>
@@ -74,7 +77,7 @@ export function Inventory() {
   const rows = useMemo(() => {
     let list = searchVariants(variants, q);
     if (filter === "failed") list = list.filter((v) => failedIds.has(v.id));
-    else if (filter === "slow") list = list.filter(isSlow);
+    else if (filter === "slow") list = list.filter((v) => isSlow(v, slowRule));
     else if (filter !== "all") list = list.filter((v) => stockState(v, expiryDays) === filter);
     const byName = (a: Variant, b: Variant) => a.productTitle.localeCompare(b.productTitle, "zh-Hant") || a.variantIndex - b.variantIndex;
     const lastSoldDays = (v: Variant) => (v.lastSoldAt ? daysSince(v.lastSoldAt)! : 9999);
@@ -86,18 +89,18 @@ export function Inventory() {
       stock: (a, b) => (b.shopStock ?? 0) - (a.shopStock ?? 0) || byName(a, b),
     };
     return [...list].sort(cmp[sort]);
-  }, [variants, q, filter, sort, failedIds, expiryDays]);
+  }, [variants, q, filter, sort, failedIds, expiryDays, slowRule.days, slowRule.newDays]);
 
   const counts = useMemo(() => {
     const c = { all: variants.length, low: 0, out: 0, expiring: 0, slow: 0, failed: 0 };
     for (const v of variants) {
       const s = stockState(v, expiryDays);
       if (s !== "ok") c[s]++;
-      if (isSlow(v)) c.slow++;
+      if (isSlow(v, slowRule)) c.slow++;
       if (failedIds.has(v.id)) c.failed++;
     }
     return c;
-  }, [variants, failedIds, expiryDays]);
+  }, [variants, failedIds, expiryDays, slowRule.days, slowRule.newDays]);
 
   return (
     <div className="page">
@@ -128,10 +131,16 @@ export function Inventory() {
       <div className="chips">
         {FILTERS.map((f) => (
           <button key={f.key} className={`chip ${filter === f.key ? "active" : ""}`} onClick={() => setFilter(f.key)}>
-            {f.label} <span className="chip-count">{counts[f.key]}</span>
+            {f.key === "slow" ? `滯銷（${slowRule.days} 天沒賣）` : f.label} <span className="chip-count">{counts[f.key]}</span>
           </button>
         ))}
+        {isOwner && (
+          <button className="link-btn small" onClick={() => setSlowEdit(!slowEdit)}>
+            滯銷條件
+          </button>
+        )}
       </div>
+      {slowEdit && <SlowRuleEditor rule={slowRule} onClose={() => setSlowEdit(false)} />}
       {rows.length === 0 ? (
         <Empty>沒有符合的商品</Empty>
       ) : (
@@ -176,7 +185,7 @@ export function Inventory() {
                     )}
                   </td>
                   <td>
-                    <LastSold v={v} />
+                    <LastSold v={v} slowDays={slowRule.days} />
                   </td>
                   <td>
                     <AgeCell v={v} />
@@ -185,7 +194,7 @@ export function Inventory() {
                   <td className="num">{v.reorderQty ? v.reorderQty : "—"}</td>
                   <td>
                     {STATE_BADGE[stockState(v, expiryDays)]}
-                    {isSlow(v) && <Badge tone="warn">滯銷</Badge>}
+                    {isSlow(v, slowRule) && <Badge tone="warn">滯銷</Badge>}
                     {failedIds.has(v.id) && <Badge tone="bad">同步失敗</Badge>}
                   </td>
                 </tr>
@@ -329,5 +338,42 @@ export function VariantDetail({ variant, onClose }: { variant: Variant; onClose:
       )}
       {current && <VariantDetail variant={current} onClose={() => setCurrent(null)} />}
     </Modal>
+  );
+}
+
+/** 滯銷條件（老闆）：存在 settings，庫存查詢、每日 LINE 提醒共用 */
+function SlowRuleEditor({ rule, onClose }: { rule: SlowRule; onClose: () => void }) {
+  const [r, setR] = useState(rule);
+  const { busy, run } = useAction();
+  const num = (v: string) => Math.max(0, Number(v.replace(/\D/g, "")) || 0);
+  return (
+    <div className="card slow-rule">
+      <div className="cond-row">
+        <span>有庫存，且超過</span>
+        <input inputMode="numeric" value={String(r.days)} onChange={(e) => setR({ ...r, days: num(e.target.value) })} />
+        <span>天門市和網店都沒賣出 → 算滯銷</span>
+      </div>
+      <div className="cond-row">
+        <span>上架未滿</span>
+        <input inputMode="numeric" value={String(r.newDays)} onChange={(e) => setR({ ...r, newDays: num(e.target.value) })} />
+        <span>天的新品不算（還在觀察期）</span>
+      </div>
+      <div className="chips">
+        {[30, 60, 90, 120].map((d) => (
+          <button key={d} type="button" className={`chip ${r.days === d ? "active" : ""}`} onClick={() => setR({ days: d, newDays: d })}>
+            {d} 天
+          </button>
+        ))}
+      </div>
+      <div className="btn-row">
+        <button className="btn btn-primary" disabled={busy || r.days < 1} onClick={() => run(() => setDoc(doc(db, "settings", "shop"), { slowRule: r }, { merge: true }), "已儲存").then(onClose)}>
+          儲存
+        </button>
+        <button className="btn btn-ghost" onClick={onClose}>
+          取消
+        </button>
+      </div>
+      <p className="muted small">每日 LINE 提醒的「滯銷商品」也用這個條件。銷售紀錄目前最多回推 120 天。</p>
+    </div>
   );
 }

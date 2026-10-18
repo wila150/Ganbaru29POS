@@ -679,3 +679,10 @@ span.tier-switch { cursor: default; }
 .nav-cfg-row { display: flex; align-items: center; gap: 8px; }
 .nav-cfg-row .check { margin: 0; }
 .nav-cfg-sub { margin: 4px 0 0 28px; }
+.alert-items { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.alert-item { align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.alert-item > span { display: flex; flex-direction: column; gap: 2px; }
+.inline-num { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; }
+.inline-num input { width: 70px; padding: 4px 8px; }
+.alert-preview { white-space: pre-wrap; background: var(--surface-2); border-radius: 10px; padding: 12px 14px; font-family: inherit; font-size: 14px; max-height: 360px; overflow: auto; }
+.slow-rule .cond-row input { width: 70px; } .slow-rule { margin-bottom: 12px; }

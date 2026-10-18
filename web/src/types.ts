@@ -110,6 +110,10 @@ export interface ShopSettings {
   birthdayPointMultiplier?: number;
   tiersAt?: Timestamp;
   payment?: { provider: "ecpay" | "newebpay" | null; stage: boolean };
+  /** 滯銷條件：幾天沒賣出、上架未滿幾天不算 */
+  slowRule?: { days: number; newDays: number };
+  /** 每日 LINE 提醒要送哪些項目 */
+  alerts?: AlertPrefs;
   /** 側邊選單：順序（主項目路徑）與隱藏的項目 */
   navConfig?: { order?: string[]; hidden?: string[] };
   /** 結帳完成音效 */
@@ -262,4 +266,15 @@ export interface TierDef {
   minSingle?: number;
   discountPct?: number;
   pointMultiplier?: number;
+}
+
+export interface AlertPrefs {
+  lowStock?: boolean;
+  expiry?: boolean;
+  sync?: boolean;
+  labels?: boolean;
+  dailySales?: boolean;
+  slowMoving?: boolean;
+  slowDays?: number;
+  birthdays?: boolean;
 }

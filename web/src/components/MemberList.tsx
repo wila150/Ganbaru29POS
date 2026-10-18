@@ -22,19 +22,31 @@ interface Row extends Shopper {
   pinnedMs?: number;
   ordersTotal?: number;
   orders12m?: number;
+  orders6m?: number;
+  orders3m?: number;
+  orders1m?: number;
   spendTotal?: number;
+  spend6m?: number;
+  spend3m?: number;
+  spend1m?: number;
 }
 
 /** 自訂篩選條件：欄位 ≥ / ≤ 數字，全部符合才列出 */
-type CondField = "spend12m" | "spendTotal" | "orders12m" | "ordersTotal" | "points" | "pointsUsed" | "lastOrderDays" | "joinedDays";
+type CondField = "spend1m" | "spend3m" | "spend6m" | "spend12m" | "spendTotal" | "orders1m" | "orders3m" | "orders6m" | "orders12m" | "ordersTotal" | "points" | "pointsUsed" | "lastOrderDays" | "joinedDays";
 interface Cond {
   field: CondField;
   op: "gte" | "lte";
   value: number;
 }
 const COND_FIELDS: Record<CondField, { label: string; unit: string }> = {
+  spend1m: { label: "近 1 個月消費", unit: "元" },
+  spend3m: { label: "近 3 個月消費", unit: "元" },
+  spend6m: { label: "近 6 個月消費", unit: "元" },
   spend12m: { label: "近 12 個月消費", unit: "元" },
   spendTotal: { label: "累計消費", unit: "元" },
+  orders1m: { label: "近 1 個月消費次數", unit: "次" },
+  orders3m: { label: "近 3 個月消費次數", unit: "次" },
+  orders6m: { label: "近 6 個月消費次數", unit: "次" },
   orders12m: { label: "近 12 個月消費次數", unit: "次" },
   ordersTotal: { label: "累計消費次數", unit: "次" },
   points: { label: "購物金餘額", unit: "元" },
@@ -61,7 +73,7 @@ function loadConds(): Cond[] {
   }
 }
 
-type Sort = "newest" | "recent" | "spend" | "points" | "used" | "name";
+type Sort = "newest" | "recent" | "spend" | "spend6m" | "spend3m" | "spend1m" | "spendTotal" | "points" | "used" | "name";
 
 /** 顧客名單：每 15 分鐘從 meepShop 同步的全部會員，可搜尋、篩選群組／等級、匯出 Excel。 */
 export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
@@ -96,7 +108,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
         setRows(
           s.docs.map((d) => {
             const x = d.data();
-            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0, pointsUsed: x.pointsUsed ?? 0, pointsUsedStore: x.pointsUsedStore ?? 0, pointsUsedOnline: x.pointsUsedOnline ?? 0, joinedAt: x.joinedAt ?? null, lastOrderMs: x.lastOrderAt?.toMillis?.() ?? 0, pinned: !!x.pinned, pinnedMs: x.pinnedAt?.toMillis?.() ?? 0, ordersTotal: x.ordersTotal ?? 0, orders12m: x.orders12m ?? 0, spendTotal: x.spendTotal ?? 0 };
+            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0, pointsUsed: x.pointsUsed ?? 0, pointsUsedStore: x.pointsUsedStore ?? 0, pointsUsedOnline: x.pointsUsedOnline ?? 0, joinedAt: x.joinedAt ?? null, lastOrderMs: x.lastOrderAt?.toMillis?.() ?? 0, pinned: !!x.pinned, pinnedMs: x.pinnedAt?.toMillis?.() ?? 0, ordersTotal: x.ordersTotal ?? 0, orders12m: x.orders12m ?? 0, orders6m: x.orders6m ?? 0, orders3m: x.orders3m ?? 0, orders1m: x.orders1m ?? 0, spendTotal: x.spendTotal ?? 0, spend6m: x.spend6m ?? 0, spend3m: x.spend3m ?? 0, spend1m: x.spend1m ?? 0 };
           })
         )
       ),
@@ -130,6 +142,11 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
             return (b.lastOrderMs ?? 0) - (a.lastOrderMs ?? 0);
           case "spend":
             return (b.spend12m ?? 0) - (a.spend12m ?? 0);
+          case "spend6m":
+          case "spend3m":
+          case "spend1m":
+          case "spendTotal":
+            return (b[sort] ?? 0) - (a[sort] ?? 0);
           case "points":
             return b.points - a.points;
           case "used":
@@ -186,7 +203,11 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
         >
           <option value="newest">最新加入在上面</option>
           <option value="recent">最近消費在上面</option>
+          <option value="spend1m">依近 1 個月消費</option>
+          <option value="spend3m">依近 3 個月消費</option>
+          <option value="spend6m">依近 6 個月消費</option>
           <option value="spend">依近 12 個月消費</option>
+          <option value="spendTotal">依累計消費</option>
           <option value="points">依購物金</option>
           <option value="used">依已使用購物金</option>
           <option value="name">依姓名</option>
@@ -209,7 +230,12 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
               <option value="gte">{c.field.endsWith("Days") ? "超過（≥）" : "至少（≥）"}</option>
               <option value="lte">{c.field.endsWith("Days") ? "以內（≤）" : "最多（≤）"}</option>
             </select>
-            <input type="number" min={0} style={{ width: 120 }} value={c.value} onChange={(e) => setConds(conds.map((x, j) => (j === i ? { ...x, value: Number(e.target.value) } : x)))} />
+            <input
+              inputMode="numeric"
+              style={{ width: 120 }}
+              value={String(c.value)}
+              onChange={(e) => setConds(conds.map((x, j) => (j === i ? { ...x, value: Number(e.target.value.replace(/\D/g, "")) || 0 } : x)))}
+            />
             <span>{COND_FIELDS[c.field].unit}</span>
             <button type="button" className="btn-icon danger" title="刪除條件" onClick={() => setConds(conds.filter((_, j) => j !== i))}>
               ✕

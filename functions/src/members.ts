@@ -40,6 +40,10 @@ export async function recomputeTiers() {
     orders12m: number;
     orders6m: number;
     orders3m: number;
+    orders1m: number;
+    spend6m: number;
+    spend3m: number;
+    spend1m: number;
   }
   const spend = new Map<string, Stat>();
   /** 累計已使用購物金（取消、作廢的單不算；門市退貨退回的點數扣掉） */
@@ -52,7 +56,7 @@ export async function recomputeTiers() {
   };
   const add = (id: string, k: "store" | "online", v: number, at: number) => {
     (purchases.get(id) ?? purchases.set(id, []).get(id)!).push({ at, amount: v });
-    const cur = spend.get(id) ?? { store: 0, online: 0, maxSingle: 0, orders: 0, total: 0, first: at, last: at, orders12m: 0, orders6m: 0, orders3m: 0 };
+    const cur = spend.get(id) ?? { store: 0, online: 0, maxSingle: 0, orders: 0, total: 0, first: at, last: at, orders12m: 0, orders6m: 0, orders3m: 0, orders1m: 0, spend6m: 0, spend3m: 0, spend1m: 0 };
     cur.orders++;
     cur.total += v;
     cur.first = Math.min(cur.first, at);
@@ -63,8 +67,18 @@ export async function recomputeTiers() {
       cur.maxSingle = Math.max(cur.maxSingle, v);
       cur.orders12m++;
     }
-    if (age <= 183 * 86400_000) cur.orders6m++;
-    if (age <= 92 * 86400_000) cur.orders3m++;
+    if (age <= 183 * 86400_000) {
+      cur.orders6m++;
+      cur.spend6m += v;
+    }
+    if (age <= 92 * 86400_000) {
+      cur.orders3m++;
+      cur.spend3m += v;
+    }
+    if (age <= 31 * 86400_000) {
+      cur.orders1m++;
+      cur.spend1m += v;
+    }
     spend.set(id, cur);
   };
 
@@ -164,6 +178,10 @@ export async function recomputeTiers() {
         orders12m: s?.orders12m ?? 0,
         orders6m: s?.orders6m ?? 0,
         orders3m: s?.orders3m ?? 0,
+        orders1m: s?.orders1m ?? 0,
+        spend6m: s ? Math.round(s.spend6m) : 0,
+        spend3m: s ? Math.round(s.spend3m) : 0,
+        spend1m: s ? Math.round(s.spend1m) : 0,
         pointsUsed: Math.round((used.get(d.id)?.store ?? 0) + (used.get(d.id)?.online ?? 0)),
         pointsUsedStore: Math.round(used.get(d.id)?.store ?? 0),
         pointsUsedOnline: Math.round(used.get(d.id)?.online ?? 0),
