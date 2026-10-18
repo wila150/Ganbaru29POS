@@ -708,3 +708,5 @@ span.tier-switch { cursor: default; }
 .pinfo-spec dd { margin: 0; }
 .pinfo-size { display: inline-block; margin: 0 12px 4px 0; }
 .pinfo .pinfo-main { max-height: 480px; }
+.pinfo-detail h3 { margin: 6px 0 10px; font-size: 18px; }
+.pinfo-detail p { margin: 0 0 6px; line-height: 1.7; }

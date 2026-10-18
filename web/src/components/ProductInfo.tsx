@@ -12,19 +12,32 @@ interface Info {
   link?: string | null;
 }
 
-/** 官網說明整理成重點：材質、產地、尺寸、模特兒；「顧客購物須知」之後的店家規範不顯示 */
-export function parseDescription(raw: string) {
-  const text = raw.split(/顧客購物須知/)[0].replace(/\s+/g, " ").trim();
-  const pick = (re: RegExp) => text.match(re)?.[1]?.trim() ?? null;
-  const material = pick(/材質\s*[:：]\s*(\S+)/);
-  const origin = pick(/(?:製造地|產地)\s*[:：]\s*(\S+)/);
-  // 只認常見的平量部位，避免把其他文字當成尺寸
-  const KEYS = "衣長|肩寬|衣寬|胸寬|胸圍|袖長|袖寬|袖口|下擺|腰圍|腰寬|臀圍|臀寬|褲長|前襠|後襠|大腿|大腿寬|褲管|褲口|裙長|領寬|領高|帽高|總長";
-  const sizes = [...text.matchAll(new RegExp(`(${KEYS})\\s*[:：]\\s*([^\\s]+)`, "g"))].map((m) => ({ k: m[1], v: m[2] }));
-  const sizeLabel = text.match(/尺寸\s*[:：]\s*([A-Z0-9\/]{1,10})\s/)?.[1] ?? null;
-  const models = [...text.matchAll(/(\S+?)_\s*(\d{3}\s*CM\s*\/\s*\d{2,3}\s*KG(?:\s*\/\s*\d{2}\s*腰)?)/gi)].map((m) => ({ name: m[1], body: m[2].replace(/\s/g, "") }));
-  const structured = !!(material || origin || sizes.length || models.length);
-  return { material, origin, sizes, sizeLabel, models, text: structured ? null : text };
+/**
+ * 官網「商品細節」：Google 商品資料把換行變成空白了，這裡依標籤把行切回來（材質、製造地、尺寸、平量尺寸、麻豆…），
+ * 「顧客購物須知」之後的店家規範不顯示。
+ */
+export function detailLines(raw: string): string[] {
+  let t = raw.split(/顧客購物須知/)[0].replace(/\s+/g, " ").trim();
+  const KEYS = "衣長|肩寬|衣寬|胸寬|胸圍|袖長|袖寬|袖口|下擺|腰圍|腰寬|臀圍|臀寬|褲長|前襠|後襠|大腿|小腿|褲管|褲口|裙長|領寬|領高|帽高|總長";
+  t = t
+    .replace(/\s*--+\s*/g, "\n")
+    .replace(/\s+(材質\s*[:：])/, "\n$1")
+    .replace(/\s*(製造地|產地)\s*[:：]\s*(\S+)\s*/, "\n$1：$2\n")
+    .replace(/\s*(尺寸\s*[:：])\s*/, "\n$1 ")
+    .replace(/\s*(平量尺寸為?\s*cm\s*[:：]?)\s*/i, "\n$1\n")
+    .replace(/\s*((?:麻豆|模特兒?)[^\s_]*[:：]?)\s*/, "\n$1\n")
+    .replace(/\s*([^\s_]{1,6}_\s*\d{3}\s*CM)/gi, "\n$1");
+  // 套裝：每件（襯衫_、長褲_…）各自一行；上衣尺寸後面接褲子尺寸時分行
+  t = t.replace(new RegExp(`\\s*([^\\s_]{1,6}_)\\s*(?=(?:${KEYS})\\s*[:：])`, "g"), "\n$1 ");
+  t = t.replace(/(衣長[^\n]*?)\s+(腰圍\s*[:：])/, "$1\n$2");
+  // 尺寸數字後面接說明文字（例：寬褲褲頭為…）時分行
+  t = t.replace(new RegExp(`((?:${KEYS})\\s*[:：]\\s*[^\\s]+)\\s+(?!(?:${KEYS})\\s*[:：])([^\\s\\n_]{4,}[^\\n]*)`, "g"), (m, a, b) => (/^[\d(（~-]/.test(b) ? m : `${a}\n${b}`));
+  // 沒有「平量尺寸」這行時，尺寸數字自己一行
+  if (!/平量尺寸/.test(t)) t = t.replace(new RegExp(`\\s+((?:${KEYS})\\s*[:：])`), "\n$1");
+  return t
+    .split("\n")
+    .map((l) => l.trim().replace(/_\s*/, "_ "))
+    .filter(Boolean);
 }
 
 /**
@@ -47,7 +60,6 @@ export function ProductInfo({ productId, onClose, stockOf }: { productId: string
   const lo = Math.min(...prices);
   const hi = Math.max(...prices);
   const stock = (id: string) => (stockOf ? stockOf(id) : vs.find((v) => v.id === id)?.shopStock ?? 0);
-  const d = info?.description ? parseDescription(info.description) : null;
   return (
     <Modal title={v0.productTitle} onClose={onClose} wide>
       <div className="pinfo">
@@ -67,52 +79,13 @@ export function ProductInfo({ productId, onClose, stockOf }: { productId: string
           </div>
           {info === null ? (
             <p className="muted small">讀取中…</p>
-          ) : d ? (
-            <dl className="pinfo-spec">
-              {d.material && (
-                <>
-                  <dt>材質</dt>
-                  <dd>{d.material.replace(/\//g, "、")}</dd>
-                </>
-              )}
-              {d.origin && (
-                <>
-                  <dt>產地</dt>
-                  <dd>{d.origin}</dd>
-                </>
-              )}
-              {d.sizes.length > 0 && (
-                <>
-                  <dt>尺寸{d.sizeLabel ? `（${d.sizeLabel}）` : ""}</dt>
-                  <dd>
-                    {d.sizes.map((x) => (
-                      <span key={x.k} className="pinfo-size">
-                        {x.k} <b>{x.v}</b>
-                      </span>
-                    ))}
-                    <div className="muted small">平量，單位 cm</div>
-                  </dd>
-                </>
-              )}
-              {d.models.length > 0 && (
-                <>
-                  <dt>模特兒</dt>
-                  <dd>
-                    {d.models.map((m) => (
-                      <div key={m.name}>
-                        {m.name}　{m.body.replace(/CM/i, " cm").replace(/KG/i, " kg").replace(/\//g, "・")}
-                      </div>
-                    ))}
-                  </dd>
-                </>
-              )}
-              {d.text && (
-                <>
-                  <dt>說明</dt>
-                  <dd className="pinfo-desc">{d.text}</dd>
-                </>
-              )}
-            </dl>
+          ) : info.description ? (
+            <div className="pinfo-detail">
+              <h3>商品細節</h3>
+              {detailLines(info.description).map((l, i) => (
+                <p key={i}>{l}</p>
+              ))}
+            </div>
           ) : null}
           {info?.link && (
             <a className="link-btn small" href={info.link} target="_blank" rel="noreferrer">
