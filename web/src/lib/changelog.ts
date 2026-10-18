@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-j",
+    date: "2026-10-19",
+    title: "成本匯入",
+    items: [
+      "已從 meepShop 匯入 507 個款式的成本，報表的毛利、庫存總值現在會正確",
+      "商品成本頁可以直接匯入 meepShop「商品大量更新」匯出的 Excel；成本高於售價會提醒",
+    ],
+  },
+  {
     id: "2026-10-19-i",
     date: "2026-10-19",
     title: "收銀畫面",

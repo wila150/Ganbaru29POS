@@ -114,23 +114,41 @@ export function Costs() {
       const rows = await readTable(file);
       const byId = new Map(variants.map((v) => [v.id, v]));
       const byName = new Map(variants.map((v) => [`${v.productTitle}|${v.options}`, v]));
+      // 找標題列：本系統匯出的「款式ID／商品／規格／售價／成本」，或 meepShop「商品大量更新」的「ID(勿改)／商品名稱(勿改)／規格(勿改)／…／成本」
+      const hi = rows.findIndex((r) => r.some((c) => String(c).trim() === "成本"));
+      if (hi < 0) throw new Error("找不到「成本」欄位：請用本頁匯出的成本表，或 meepShop「商品大量更新」匯出的 Excel");
+      const head = rows[hi].map((c) => String(c ?? "").trim());
+      const col = (re: RegExp) => head.findIndex((h) => re.test(h));
+      const cId = col(/^(款式ID|ID)/);
+      const cTitle = col(/^商品(名稱)?/);
+      const cOpt = col(/^規格/);
+      const cCost = head.indexOf("成本");
       let ok = 0;
+      let zero = 0;
       const miss: string[] = [];
       const n = new Map(edit);
-      for (const r of rows.slice(1)) {
-        const [id, title, opt, , cost] = r.map((x) => String(x ?? "").trim());
+      for (const r of rows.slice(hi + 1)) {
+        const get = (i: number) => (i >= 0 ? String(r[i] ?? "").trim() : "");
+        const id = get(cId);
+        const title = get(cTitle);
+        const cost = get(cCost);
         if (!cost) continue;
-        const v = byId.get(id) ?? byName.get(`${title}|${opt}`);
+        const v = byId.get(id) ?? byName.get(`${title}|${get(cOpt)}`);
         if (!v || isNaN(Number(cost))) {
-          miss.push(title || id);
+          if (id || title) miss.push(title || id);
           continue;
         }
+        if (Number(cost) === 0) {
+          zero++; // meepShop 沒填成本的是 0，不要蓋掉已經設定的
+          continue;
+        }
+        if (Number(cost) >= (v.price ?? 0) && (v.price ?? 0) > 0) miss.push(`${v.productTitle} ${v.options}：成本 ${cost} 高於售價 ${v.price}，請確認`);
         n.set(v.id, String(Number(cost)));
         ok++;
       }
       setEdit(n);
       setOnly("all");
-      if (miss.length) alert(`有 ${miss.length} 列對不到商品或成本不是數字，已略過：\n${miss.slice(0, 10).join("\n")}`);
+      if (miss.length) alert(`請確認以下 ${miss.length} 筆：\n${miss.slice(0, 12).join("\n")}${zero ? `\n\n另外 ${zero} 筆成本是 0，沒有匯入。` : ""}`);
       if (!ok) throw new Error("檔案裡沒有可以匯入的成本");
     }, "已讀入，確認後按「儲存」");
 
@@ -168,7 +186,7 @@ export function Costs() {
             匯入成本表
             <input type="file" accept=".csv,.xlsx" hidden onChange={(e) => (e.target.files?.[0] && importFile(e.target.files[0]), (e.target.value = ""))} />
           </label>
-          <span className="muted small">先匯出，在 Excel 填「成本」欄，存檔後匯入（CSV 或 xlsx 都可以）</span>
+          <span className="muted small">可以匯入 meepShop「商品大量更新」匯出的 Excel（會讀「成本」欄），或本頁匯出的成本表</span>
         </div>
       </div>
 
