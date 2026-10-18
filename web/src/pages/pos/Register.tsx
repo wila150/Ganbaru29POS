@@ -12,6 +12,7 @@ import { call, db } from "../../firebase";
 import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
 import { resolveCode, searchVariants } from "../../lib/lookup";
 import { playCheckoutSound, unlockAudio } from "../../lib/sound";
+import { ProductInfo } from "../../components/ProductInfo";
 import { beep, deviceId, money, newId, PAY_LABEL, pctToZhe, todayStr, zheToPct } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useDeviceLocation } from "../../lib/location";
@@ -247,6 +248,7 @@ export function Register() {
   const inCart = (variantId: string) => cart.filter((l) => l.variantId === variantId).reduce((s, l) => s + l.qty, 0);
 
   // 商品格很大（上百張圖）：只在商品、庫存改變時重畫，加減購物車不重畫
+  const [infoFor, setInfoFor] = useState<string | null>(null);
   const onProductRef = useRef(onProduct);
   onProductRef.current = onProduct;
   const grid = useMemo(
@@ -258,6 +260,17 @@ export function Register() {
           const img = v.thumbUrl || v.imageUrl;
           return (
             <button key={v.productId} className="product-card" onClick={() => onProductRef.current(vs)}>
+              <span
+                role="button"
+                aria-label="商品資訊"
+                className="info-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setInfoFor(v.productId);
+                }}
+              >
+                i
+              </span>
               <div className="product-img">{img ? <img src={img} alt="" loading="lazy" decoding="async" /> : <span>{v.productTitle.slice(0, 6)}</span>}</div>
               <div className="product-name">{v.productTitle}</div>
               <div className="product-meta">
@@ -575,6 +588,7 @@ export function Register() {
       )}
 
       {done && <Done order={done.order} issues={done.issues} onClose={() => setDone(null)} />}
+      {infoFor && <ProductInfo productId={infoFor} onClose={() => setInfoFor(null)} stockOf={(id) => { const v = byId.get(id); return v ? stockOf(v) : 0; }} />}
     </div>
   );
 }

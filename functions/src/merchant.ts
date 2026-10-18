@@ -14,15 +14,31 @@ import { importImageRows } from "./sync";
 
 const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/content"] });
 
+interface MerchantAttrs {
+  imageLink?: string;
+  additionalImageLinks?: string[];
+  title?: string;
+  description?: string;
+  link?: string;
+}
 interface MerchantProduct {
   offerId?: string;
-  productAttributes?: { imageLink?: string };
-  attributes?: { imageLink?: string };
+  productAttributes?: MerchantAttrs;
+  attributes?: MerchantAttrs;
 }
 
-async function listMerchantImages(merchantId: string): Promise<{ id: string; image: string }[]> {
+interface MerchantRow {
+  id: string;
+  image: string;
+  images: string[];
+  title: string | null;
+  description: string | null;
+  link: string | null;
+}
+
+async function listMerchantImages(merchantId: string): Promise<MerchantRow[]> {
   const client = await auth.getClient();
-  const rows: { id: string; image: string }[] = [];
+  const rows: MerchantRow[] = [];
   let pageToken = "";
   for (let page = 0; page < 40; page++) {
     const url = `https://merchantapi.googleapis.com/products/v1/accounts/${merchantId}/products?pageSize=250${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`;
@@ -30,8 +46,10 @@ async function listMerchantImages(merchantId: string): Promise<{ id: string; ima
       throw new Error(e.response?.data?.error?.message ?? errMsg(e));
     });
     for (const p of res.data.products ?? []) {
-      const image = p.productAttributes?.imageLink ?? p.attributes?.imageLink;
-      if (p.offerId && image) rows.push({ id: p.offerId, image });
+      const a = p.productAttributes ?? p.attributes ?? {};
+      const image = a.imageLink;
+      if (p.offerId && image)
+        rows.push({ id: p.offerId, image, images: [image, ...(a.additionalImageLinks ?? [])].filter((x, i, arr) => x && arr.indexOf(x) === i).slice(0, 12), title: a.title ?? null, description: a.description ?? null, link: a.link ?? null });
     }
     pageToken = res.data.nextPageToken ?? "";
     if (!pageToken) break;
@@ -47,7 +65,11 @@ async function syncFromMerchant(trigger: string) {
   try {
     const rows = await listMerchantImages(merchantId);
     // 官網換了主圖時，網址會不同 → 重新下載（手動上傳的不覆蓋）
-    const r = await importImageRows(rows, true);
+    const r = await importImageRows(rows.map((x) => ({ id: x.id, image: x.image })), true);
+    // 商品資訊（App 內看官網商品用）：說明、所有圖片、官網網址
+    const writer = db.bulkWriter();
+    for (const x of rows) writer.set(db.doc(`productInfo/${x.id}`), { images: x.images, title: x.title, description: x.description, link: x.link, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    await writer.close();
     await db.doc("settings/shop").set({ merchantSync: { at: FieldValue.serverTimestamp(), trigger, products: rows.length, done: r.done, failed: r.failedCount, error: null } }, { merge: true });
     return { products: rows.length, ...r };
   } catch (e) {

@@ -17,6 +17,7 @@ service cloud.firestore {
     }
 
     match /variants/{id} { allow read: if active(); }
+    match /productInfo/{id} { allow read: if active(); }
     match /codes/{code} { allow read: if active(); }
     match /productImages/{id} { allow read: if active(); }
     match /movements/{id} { allow read: if active(); }
@@ -81,7 +82,7 @@ service cloud.firestore {
       return ['shopName', 'leadDays', 'expiryDays', 'lineTargets', 'rewardPercent', 'pointValue',
               'staffCanRefund', 'siteBaseUrl', 'receiptHeader', 'receiptFooter', 'serviceFeeDefault', 'shiftNames',
               'memberTiers', 'birthdayGiftPoints', 'birthdayPointMultiplier', 'tagTemplate', 'payment', 'linePay', 'invoice',
-              'locations', 'onlineLocationId', 'merchantId', 'commissionPct', 'commissionByUser', 'expenseCategories', 'rewardRules', 'pointGifts', 'lineLogin', 'checkoutSound', 'navConfig', 'alerts', 'slowRule'];
+              'locations', 'onlineLocationId', 'merchantId', 'commissionPct', 'commissionByUser', 'expenseCategories', 'rewardRules', 'pointGifts', 'lineLogin', 'checkoutSound', 'navConfig', 'alerts', 'slowRule', 'hotRule'];
     }
   }
 }

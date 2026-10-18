@@ -112,6 +112,8 @@ export interface ShopSettings {
   payment?: { provider: "ecpay" | "newebpay" | null; stage: boolean };
   /** 滯銷條件：幾天沒賣出、上架未滿幾天不算 */
   slowRule?: { days: number; newDays: number };
+  /** 熱銷：近 30 天賣出至少幾件 */
+  hotRule?: { sales30: number };
   /** 每日 LINE 提醒要送哪些項目 */
   alerts?: AlertPrefs;
   /** 側邊選單：順序（主項目路徑）與隱藏的項目 */
