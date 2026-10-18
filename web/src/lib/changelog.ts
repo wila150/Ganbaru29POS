@@ -11,6 +11,12 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-18-m",
+    date: "2026-10-18",
+    title: "測試更新提示",
+    items: ["這是一則測試：看到這個視窗，代表平板的「有新版本」提示正常運作 👍", "按「立即更新」就會套用新版本，不用重開 App"],
+  },
+  {
     id: "2026-10-18-l",
     date: "2026-10-18",
     title: "平板輸入",
