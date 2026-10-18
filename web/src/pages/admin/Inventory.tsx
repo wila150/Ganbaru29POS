@@ -12,7 +12,7 @@ import { useDeviceLocation } from "../../lib/location";
 import { atLeast, fmtTime, MOVE_LABEL, todayStr } from "../../lib/util";
 import type { Movement, Variant } from "../../types";
 
-type Filter = "all" | "low" | "out" | "expiring" | "slow" | "failed" | "hot";
+type Filter = "all" | "low" | "out" | "expiring" | "slow" | "failed" | "hot" | "unlisted";
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "全部" },
   { key: "low", label: "低庫存" },
@@ -21,6 +21,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "hot", label: "熱銷" },
   { key: "slow", label: "滯銷" },
   { key: "failed", label: "同步失敗" },
+  { key: "unlisted", label: "官網下架" },
 ];
 type Sort = "name" | "sales" | "lastSold" | "age" | "stock";
 const SORTS: { key: Sort; label: string }[] = [
@@ -83,6 +84,7 @@ export function Inventory() {
     if (filter === "failed") list = list.filter((v) => failedIds.has(v.id));
     else if (filter === "slow") list = list.filter((v) => isSlow(v, slowRule));
     else if (filter === "hot") list = list.filter(isHot);
+    else if (filter === "unlisted") list = list.filter((v) => v.productStatus === "NOT_LISTED");
     else if (filter !== "all") list = list.filter((v) => stockState(v, expiryDays) === filter);
     const byName = (a: Variant, b: Variant) => a.productTitle.localeCompare(b.productTitle, "zh-Hant") || a.variantIndex - b.variantIndex;
     const lastSoldDays = (v: Variant) => (v.lastSoldAt ? daysSince(v.lastSoldAt)! : 9999);
@@ -97,12 +99,13 @@ export function Inventory() {
   }, [variants, q, filter, sort, failedIds, expiryDays, slowRule.days, slowRule.newDays, hotMin]);
 
   const counts = useMemo(() => {
-    const c = { all: variants.length, low: 0, out: 0, expiring: 0, slow: 0, failed: 0, hot: 0 };
+    const c = { all: variants.length, low: 0, out: 0, expiring: 0, slow: 0, failed: 0, hot: 0, unlisted: 0 };
     for (const v of variants) {
       const s = stockState(v, expiryDays);
       if (s !== "ok") c[s]++;
       if (isSlow(v, slowRule)) c.slow++;
       if ((v.sales30 ?? 0) >= hotMin) c.hot++;
+      if (v.productStatus === "NOT_LISTED") c.unlisted++;
       if (failedIds.has(v.id)) c.failed++;
     }
     return c;
@@ -202,6 +205,7 @@ export function Inventory() {
                     {STATE_BADGE[stockState(v, expiryDays)]}
                     {isSlow(v, slowRule) && <Badge tone="warn">滯銷</Badge>}
                     {isHot(v) && <Badge tone="bad">🔥 熱銷</Badge>}
+                    {v.productStatus === "NOT_LISTED" && <Badge>官網下架</Badge>}
                     {failedIds.has(v.id) && <Badge tone="bad">同步失敗</Badge>}
                   </td>
                 </tr>

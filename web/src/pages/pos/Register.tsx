@@ -165,11 +165,13 @@ export function Register() {
   const categories = useMemo(() => {
     const count = new Map<string, Set<string>>();
     for (const v of sellable) for (const c of catsOf(v)) (count.get(c) ?? count.set(c, new Set()).get(c)!).add(v.productId);
-    return ["全部", ...[...count.entries()].sort((a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0], "zh-Hant")).map(([c]) => c)];
+    const off = sellable.some((v) => v.productStatus === "NOT_LISTED");
+    return ["全部", ...[...count.entries()].sort((a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0], "zh-Hant")).map(([c]) => c), ...(off ? [OFF_TAB] : [])];
   }, [sellable]);
   const products = useMemo(() => {
     let list = q ? searchVariants(sellable, q) : sellable;
-    if (cat !== "全部") list = list.filter((v) => catsOf(v).includes(cat));
+    if (cat === OFF_TAB) list = list.filter((v) => v.productStatus === "NOT_LISTED");
+    else if (cat !== "全部") list = list.filter((v) => catsOf(v).includes(cat));
     const map = new Map<string, Variant[]>();
     for (const v of list) map.set(v.productId, [...(map.get(v.productId) ?? []), v]);
     return [...map.values()]
@@ -280,6 +282,7 @@ export function Register() {
               </span>
               <div className="product-img">{img ? <img src={img} alt="" loading="lazy" decoding="async" /> : <span>{v.productTitle.slice(0, 6)}</span>}</div>
               <div className="product-name">{v.productTitle}</div>
+              {v.productStatus === "NOT_LISTED" && <span className="off-badge">官網下架</span>}
               <div className="product-meta">
                 <span>
                   {money(Math.min(...vs.map((x) => x.price ?? 0)))}
@@ -621,6 +624,9 @@ export function Register() {
     </div>
   );
 }
+
+/** 收銀分類頁籤：meepShop 官網沒上架的商品（門市照樣可以賣） */
+const OFF_TAB = "官網下架";
 
 const NOTE_PRESETS = ["修改褲長", "客人預留", "公關品", "瑕疵品折扣", "換貨"];
 
