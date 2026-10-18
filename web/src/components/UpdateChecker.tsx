@@ -16,6 +16,40 @@ function cartBusy(): boolean {
  * 新版本偵測：加入主畫面的 iPad App 不必重新加入。每次回到 App、以及每 5 分鐘，
  * 比對伺服器上的 version.json；有新版且收銀台沒有進行中的購物車就自動重新整理，否則顯示提示。
  */
+/** 手動「檢查更新」：有新版就重新整理，沒有就告訴使用者已是最新 */
+export async function checkForUpdate(): Promise<boolean> {
+  if (import.meta.env.DEV) return false;
+  const r = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
+  const { build } = await r.json();
+  if (build && build !== __BUILD_ID__) {
+    location.reload();
+    return true;
+  }
+  return false;
+}
+
+export function UpdateButton({ className = "link-btn small" }: { className?: string }) {
+  const [state, setState] = useState<"idle" | "checking" | "latest" | "error">("idle");
+  return (
+    <button
+      type="button"
+      className={className}
+      disabled={state === "checking"}
+      onClick={async () => {
+        setState("checking");
+        try {
+          if (!(await checkForUpdate())) setState("latest");
+        } catch {
+          setState("error");
+        }
+        setTimeout(() => setState("idle"), 3000);
+      }}
+    >
+      {state === "checking" ? "檢查中…" : state === "latest" ? "已是最新版本 ✓" : state === "error" ? "無法連線，稍後再試" : "檢查更新"}
+    </button>
+  );
+}
+
 export function UpdateChecker() {
   const [newer, setNewer] = useState(false);
   useEffect(() => {

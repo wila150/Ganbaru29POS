@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { UpdateButton } from "./UpdateChecker";
 import { useAuth } from "../auth";
 import { useData } from "../data";
 import { atLeast, fmtTime, ROLE_LABEL, type Role } from "../lib/util";
@@ -99,6 +100,7 @@ export function AdminLayout() {
             {profile?.name} · {profile && ROLE_LABEL[profile.role]}
           </div>
           <small className="muted">商品同步：{fmtTime(settings.lastIncrementalSyncAt ?? settings.lastCatalogSyncAt)}</small>
+          <UpdateButton />
           <LogoutButton className="btn btn-ghost btn-sm">登出</LogoutButton>
         </div>
       </aside>

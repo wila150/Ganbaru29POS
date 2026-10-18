@@ -6,6 +6,7 @@ import { useData } from "../../data";
 import { db } from "../../firebase";
 import { LocationSelect } from "../../components/LocationSelect";
 import { LogoutButton } from "../../components/LogoutButton";
+import { UpdateButton } from "../../components/UpdateChecker";
 import { useDeviceLocation } from "../../lib/location";
 import { ROLE_LABEL, todayStr } from "../../lib/util";
 
@@ -78,6 +79,7 @@ export function PosLayout() {
             {m.label}
           </NavLink>
         ))}
+        <UpdateButton className="pos-menu-item pos-update" />
         <LogoutButton className="pos-menu-item">
           <span aria-hidden>⎋</span>登出
         </LogoutButton>
