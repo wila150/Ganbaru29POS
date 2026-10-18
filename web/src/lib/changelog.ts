@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-18-k",
+    date: "2026-10-18",
+    title: "更新提示",
+    items: [
+      "有新版本時會跳出視窗，顯示這次更新了什麼，按「立即更新」就套用（平板、電腦都一樣，不用重開 App）",
+      "正在收銀、購物車有商品時不跳視窗，改在上方顯示提示，不會打斷結帳",
+    ],
+  },
+  {
     id: "2026-10-18-j",
     date: "2026-10-18",
     title: "收銀分類",

@@ -91,15 +91,21 @@ export function ChangelogDialog({ onClose, onlyLatest = false }: { onClose: () =
 
 const SEEN_KEY = "g29.seenChangelog";
 
+/**
+ * 新版本偵測（電腦、平板主畫面 App 都一樣）：每 2 分鐘、以及每次切回 App 時比對 version.json。
+ * 有新版就跳出視窗（含這次更新內容），按「立即更新」才重新整理；收銀台有進行中的單時改成上方提示列，不打斷結帳。
+ */
 export function UpdateChecker() {
-  const [newer, setNewer] = useState(false);
   const [upcoming, setUpcoming] = useState<ChangeEntry | null>(null);
-  // 更新完第一次打開：跳出這次的更新內容（第一次安裝不跳）
+  const [found, setFound] = useState(false);
+  const [later, setLater] = useState(false);
+  const [busyCart, setBusyCart] = useState(false);
+  // 更新完打開：跳出這次的更新內容（每個版本只跳一次）
   const [whatsNew, setWhatsNew] = useState(() => {
     try {
       const seen = localStorage.getItem(SEEN_KEY);
       localStorage.setItem(SEEN_KEY, LATEST.id);
-      return !!seen && seen !== LATEST.id;
+      return seen !== LATEST.id;
     } catch {
       return false;
     }
@@ -113,30 +119,66 @@ export function UpdateChecker() {
         const { build, notes } = await r.json();
         if (stop || !build || build === __BUILD_ID__) return;
         if (notes) setUpcoming(notes);
-        if (!cartBusy() && !document.querySelector(".modal")) location.reload();
-        else setNewer(true);
+        setBusyCart(cartBusy());
+        setFound(true);
       } catch {
         /* offline */
       }
     };
     const onVisible = () => document.visibilityState === "visible" && check();
     document.addEventListener("visibilitychange", onVisible);
-    const t = setInterval(check, 5 * 60_000);
+    window.addEventListener("focus", check);
+    const t = setInterval(check, 2 * 60_000);
     check();
     return () => {
       stop = true;
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", check);
       clearInterval(t);
     };
   }, []);
-  if (!newer) return whatsNew ? <ChangelogDialog onlyLatest onClose={() => setWhatsNew(false)} /> : null;
+
+  if (!found) return whatsNew ? <ChangelogDialog onlyLatest onClose={() => setWhatsNew(false)} /> : null;
+  // 收銀中或按了「稍後」：上方提示列
+  if (busyCart || later)
+    return (
+      <div className="update-bar">
+        🔔 有新版本{upcoming ? `：${upcoming.title}` : ""}
+        <button className="btn btn-sm" onClick={() => location.reload()}>
+          立即更新
+        </button>
+      </div>
+    );
   return (
-    <div className="update-bar">
-      有新版本{upcoming ? `：${upcoming.items.slice(0, 2).join("、")}${upcoming.items.length > 2 ? "…" : ""}` : ""}
-      <button className="btn btn-sm" onClick={() => location.reload()}>
-        立即更新
-      </button>
-      <span className="small">（結帳完成後也會自動更新）</span>
-    </div>
+    <Modal
+      title="🔔 有新版本"
+      onClose={() => setLater(true)}
+      footer={
+        <>
+          <button className="btn" onClick={() => setLater(true)}>
+            稍後
+          </button>
+          <button className="btn btn-primary" onClick={() => location.reload()}>
+            立即更新
+          </button>
+        </>
+      }
+    >
+      {upcoming ? (
+        <div className="changelog">
+          <div className="changelog-head">
+            <strong>{upcoming.title}</strong>
+            <span className="muted small">{upcoming.date}</span>
+          </div>
+          <ul>
+            {upcoming.items.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p>系統有新版本，按「立即更新」就會套用（不用重開 App）。</p>
+      )}
+    </Modal>
   );
 }
