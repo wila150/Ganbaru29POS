@@ -66,47 +66,126 @@ function loadSender(): Sender {
   }
 }
 
-/**
- * 7-11 交貨便（取貨不付款）批次匯入檔：用官方範本（public/templates/myship-711.xlsx），
- * 第 1、2 列是標題，從第 3 列開始一張訂單一列（範例列會被蓋掉）。
- * 電話、店號都用文字格式，開頭的 0 才不會不見。
- */
-async function downloadMyShip(orders: ShipOrder[], sender: Sender) {
+/** 台灣地址拆成 縣市／鄉鎮市區／其餘（全家宅配匯入要分開填）；去掉開頭的郵遞區號和「臺灣」 */
+export function splitAddress(raw: string): { city: string; district: string; rest: string } | null {
+  const a = raw.replace(/^\s*\d{3,6}\s*/, "").replace(/^(臺灣|台灣)\s*/, "").replace(/\s+/g, "");
+  const m = a.match(/^(\S{2}[縣市])(\S{1,4}?[區鄉鎮市])(.+)$/);
+  return m ? { city: m[1], district: m[2], rest: m[3] } : null;
+}
+
+type ExportKind = "711" | "family" | "home";
+interface ExportDef {
+  label: string;
+  file: string;
+  /** 第一列資料在第幾列（前面是標題） */
+  start: number;
+  lastCol: string;
+  match: (o: ShipOrder) => boolean;
+  /** 檢查問題（名字太長、沒有店號…），有問題的不匯出 */
+  problem: (o: ShipOrder, s: Sender) => string | null;
+  row: (o: ShipOrder, s: Sender) => [string, string | number][];
+  name: string;
+}
+const receiver = (o: ShipOrder) => (o.shipmentDetail?.receiverName ?? o.shopper?.name ?? "").trim();
+const phone = (v: string | null | undefined) => (v ?? "").replace(/[^\d]/g, "");
+const len = (t: string) => [...t].length;
+
+export const EXPORTS: Record<ExportKind, ExportDef> = {
+  "711": {
+    label: "7-11 交貨便",
+    name: "7-11交貨便匯入",
+    file: "/templates/myship-711.xlsx",
+    start: 3,
+    lastCol: "L",
+    match: (o) => kindOf(o) === "711",
+    problem: (o) => (!o.shipmentDetail?.convenienceStore?.storeCode ? "沒有門市店號" : !phone(o.shipmentDetail?.phone) ? "沒有收件人電話" : null),
+    row: (o, s) => [
+      ["B", s.name],
+      ["C", s.phone],
+      ["D", s.email],
+      ["E", Math.round(o.totalPrice)],
+      ["F", o.shipmentDetail?.convenienceStore?.name ?? ""],
+      ["G", o.shipmentDetail?.convenienceStore?.storeCode ?? ""],
+      ["H", receiver(o)],
+      ["I", phone(o.shipmentDetail?.phone)],
+      ["J", o.shopper?.email || s.email], // 交貨便規定必填；客人沒有 Email 時用寄件人的
+    ],
+  },
+  family: {
+    label: "全家店到店",
+    name: "全家店到店匯入",
+    file: "/templates/family-store.xlsx",
+    start: 2,
+    lastCol: "S",
+    match: (o) => kindOf(o) === "family",
+    problem: (o, s) =>
+      len(s.name) > 4 ? "寄件人姓名超過 4 個字（全家規定）" : len(receiver(o)) > 4 ? `收件人姓名「${receiver(o)}」超過 4 個字（全家規定）` : !o.shipmentDetail?.convenienceStore?.storeCode ? "沒有門市店號" : null,
+    row: (o, s) => [
+      ["A", "A"], // A = 店到店
+      ["B", s.name],
+      ["C", "886"],
+      ["D", s.phone],
+      ["E", "1"], // 1 = (常溫)一般寄件
+      ["F", o.shipmentDetail?.convenienceStore?.name ?? ""],
+      ["G", o.shipmentDetail?.convenienceStore?.storeCode ?? ""],
+      ["H", receiver(o)],
+      ["I", "886"],
+      ["J", phone(o.shipmentDetail?.phone)],
+      ["K", 0], // 代收金額 0 = 已付款
+      ["S", o.orderNumber],
+    ],
+  },
+  home: {
+    label: "全家寄宅配（全+郵）",
+    name: "全家宅配匯入",
+    file: "/templates/family-home.xlsx",
+    start: 2,
+    lastCol: "M",
+    match: (o) => kindOf(o) === "home",
+    problem: (o, s) =>
+      len(s.name) > 4 ? "寄件人姓名超過 4 個字（全家規定）" : len(receiver(o)) > 4 ? `收件人姓名「${receiver(o)}」超過 4 個字（全家規定）` : !splitAddress(o.shipmentDetail?.shippingAddress ?? "") ? "地址無法分出縣市／區，請手動填" : null,
+    row: (o, s) => {
+      const a = splitAddress(o.shipmentDetail?.shippingAddress ?? "")!;
+      return [
+        ["A", "D"], // D = 全+郵宅配
+        ["B", s.name],
+        ["C", "886"],
+        ["D", s.phone],
+        ["E", receiver(o)],
+        ["F", "886"],
+        ["G", phone(o.shipmentDetail?.phone)],
+        ["H", a.city],
+        ["I", a.district],
+        ["J", a.rest],
+        ["M", o.orderNumber],
+      ];
+    },
+  },
+};
+
+/** 用官方範本產生批次匯入檔：範本標題列保留，資料從 def.start 列開始（範例列會被蓋掉）。電話、店號用文字格式，開頭的 0 不會不見。 */
+async function downloadImport(def: ExportDef, orders: ShipOrder[], sender: Sender) {
   const { default: JSZip } = await import("jszip");
-  const buf = await (await fetch("/templates/myship-711.xlsx")).arrayBuffer();
+  const buf = await (await fetch(def.file)).arrayBuffer();
   const zip = await JSZip.loadAsync(buf);
   const path = "xl/worksheets/sheet1.xml";
   let xml = await zip.file(path)!.async("string");
   const x = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
   const cell = (col: string, row: number, v: string | number) =>
-    typeof v === "number" ? `<c r="${col}${row}" s="5"><v>${v}</v></c>` : `<c r="${col}${row}" s="5" t="inlineStr"><is><t>${x(v)}</t></is></c>`;
+    typeof v === "number" ? `<c r="${col}${row}"><v>${v}</v></c>` : `<c r="${col}${row}" t="inlineStr"><is><t>${x(v)}</t></is></c>`;
   const rows = orders.map((o, i) => {
-    const r = i + 3;
-    const s = o.shipmentDetail;
-    const cs = s?.convenienceStore;
-    const vals: [string, string | number][] = [
-      ["B", sender.name],
-      ["C", sender.phone],
-      ["D", sender.email],
-      ["E", Math.round(o.totalPrice)],
-      ["F", cs?.name ?? ""],
-      ["G", cs?.storeCode ?? ""],
-      ["H", s?.receiverName ?? o.shopper?.name ?? ""],
-      ["I", (s?.phone ?? "").replace(/[^\d]/g, "")],
-      ["J", o.shopper?.email || sender.email], // 交貨便規定必填；客人沒有 Email 時用寄件人的
-    ];
-    return `<row r="${r}">${vals.map(([c, v]) => cell(c, r, v)).join("")}</row>`;
+    const r = i + def.start;
+    return `<row r="${r}">${def.row(o, sender).map(([c, v]) => cell(c, r, v)).join("")}</row>`;
   });
-  // 拿掉範本第 3 列以後（範例），換成訂單
-  xml = xml.replace(/<row r="(\d+)"[^>]*>[\s\S]*?<\/row>/g, (m, n) => (Number(n) >= 3 ? "" : m));
-  xml = xml.replace(/<row r="(\d+)"[^>]*\/>/g, (m, n) => (Number(n) >= 3 ? "" : m));
-  xml = xml.replace("</sheetData>", `${rows.join("")}</sheetData>`);
-  xml = xml.replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:L${orders.length + 2}"/>`);
+  xml = xml.replace(/<row r="(\d+)"[^>]*>[\s\S]*?<\/row>/g, (m, n) => (Number(n) >= def.start ? "" : m));
+  xml = xml.replace(/<row r="(\d+)"[^>]*\/>/g, (m, n) => (Number(n) >= def.start ? "" : m));
+  xml = xml.replace("</sheetData>", `${rows.join("")}</sheetData>`).replace("<sheetData/>", `<sheetData>${rows.join("")}</sheetData>`);
+  xml = xml.replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:${def.lastCol}${orders.length + def.start - 1}"/>`);
   zip.file(path, xml);
   const blob = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `7-11交貨便匯入_${new Date().toISOString().slice(0, 10)}_${orders.length}筆.xlsx`;
+  a.download = `${def.name}_${new Date().toISOString().slice(0, 10)}_${orders.length}筆.xlsx`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
@@ -183,7 +262,6 @@ export function Ship() {
     return c;
   }, [orders]);
   const chosen = list.filter((o) => sel.has(o.id));
-  const chosen711 = chosen.filter((o) => kindOf(o) === "711" && o.shipmentDetail?.convenienceStore?.storeCode);
   const toggle = (id: string) =>
     setSel((s) => {
       const n = new Set(s);
@@ -231,25 +309,37 @@ export function Ship() {
         <button className="btn btn-primary" disabled={!chosen.length} onClick={() => printDocs(chosen, label, paper)}>
           列印撿貨單＋出貨單（{chosen.length}）
         </button>
-        <button
-          className="btn"
-          disabled={!chosen711.length || busy}
-          title="勾選的 7-11 訂單，產生 7-11 交貨便（取貨不付款）批次匯入的 Excel"
-          onClick={() => {
-            if (!sender.name || !sender.phone || !sender.email) return setSenderOpen(true);
-            run(async () => {
-              await downloadMyShip(chosen711, sender);
-              toast(`已下載 ${chosen711.length} 筆，到 7-11 交貨便網站「批次匯入」上傳`, "ok");
-            });
-          }}
-        >
-          下載 7-11 交貨便匯入檔（{chosen711.length}）
-        </button>
+        {(Object.keys(EXPORTS) as ExportKind[]).map((k) => {
+          const def = EXPORTS[k];
+          const os = chosen.filter(def.match);
+          if (!os.length) return null;
+          return (
+            <button
+              key={k}
+              className="btn"
+              disabled={busy}
+              title={`勾選的${def.label}訂單，產生官方批次匯入的 Excel`}
+              onClick={() => {
+                if (!sender.name || !sender.phone || !sender.email) return setSenderOpen(true);
+                const bad = os.map((o) => ({ o, why: def.problem(o, sender) })).filter((x) => x.why);
+                const ok = os.filter((o) => !def.problem(o, sender));
+                if (bad.length) alert(`這幾張不會放進匯入檔，請手動處理：\n${bad.map((x) => `・${x.o.orderNumber}：${x.why}`).join("\n")}`);
+                if (!ok.length) return;
+                run(async () => {
+                  await downloadImport(def, ok, sender);
+                  toast(`已下載 ${def.label} ${ok.length} 筆，到官方網站「批次匯入」上傳`, "ok");
+                });
+              }}
+            >
+              下載{def.label}匯入檔（{os.length}）
+            </button>
+          );
+        })}
         <button className="link-btn small" onClick={() => setSenderOpen(true)}>
           寄件人資料
         </button>
       </div>
-      {chosen.length > chosen711.length && chosen711.length > 0 && <p className="muted small">交貨便匯入檔只會包含 7-11 的訂單；全家、宅配請另外處理。</p>}
+
       {orders === null ? (
         <p className="muted">讀取中…</p>
       ) : list.length === 0 ? (
@@ -302,7 +392,7 @@ export function Ship() {
       )}
       {senderOpen && (
         <Modal
-          title="寄件人資料（7-11 交貨便）"
+          title="寄件人資料（7-11 交貨便、全家）"
           onClose={() => setSenderOpen(false)}
           footer={
             <button
@@ -321,7 +411,7 @@ export function Ship() {
             </button>
           }
         >
-          <p className="muted small">交貨便規定寄件人姓名、手機、Email 都要填（存在這台裝置）。</p>
+          <p className="muted small">寄件人姓名、手機、Email 都要填（存在這台裝置）。全家規定姓名最多 4 個字。</p>
           <input placeholder="寄件人姓名" value={sender.name} onChange={(e) => setSender({ ...sender, name: e.target.value })} />
           <input placeholder="寄件人手機（09 開頭）" inputMode="tel" value={sender.phone} onChange={(e) => setSender({ ...sender, phone: e.target.value.replace(/\D/g, "") })} />
           <input placeholder="寄件人 Email" type="email" value={sender.email} onChange={(e) => setSender({ ...sender, email: e.target.value.trim() })} />
