@@ -20,6 +20,45 @@ interface Row extends Shopper {
   lastOrderMs?: number;
   pinned?: boolean;
   pinnedMs?: number;
+  ordersTotal?: number;
+  orders12m?: number;
+  spendTotal?: number;
+}
+
+/** 自訂篩選條件：欄位 ≥ / ≤ 數字，全部符合才列出 */
+type CondField = "spend12m" | "spendTotal" | "orders12m" | "ordersTotal" | "points" | "pointsUsed" | "lastOrderDays" | "joinedDays";
+interface Cond {
+  field: CondField;
+  op: "gte" | "lte";
+  value: number;
+}
+const COND_FIELDS: Record<CondField, { label: string; unit: string }> = {
+  spend12m: { label: "近 12 個月消費", unit: "元" },
+  spendTotal: { label: "累計消費", unit: "元" },
+  orders12m: { label: "近 12 個月消費次數", unit: "次" },
+  ordersTotal: { label: "累計消費次數", unit: "次" },
+  points: { label: "購物金餘額", unit: "元" },
+  pointsUsed: { label: "已使用購物金", unit: "元" },
+  lastOrderDays: { label: "距上次消費", unit: "天" },
+  joinedDays: { label: "加入會員", unit: "天" },
+};
+const DAY_MS = 86400_000;
+function condValue(r: Row, f: CondField): number | null {
+  switch (f) {
+    case "lastOrderDays":
+      return r.lastOrderMs ? Math.floor((Date.now() - r.lastOrderMs) / DAY_MS) : null; // 沒消費過 = 不符合
+    case "joinedDays":
+      return r.joinedAt ? Math.floor((Date.now() - new Date(r.joinedAt).getTime()) / DAY_MS) : null;
+    default:
+      return Number(r[f] ?? 0);
+  }
+}
+function loadConds(): Cond[] {
+  try {
+    return JSON.parse(localStorage.getItem("g29.memberConds") || "[]");
+  } catch {
+    return [];
+  }
 }
 
 type Sort = "newest" | "recent" | "spend" | "points" | "used" | "name";
@@ -38,6 +77,15 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
       return "newest";
     }
   });
+  const [conds, setCondsState] = useState<Cond[]>(loadConds);
+  const setConds = (c: Cond[]) => {
+    setCondsState(c);
+    try {
+      localStorage.setItem("g29.memberConds", JSON.stringify(c));
+    } catch {
+      /* ignore */
+    }
+  };
   const { profile } = useAuth();
   const canPin = atLeast(profile?.role, "manager");
   const { run } = useAction();
@@ -48,7 +96,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
         setRows(
           s.docs.map((d) => {
             const x = d.data();
-            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0, pointsUsed: x.pointsUsed ?? 0, pointsUsedStore: x.pointsUsedStore ?? 0, pointsUsedOnline: x.pointsUsedOnline ?? 0, joinedAt: x.joinedAt ?? null, lastOrderMs: x.lastOrderAt?.toMillis?.() ?? 0, pinned: !!x.pinned, pinnedMs: x.pinnedAt?.toMillis?.() ?? 0 };
+            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0, pointsUsed: x.pointsUsed ?? 0, pointsUsedStore: x.pointsUsedStore ?? 0, pointsUsedOnline: x.pointsUsedOnline ?? 0, joinedAt: x.joinedAt ?? null, lastOrderMs: x.lastOrderAt?.toMillis?.() ?? 0, pinned: !!x.pinned, pinnedMs: x.pinnedAt?.toMillis?.() ?? 0, ordersTotal: x.ordersTotal ?? 0, orders12m: x.orders12m ?? 0, spendTotal: x.spendTotal ?? 0 };
           })
         )
       ),
@@ -65,6 +113,12 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
       .filter((r) => !group || r.group === group)
       .filter((r) => !tier || r.tier === tier)
       .filter((r) => !birthdayOnly || r.birthMonth === month)
+      .filter((r) =>
+        conds.every((c) => {
+          const v = condValue(r, c.field);
+          return v !== null && (c.op === "gte" ? v >= c.value : v <= c.value);
+        })
+      )
       .sort((a, b) => {
         // 釘選的永遠在最上面（先釘的在前）
         if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
@@ -84,7 +138,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
             return a.name.localeCompare(b.name, "zh-Hant");
         }
       });
-  }, [rows, q, group, tier, sort, birthdayOnly, month]);
+  }, [rows, q, group, tier, sort, birthdayOnly, month, conds]);
 
   return (
     <section>
@@ -140,6 +194,41 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
         <label className="check">
           <input type="checkbox" checked={birthdayOnly} onChange={(e) => setBirthdayOnly(e.target.checked)} /> 本月壽星
         </label>
+      </div>
+      <div className="member-conds">
+        {conds.map((c, i) => (
+          <div key={i} className="cond-row">
+            <select value={c.field} onChange={(e) => setConds(conds.map((x, j) => (j === i ? { ...x, field: e.target.value as CondField } : x)))}>
+              {(Object.keys(COND_FIELDS) as CondField[]).map((k) => (
+                <option key={k} value={k}>
+                  {COND_FIELDS[k].label}
+                </option>
+              ))}
+            </select>
+            <select value={c.op} onChange={(e) => setConds(conds.map((x, j) => (j === i ? { ...x, op: e.target.value as Cond["op"] } : x)))}>
+              <option value="gte">{c.field.endsWith("Days") ? "超過（≥）" : "至少（≥）"}</option>
+              <option value="lte">{c.field.endsWith("Days") ? "以內（≤）" : "最多（≤）"}</option>
+            </select>
+            <input type="number" min={0} style={{ width: 120 }} value={c.value} onChange={(e) => setConds(conds.map((x, j) => (j === i ? { ...x, value: Number(e.target.value) } : x)))} />
+            <span>{COND_FIELDS[c.field].unit}</span>
+            <button type="button" className="btn-icon danger" title="刪除條件" onClick={() => setConds(conds.filter((_, j) => j !== i))}>
+              ✕
+            </button>
+          </div>
+        ))}
+        <div className="row-inline">
+          <button type="button" className="link-btn" onClick={() => setConds([...conds, { field: "spend12m", op: "gte", value: 5000 }])}>
+            ⊕ 新增篩選條件
+          </button>
+          {conds.length > 0 && (
+            <>
+              <span className="muted small">（全部條件都符合才列出，例：近 12 個月消費至少 5000 元、距上次消費超過 90 天）</span>
+              <button type="button" className="link-btn" onClick={() => setConds([])}>
+                清除條件
+              </button>
+            </>
+          )}
+        </div>
       </div>
       {rows.length === 0 ? (
         <Empty>會員資料同步中…（每 15 分鐘從 meepShop 自動同步）</Empty>

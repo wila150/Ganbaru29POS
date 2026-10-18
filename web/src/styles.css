@@ -673,3 +673,4 @@ span.tier-switch { cursor: default; }
 .pin-btn { border: 0; background: none; cursor: pointer; font-size: 14px; padding: 0 4px 0 0; opacity: 0.25; filter: grayscale(1); }
 .pin-btn.on, .pin-btn:hover { opacity: 1; filter: none; }
 .row-pinned { background: #fffbeb; }
+.member-conds { margin: -4px 0 12px; } .member-conds .cond-row select, .member-conds .cond-row input { width: auto; }
