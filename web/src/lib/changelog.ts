@@ -11,6 +11,12 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-e",
+    date: "2026-10-19",
+    title: "寄件人共用",
+    items: ["網店出貨的寄件人改成全店共用：老闆新增一次，每台平板、電腦直接選，不用再各自輸入"],
+  },
+  {
     id: "2026-10-19-d",
     date: "2026-10-19",
     title: "出貨列印選擇",

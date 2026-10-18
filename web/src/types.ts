@@ -114,6 +114,8 @@ export interface ShopSettings {
   slowRule?: { days: number; newDays: number };
   /** 熱銷：近 30 天賣出至少幾件 */
   hotRule?: { sales30: number };
+  /** 網店寄件的寄件人（7-11 交貨便、全家匯入檔用），全店共用 */
+  shipSenders?: { name: string; phone: string; email: string }[];
   /** 每日 LINE 提醒要送哪些項目 */
   alerts?: AlertPrefs;
   /** 側邊選單：順序（主項目路徑）與隱藏的項目 */

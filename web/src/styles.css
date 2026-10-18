@@ -740,3 +740,4 @@ span.tier-switch { cursor: default; }
 .ship-items { margin: 0; padding-left: 18px; }
 .r { text-align: right; }
 .row-done { background: var(--ok-bg); }
+.sender-opt { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; }

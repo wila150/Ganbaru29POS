@@ -86,7 +86,7 @@ service cloud.firestore {
       return ['shopName', 'leadDays', 'expiryDays', 'lineTargets', 'rewardPercent', 'pointValue',
               'staffCanRefund', 'siteBaseUrl', 'receiptHeader', 'receiptFooter', 'serviceFeeDefault', 'shiftNames',
               'memberTiers', 'birthdayGiftPoints', 'birthdayPointMultiplier', 'tagTemplate', 'payment', 'linePay', 'invoice',
-              'locations', 'onlineLocationId', 'merchantId', 'commissionPct', 'commissionByUser', 'expenseCategories', 'rewardRules', 'pointGifts', 'lineLogin', 'checkoutSound', 'navConfig', 'alerts', 'slowRule', 'hotRule'];
+              'locations', 'onlineLocationId', 'merchantId', 'commissionPct', 'commissionByUser', 'expenseCategories', 'rewardRules', 'pointGifts', 'lineLogin', 'checkoutSound', 'navConfig', 'alerts', 'slowRule', 'hotRule', 'shipSenders'];
     }
   }
 }

@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { ScanInput } from "../../components/ScanInput";
 import { Badge, Empty, Modal, useAction, useToast } from "../../components/ui";
 import { useData, variantName } from "../../data";
-import { call } from "../../firebase";
+import { doc, setDoc } from "firebase/firestore";
+import { useAuth } from "../../auth";
+import { call, db } from "../../firebase";
 import { resolveCode } from "../../lib/lookup";
-import { beep, money } from "../../lib/util";
+import { atLeast, beep, money } from "../../lib/util";
 
 /** meepShop 網店訂單（待出貨） */
 interface ShipOrder {
@@ -230,7 +232,10 @@ table { width: 100%; border-collapse: collapse; margin: 8px 0; } th, td { border
 }
 
 export function Ship() {
-  const { byId } = useData();
+  const { byId, settings } = useData();
+  const { profile } = useAuth();
+  const isOwner = atLeast(profile?.role, "owner");
+  const senders = settings.shipSenders ?? [];
   const [orders, setOrders] = useState<ShipOrder[] | null>(null);
   const [kind, setKind] = useState<Kind | "all">("all");
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -252,7 +257,16 @@ export function Ship() {
       /* ignore */
     }
   };
-  const [sender, setSender] = useState<Sender>(loadSender);
+  // 寄件人：老闆在這裡新增一次，全店每台裝置都能選；這台裝置記住上次選哪一個
+  const [senderIdx, setSenderIdx] = useState(() => {
+    try {
+      return Number(localStorage.getItem("g29.shipSenderIdx") || 0);
+    } catch {
+      return 0;
+    }
+  });
+  const [draft, setDraft] = useState<Sender>(loadSender);
+  const sender: Sender = senders[senderIdx] ?? senders[0] ?? draft;
   const toast = useToast();
   const [paper, setPaper] = useState<"a4" | "label">(() => {
     try {
@@ -358,7 +372,7 @@ export function Ship() {
           );
         })}
         <button className="link-btn small" onClick={() => setSenderOpen(true)}>
-          寄件人資料
+          寄件人：{sender.name || "未設定"}
         </button>
       </div>
 
@@ -413,30 +427,57 @@ export function Ship() {
         </div>
       )}
       {senderOpen && (
-        <Modal
-          title="寄件人資料（7-11 交貨便、全家）"
-          onClose={() => setSenderOpen(false)}
-          footer={
-            <button
-              className="btn btn-primary"
-              disabled={!sender.name || !/^09\d{8}$/.test(sender.phone) || !sender.email.includes("@")}
-              onClick={() => {
-                try {
-                  localStorage.setItem("g29.shipSender", JSON.stringify(sender));
-                } catch {
-                  /* ignore */
+        <Modal title="寄件人（7-11 交貨便、全家）" onClose={() => setSenderOpen(false)}>
+          {senders.length > 0 && (
+            <>
+              <p className="muted small">選一個寄件人（全店共用，每台平板、電腦都能用）：</p>
+              {senders.map((x, i) => (
+                <label key={i} className="check sender-opt">
+                  <input
+                    type="radio"
+                    checked={i === (senders[senderIdx] ? senderIdx : 0)}
+                    onChange={() => {
+                      setSenderIdx(i);
+                      try {
+                        localStorage.setItem("g29.shipSenderIdx", String(i));
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                  />
+                  <b>{x.name}</b>　{x.phone}　<span className="muted">{x.email}</span>
+                  {isOwner && (
+                    <button type="button" className="btn-icon danger" title="刪除" onClick={() => confirm(`刪除寄件人「${x.name}」？`) && run(() => setDoc(doc(db, "settings", "shop"), { shipSenders: senders.filter((_, j) => j !== i) }, { merge: true }))}>
+                      ✕
+                    </button>
+                  )}
+                </label>
+              ))}
+            </>
+          )}
+          {isOwner ? (
+            <>
+              <h3>新增寄件人</h3>
+              <input placeholder="寄件人姓名（全家規定最多 4 個字）" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+              <input placeholder="寄件人手機（09 開頭）" inputMode="tel" value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value.replace(/\D/g, "") })} />
+              <input placeholder="寄件人 Email" type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value.trim() })} />
+              <button
+                className="btn btn-primary"
+                disabled={busy || !draft.name || !/^09\d{8}$/.test(draft.phone) || !draft.email.includes("@")}
+                onClick={() =>
+                  run(async () => {
+                    await setDoc(doc(db, "settings", "shop"), { shipSenders: [...senders, draft] }, { merge: true });
+                    setSenderIdx(senders.length);
+                    setDraft({ name: "", phone: "", email: "" });
+                  }, "已新增寄件人")
                 }
-                setSenderOpen(false);
-              }}
-            >
-              儲存
-            </button>
-          }
-        >
-          <p className="muted small">寄件人姓名、手機、Email 都要填（存在這台裝置）。全家規定姓名最多 4 個字。</p>
-          <input placeholder="寄件人姓名" value={sender.name} onChange={(e) => setSender({ ...sender, name: e.target.value })} />
-          <input placeholder="寄件人手機（09 開頭）" inputMode="tel" value={sender.phone} onChange={(e) => setSender({ ...sender, phone: e.target.value.replace(/\D/g, "") })} />
-          <input placeholder="寄件人 Email" type="email" value={sender.email} onChange={(e) => setSender({ ...sender, email: e.target.value.trim() })} />
+              >
+                新增
+              </button>
+            </>
+          ) : (
+            senders.length === 0 && <p className="error">還沒有寄件人，請老闆在這裡新增一次。</p>
+          )}
         </Modal>
       )}
       {packing && (
