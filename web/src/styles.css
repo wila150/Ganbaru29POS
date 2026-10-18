@@ -698,3 +698,13 @@ span.tier-switch { cursor: default; }
 .pinfo-desc { white-space: pre-wrap; line-height: 1.7; font-size: 14px; margin: 12px 0; max-height: 320px; overflow: auto; }
 .product-card { position: relative; }
 .info-btn { position: absolute; top: 6px; left: 6px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(255,255,255,.9); box-shadow: var(--shadow); font-weight: 700; color: #1f2937; cursor: pointer; z-index: 1; display: flex; align-items: center; justify-content: center; }
+.pinfo-variants { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.pinfo-chip { display: inline-flex; gap: 8px; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; background: var(--surface); }
+.pinfo-chip b { color: var(--ok); font-weight: 600; }
+.pinfo-chip.out { opacity: 0.5; }
+.pinfo-chip.out b { color: var(--bad); }
+.pinfo-spec { display: grid; grid-template-columns: 72px 1fr; gap: 10px 12px; margin: 0 0 12px; }
+.pinfo-spec dt { color: var(--muted); }
+.pinfo-spec dd { margin: 0; }
+.pinfo-size { display: inline-block; margin: 0 12px 4px 0; }
+.pinfo .pinfo-main { max-height: 480px; }
