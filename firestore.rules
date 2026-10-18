@@ -17,7 +17,11 @@ service cloud.firestore {
     }
 
     match /variants/{id} { allow read: if active(); }
-    match /productInfo/{id} { allow read: if active(); }
+    match /productInfo/{id} {
+      allow read: if active();
+      // 店長上傳的其他角度圖片（官網同步的欄位只有伺服器能改）
+      allow create, update: if isManager() && request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys().hasOnly(['extraImages']);
+    }
     match /codes/{code} { allow read: if active(); }
     match /productImages/{id} { allow read: if active(); }
     match /movements/{id} { allow read: if active(); }

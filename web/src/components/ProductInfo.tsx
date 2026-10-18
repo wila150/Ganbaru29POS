@@ -1,12 +1,17 @@
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { useAuth } from "../auth";
+import { atLeast } from "../lib/util";
 import { useEffect, useState } from "react";
 import { useData } from "../data";
-import { db } from "../firebase";
+import { db, storage } from "../firebase";
 import { money } from "../lib/util";
-import { Modal } from "./ui";
+import { Modal, useAction } from "./ui";
 
 interface Info {
   images?: string[];
+  /** 店長上傳的其他角度／細節圖 */
+  extraImages?: { url: string; path: string }[];
   title?: string | null;
   description?: string | null;
   link?: string | null;
@@ -49,13 +54,48 @@ export function ProductInfo({ productId, onClose, stockOf }: { productId: string
   const vs = variants.filter((v) => v.productId === productId).sort((a, b) => a.variantIndex - b.variantIndex);
   const v0 = vs[0];
   const [info, setInfo] = useState<Info | null>(null);
-  useEffect(() => {
-    getDoc(doc(db, "productInfo", productId))
-      .then((d) => setInfo((d.data() as Info) ?? {}))
-      .catch(() => setInfo({}));
-  }, [productId]);
+  const [img, setImg] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const { profile } = useAuth();
+  const canEdit = atLeast(profile?.role, "manager");
+  const { busy, run } = useAction();
+  useEffect(
+    () =>
+      onSnapshot(
+        doc(db, "productInfo", productId),
+        (d) => setInfo((d.data() as Info) ?? {}),
+        () => setInfo({})
+      ),
+    [productId]
+  );
   if (!v0) return null;
-  const image = info?.images?.[0] || v0.imageUrl;
+  const main = info?.images?.[0] || v0.imageUrl;
+  const gallery = [...(main ? [main] : []), ...(info?.extraImages ?? []).map((x) => x.url)];
+  const shown = gallery[Math.min(img, Math.max(0, gallery.length - 1))];
+  const upload = (files: FileList) =>
+    run(async () => {
+      const list = [...files].filter((f) => f.type.startsWith("image/"));
+      if (!list.length) throw new Error("請選擇圖片");
+      const added: { url: string; path: string }[] = [];
+      for (const f of list) {
+        if (f.size > 5 * 1024 * 1024) throw new Error(`${f.name} 超過 5MB`);
+        const path = `manual/${productId}/gallery-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${(f.name.split(".").pop() || "jpg").toLowerCase()}`;
+        await uploadBytes(ref(storage, path), f, { contentType: f.type });
+        added.push({ url: await getDownloadURL(ref(storage, path)), path });
+      }
+      await setDoc(doc(db, "productInfo", productId), { extraImages: [...(info?.extraImages ?? []), ...added] }, { merge: true });
+    }, "已新增圖片");
+  const remove = (path: string) =>
+    run(async () => {
+      await setDoc(doc(db, "productInfo", productId), { extraImages: (info?.extraImages ?? []).filter((x) => x.path !== path) }, { merge: true });
+      await deleteObject(ref(storage, path)).catch(() => undefined);
+      setImg(0);
+    }, "已刪除");
+  const move = (i: number, d: number) => {
+    const arr = [...(info?.extraImages ?? [])];
+    [arr[i], arr[i + d]] = [arr[i + d], arr[i]];
+    run(() => setDoc(doc(db, "productInfo", productId), { extraImages: arr }, { merge: true }));
+  };
   const prices = vs.map((v) => v.price ?? 0);
   const lo = Math.min(...prices);
   const hi = Math.max(...prices);
@@ -63,7 +103,48 @@ export function ProductInfo({ productId, onClose, stockOf }: { productId: string
   return (
     <Modal title={v0.productTitle} onClose={onClose} wide>
       <div className="pinfo">
-        {image ? <img src={image} alt="" className="pinfo-main" /> : <div className="pinfo-main empty">沒有圖片</div>}
+        <div className="pinfo-gallery">
+          {shown ? <img src={shown} alt="" className="pinfo-main" /> : <div className="pinfo-main empty">沒有圖片</div>}
+          {(gallery.length > 1 || canEdit) && (
+            <div className="pinfo-thumbs">
+              {gallery.map((u, i) => (
+                <button key={u} className={u === shown ? "on" : ""} onClick={() => setImg(i)}>
+                  <img src={u} alt="" loading="lazy" />
+                </button>
+              ))}
+              {canEdit && (
+                <label className="pinfo-add" title="新增圖片（可一次選多張）">
+                  {busy ? "…" : "＋"}
+                  <input type="file" accept="image/*" multiple hidden disabled={busy} onChange={(e) => e.target.files?.length && upload(e.target.files)} />
+                </label>
+              )}
+            </div>
+          )}
+          {canEdit && (info?.extraImages?.length ?? 0) > 0 && (
+            <button className="link-btn small" onClick={() => setEditing(!editing)}>
+              {editing ? "完成" : "整理圖片（排序、刪除）"}
+            </button>
+          )}
+          {editing && (
+            <div className="pinfo-edit">
+              {(info?.extraImages ?? []).map((x, i, arr) => (
+                <div key={x.path} className="pinfo-edit-row">
+                  <img src={x.url} alt="" />
+                  <button className="btn-icon" disabled={i === 0} onClick={() => move(i, -1)}>
+                    ←
+                  </button>
+                  <button className="btn-icon" disabled={i === arr.length - 1} onClick={() => move(i, 1)}>
+                    →
+                  </button>
+                  <button className="btn-icon danger" onClick={() => confirm("刪除這張圖？") && remove(x.path)}>
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <p className="muted small">第一張是官網主圖（每天自動同步，不能刪）；這裡是你上傳的其他角度、細節圖。</p>
+            </div>
+          )}
+        </div>
         <div className="pinfo-body">
           <div className="pinfo-price">{lo === hi ? money(lo) : `${money(lo)} ～ ${money(hi)}`}</div>
           <div className="pinfo-variants">

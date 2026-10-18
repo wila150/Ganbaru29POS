@@ -710,3 +710,9 @@ span.tier-switch { cursor: default; }
 .pinfo .pinfo-main { max-height: 480px; }
 .pinfo-detail h3 { margin: 6px 0 10px; font-size: 18px; }
 .pinfo-detail p { margin: 0 0 6px; line-height: 1.7; }
+.pinfo-gallery { min-width: 0; }
+.pinfo-add { width: 56px; height: 84px; border: 2px dashed var(--border); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--muted); cursor: pointer; flex-shrink: 0; }
+.pinfo-edit { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pinfo-edit-row { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.pinfo-edit-row img { width: 64px; height: 96px; object-fit: cover; border-radius: 6px; }
+.pinfo-edit-row { flex-direction: row; flex-wrap: wrap; width: 120px; justify-content: center; }
