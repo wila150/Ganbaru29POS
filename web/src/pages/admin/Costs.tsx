@@ -1,6 +1,6 @@
 import { collection, onSnapshot } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Empty, useAction } from "../../components/ui";
+import { Badge, Empty, Field, Modal, useAction } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { downloadCsv, money } from "../../lib/util";
@@ -26,6 +26,7 @@ export function Costs() {
   const [only, setOnly] = useState<"all" | "unset" | "set">("unset");
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [pct, setPct] = useState("40");
+  const [landing, setLanding] = useState(false);
   const { busy, run } = useAction();
 
   useEffect(
@@ -168,6 +169,12 @@ export function Costs() {
 
       <div className="card cost-tools">
         <div className="inline-form">
+          <button className="btn btn-primary" onClick={() => setLanding(true)}>
+            分攤法計算成本（一批進貨）
+          </button>
+          <span className="muted small">單件成本 ＝ 批發單價 ＋（總運費＋報關稅金）÷ 該批總件數 ＋ 單件包裝吊牌費</span>
+        </div>
+        <div className="inline-form">
           <span>沒有成本的，一次用</span>
           <span className="addon-input">
             <span>售價 ×</span>
@@ -207,6 +214,20 @@ export function Costs() {
         </div>
       </div>
 
+      {landing && (
+        <LandedCost
+          onClose={() => setLanding(false)}
+          onApply={(costs) => {
+            setEdit((m) => {
+              const n = new Map(m);
+              for (const [productId, c] of costs) variants.filter((v) => v.productId === productId).forEach((v) => n.set(v.id, String(c)));
+              return n;
+            });
+            setOnly("all");
+            setLanding(false);
+          }}
+        />
+      )}
       {groups.length === 0 ? (
         <Empty>{only === "unset" ? "全部商品都設定好成本了 🎉" : "沒有商品"}</Empty>
       ) : (
@@ -279,6 +300,117 @@ export function Costs() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * 分攤法：單件商品成本 = 批發單價 +（國際/國內總運費 + 報關稅金）÷ 該批進貨總件數 + 單件包裝與吊牌耗材費
+ * 一批進貨可以有好幾款商品；運費、稅金依「件數」平均分攤到每一件。
+ */
+function LandedCost({ onClose, onApply }: { onClose: () => void; onApply: (costs: Map<string, number>) => void }) {
+  const { variants } = useData();
+  const [freight, setFreight] = useState("");
+  const [tax, setTax] = useState("");
+  const [pack, setPack] = useState("");
+  const [rows, setRows] = useState<{ productId: string; title: string; wholesale: string; qty: string }[]>([]);
+  const [q, setQ] = useState("");
+  const num = (v: string) => Number(v.replace(/[^\d.]/g, "")) || 0;
+  const products = useMemo(() => {
+    const m = new Map<string, { productId: string; title: string; stock: number }>();
+    for (const v of variants) {
+      const g = m.get(v.productId) ?? { productId: v.productId, title: v.productTitle, stock: 0 };
+      g.stock += Math.max(0, v.shopStock ?? 0);
+      m.set(v.productId, g);
+    }
+    return [...m.values()];
+  }, [variants]);
+  const results = q.trim() ? products.filter((p) => p.title.toLowerCase().includes(q.trim().toLowerCase()) && !rows.some((r) => r.productId === p.productId)).slice(0, 12) : [];
+  const totalQty = rows.reduce((a, r) => a + num(r.qty), 0);
+  const alloc = totalQty ? (num(freight) + num(tax)) / totalQty : 0;
+  const unit = (r: (typeof rows)[number]) => Math.round((num(r.wholesale) + alloc + num(pack)) * 100) / 100;
+  const ready = rows.length > 0 && rows.every((r) => num(r.wholesale) > 0 && num(r.qty) > 0);
+  const upd = (i: number, patch: Partial<(typeof rows)[number]>) => setRows((x) => x.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  return (
+    <Modal
+      title="分攤法計算成本（一批進貨）"
+      onClose={onClose}
+      wide
+      footer={
+        <button className="btn btn-primary" disabled={!ready} onClick={() => onApply(new Map(rows.map((r) => [r.productId, unit(r)])))}>
+          套用到成本（{rows.length} 款，套用後記得按「儲存」）
+        </button>
+      }
+    >
+      <h3>1. 這批進貨的費用</h3>
+      <div className="grid-fields">
+        <Field label="國際／國內總運費（元）">
+          <input inputMode="decimal" value={freight} onChange={(e) => setFreight(e.target.value)} placeholder="例：3000" />
+        </Field>
+        <Field label="報關稅金（元）">
+          <input inputMode="decimal" value={tax} onChange={(e) => setTax(e.target.value)} placeholder="例：1200" />
+        </Field>
+        <Field label="單件包裝與吊牌耗材費（元／件）">
+          <input inputMode="decimal" value={pack} onChange={(e) => setPack(e.target.value)} placeholder="例：15" />
+        </Field>
+      </div>
+      <h3>2. 這批進了哪些商品</h3>
+      <input placeholder="搜尋商品加入這批" value={q} onChange={(e) => setQ(e.target.value)} />
+      {results.length > 0 && (
+        <ul className="pick-list">
+          {results.map((p) => (
+            <li key={p.productId}>
+              <button
+                className="pick-row"
+                onClick={() => {
+                  setRows((x) => [...x, { productId: p.productId, title: p.title, wholesale: "", qty: "" }]);
+                  setQ("");
+                }}
+              >
+                <span>{p.title}</span>
+                <span className="muted small">目前庫存 {p.stock}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {rows.length > 0 && (
+        <table className="table table-compact landed">
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th className="num">批發單價</th>
+              <th className="num">進貨件數</th>
+              <th className="num">單件成本</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.productId}>
+                <td>{r.title}</td>
+                <td className="num">
+                  <input inputMode="decimal" value={r.wholesale} onChange={(e) => upd(i, { wholesale: e.target.value })} placeholder="元" />
+                </td>
+                <td className="num">
+                  <input inputMode="numeric" value={r.qty} onChange={(e) => upd(i, { qty: e.target.value })} placeholder="件" />
+                </td>
+                <td className="num strong">{num(r.wholesale) > 0 ? money(unit(r)) : "—"}</td>
+                <td>
+                  <button className="btn-icon danger" onClick={() => setRows((x) => x.filter((_, j) => j !== i))}>
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="preview-box small">
+        總件數 <b>{totalQty}</b>　每件分攤運費＋稅金 <b>{money(Math.round(alloc * 100) / 100)}</b>（＝ ({money(num(freight))} ＋ {money(num(tax))}) ÷ {totalQty || 0}）　＋ 包裝吊牌 <b>{money(num(pack))}</b>／件
+        <br />
+        單件成本 ＝ 批發單價 ＋ {money(Math.round(alloc * 100) / 100)} ＋ {money(num(pack))}；同一款各尺寸顏色用同一個成本。
+      </div>
+    </Modal>
   );
 }
 

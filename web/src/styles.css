@@ -778,3 +778,4 @@ span.tier-switch { cursor: default; }
 .pl3 .tier.final.bad td { background: #fef2f2; }
 .pl3 .minus td:first-child { padding-left: 24px; color: var(--muted); }
 .pl3 .sub td { font-size: 13px; color: var(--muted); padding-left: 44px; }
+.landed input { width: 90px; text-align: right; padding: 6px 8px; }
