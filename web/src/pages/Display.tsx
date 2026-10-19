@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useData } from "../data";
 import { db } from "../firebase";
-import { displayChannel, type DisplayState } from "../lib/display";
+import { displayChannel, setSignup, type DisplayState, type SignupState } from "../lib/display";
 import { useDeviceLocation } from "../lib/location";
 import { money, PAY_LABEL } from "../lib/util";
 
@@ -12,6 +12,7 @@ export function Display() {
   return (
     <>
       <Screen />
+      <Signup />
       <Link to="/pos" className="cd-exit">
         返回 POS
       </Link>
@@ -78,15 +79,20 @@ function Screen() {
                 <div className="cd-title">{l.title}</div>
                 <div className="muted">{l.options} × {l.qty}</div>
               </div>
-              <b>{money(l.amount)}</b>
+              <div className="cd-amt">
+                {l.orig != null && <s className="muted">{money(l.orig)}</s>}
+                <b>{money(l.amount)}</b>
+                {l.promo && <div className="cd-promo">{l.promo}</div>}
+              </div>
             </li>
           ))}
         </ul>
         <div className="cd-total">
-          {(s.discount ?? 0) > 0 && <div className="cd-disc">已折 {money(s.discount!)}</div>}
+          {s.summary && <Breakdown x={s.summary} />}
           <div>
-            合計 <b>{money(s.total ?? 0)}</b>
+            應付 <b>{money(s.total ?? 0)}</b>
           </div>
+          {(s.discount ?? 0) > 0 && <div className="cd-disc">共省 {money(s.discount!)}</div>}
         </div>
       </div>
     );
@@ -95,6 +101,106 @@ function Screen() {
       <div className="cd-big">歡迎光臨</div>
       <div className="cd-shop">{shop}</div>
       <div className="cd-hint muted">（點一下畫面可全螢幕）</div>
+    </div>
+  );
+}
+
+function Breakdown({ x }: { x: NonNullable<DisplayState["summary"]> }) {
+  const rows: [string, number][] = [
+    ["商品原價", x.gross],
+    ["優惠活動", -x.promo],
+    ["會員折扣", -x.member],
+    ["整單打折", -x.order],
+    ["服務費", x.service],
+    ["折讓", -x.allowance],
+    ["購物金折抵", -x.reward],
+    ["換貨抵扣", -x.credit],
+  ];
+  const shown = rows.filter(([, v], i) => i === 0 || v !== 0);
+  if (shown.length < 2) return null;
+  return (
+    <div className="cd-break">
+      {shown.map(([k, v]) => (
+        <div key={k}>
+          <span>{k}</span>
+          <span className={v < 0 ? "cd-minus" : ""}>{v < 0 ? `−${money(-v)}` : money(v)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 收銀電腦按「請客人在顧客螢幕填寫」→ 這裡跳出加入會員表單；送出後由收銀電腦建立會員，成功後表單自動消失 */
+function Signup() {
+  const { locationId } = useDeviceLocation();
+  const ch = displayChannel(locationId);
+  const [s, setS] = useState<SignupState | null>(null);
+  const [f, setF] = useState({ email: "", name: "", mobile: "", birthDate: "" });
+  const [err, setErr] = useState("");
+  useEffect(
+    () =>
+      onSnapshot(doc(db, "customerSignup", ch), (d) => {
+        const x = (d.data() as SignupState) ?? null;
+        setS(x);
+        // 店員先填了一部分、或建立失敗退回來：帶入目前的資料
+        if (x?.status === "open") setF({ email: x.email ?? "", name: x.name ?? "", mobile: x.mobile ?? "", birthDate: x.birthDate ?? "" });
+      }),
+    [ch]
+  );
+  // 成功畫面 4 秒後自己關掉
+  useEffect(() => {
+    if (s?.status !== "done") return;
+    const id = setTimeout(() => setSignup(ch, { status: "closed" }).catch(() => undefined), 4000);
+    return () => clearTimeout(id);
+  }, [s?.status, ch]);
+  if (!s || s.status === "closed") return null;
+  if (s.status === "done")
+    return (
+      <div className="cd cd-center cd-over">
+        <div className="cd-big">🎉 加入成功</div>
+        <div className="cd-sub">{s.name ? `${s.name}，` : ""}歡迎成為會員！</div>
+      </div>
+    );
+  if (s.status === "filled")
+    return (
+      <div className="cd cd-center cd-over">
+        <div className="cd-sub">資料已送出，請稍候…</div>
+      </div>
+    );
+  const send = () => {
+    const email = f.email.trim();
+    const mobile = f.mobile.replace(/\D/g, "");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setErr("請填正確的 Email");
+    if (!f.name.trim()) return setErr("請填姓名");
+    if (!/^09\d{8}$/.test(mobile)) return setErr("手機請填 09 開頭 10 碼");
+    if (!f.birthDate) return setErr("請選生日");
+    setErr("");
+    setSignup(ch, { status: "filled", email, name: f.name.trim(), mobile, birthDate: f.birthDate }).catch(() => setErr("送出失敗，請再按一次"));
+  };
+  return (
+    <div className="cd cd-over cd-signup">
+      <h1>加入會員</h1>
+      <p className="muted">填寫後即可累積購物金、享會員優惠</p>
+      <label>
+        Email
+        <input type="email" inputMode="email" autoComplete="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+      </label>
+      <label>
+        姓名
+        <input autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+      </label>
+      <label>
+        手機
+        <input inputMode="tel" autoComplete="tel" value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} />
+      </label>
+      <label>
+        生日
+        <input type="date" max={new Date().toISOString().slice(0, 10)} value={f.birthDate} onChange={(e) => setF({ ...f, birthDate: e.target.value })} />
+      </label>
+      {(err || s.error) && <p className="cd-err">{err || s.error}</p>}
+      <button className="cd-send" onClick={send}>
+        送出
+      </button>
     </div>
   );
 }

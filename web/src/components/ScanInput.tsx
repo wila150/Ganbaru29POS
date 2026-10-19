@@ -13,8 +13,38 @@ const FORMATS = [
   Html5QrcodeSupportedFormats.ITF,
 ];
 
-/** Camera scanner. Keeps scanning until closed; the same code is ignored for 1.5 s so one scan = one count. */
-export function CameraScanner({ onCode, onClose, continuous = false }: { onCode: (code: string) => void; onClose: () => void; continuous?: boolean }) {
+const FACE_KEY = "g29.cameraFace";
+const readFace = (fallback: "environment" | "user"): "environment" | "user" => {
+  try {
+    const v = localStorage.getItem(FACE_KEY);
+    return v === "user" || v === "environment" ? v : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+/**
+ * Camera scanner. Keeps scanning until closed; the same code is ignored for 1.5 s so one scan = one count.
+ * 可切換前／後鏡頭（例：LINE Pay 讓客人把手機付款碼對著平板前鏡頭），每台裝置記住上次的選擇。
+ */
+export function CameraScanner({ onCode, onClose, continuous = false, face: defaultFace = "environment", rememberKey = FACE_KEY }: { onCode: (code: string) => void; onClose: () => void; continuous?: boolean; face?: "environment" | "user"; rememberKey?: string }) {
+  const [face, setFace] = useState<"environment" | "user">(() => (rememberKey === FACE_KEY ? readFace(defaultFace) : (() => {
+    try {
+      const v = localStorage.getItem(rememberKey);
+      return v === "user" || v === "environment" ? v : defaultFace;
+    } catch {
+      return defaultFace;
+    }
+  })()));
+  const flip = () => {
+    const n = face === "user" ? "environment" : "user";
+    try {
+      localStorage.setItem(rememberKey, n);
+    } catch {
+      /* ignore */
+    }
+    setFace(n);
+  };
   const regionId = useRef(`cam-${Math.random().toString(36).slice(2)}`).current;
   const [error, setError] = useState("");
   const last = useRef({ code: "", at: 0 });
@@ -22,11 +52,11 @@ export function CameraScanner({ onCode, onClose, continuous = false }: { onCode:
   cb.current = onCode;
 
   useEffect(() => {
-    const scanner = new Html5Qrcode(regionId, { formatsToSupport: FORMATS, verbose: false });
+    const scanner = new Html5Qrcode(`${regionId}-${face}`, { formatsToSupport: FORMATS, verbose: false });
     let stopped = false;
     scanner
       .start(
-        { facingMode: "environment" },
+        { facingMode: face },
         { fps: 10, qrbox: (w, h) => ({ width: Math.min(w, h, 320) * 0.9, height: Math.min(w, h, 320) * 0.9 }) },
         (text) => {
           const now = Date.now();
@@ -44,11 +74,14 @@ export function CameraScanner({ onCode, onClose, continuous = false }: { onCode:
       if (scanner.isScanning) scanner.stop().then(() => scanner.clear()).catch(() => undefined);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [face]);
 
   return (
     <Modal title={continuous ? "相機掃描（連續）" : "相機掃描"} onClose={onClose}>
-      <div id={regionId} className="camera-region" />
+      <div key={face} id={`${regionId}-${face}`} className={`camera-region ${face === "user" ? "mirror" : ""}`} />
+      <button className="btn btn-sm" onClick={flip}>
+        🔄 切換成{face === "user" ? "後" : "前"}鏡頭
+      </button>
       {error ? <p className="error">{error}</p> : <p className="muted center">把 QR code 或條碼放進框內{continuous ? "，可連續掃" : ""}</p>}
     </Modal>
   );

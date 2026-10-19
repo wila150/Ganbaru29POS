@@ -73,9 +73,17 @@ service cloud.firestore {
     match /customerDisplay/{id} {
       allow read: if active();
       allow write: if active()
-        && request.resource.data.keys().hasOnly(['mode', 'lines', 'total', 'discount', 'member', 'pay', 'change', 'at'])
+        && request.resource.data.keys().hasOnly(['mode', 'lines', 'total', 'discount', 'member', 'summary', 'pay', 'change', 'at'])
         && request.resource.data.mode in ['idle', 'cart', 'pay', 'done']
         && request.resource.data.lines is list && request.resource.data.lines.size() <= 200;
+    }
+
+    // 顧客螢幕上請客人自己填會員資料（收銀電腦收到後建立會員）
+    match /customerSignup/{id} {
+      allow read: if active();
+      allow write: if active()
+        && request.resource.data.keys().hasOnly(['status', 'email', 'name', 'mobile', 'birthDate', 'error', 'at'])
+        && request.resource.data.status in ['open', 'filled', 'done', 'closed'];
     }
 
     match /posHolds/{id} {

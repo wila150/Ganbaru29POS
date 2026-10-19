@@ -10,6 +10,9 @@ export interface DisplayLine {
   options: string;
   qty: number;
   amount: number;
+  /** 有促銷時的原價（畫刪除線） */
+  orig?: number;
+  promo?: string;
 }
 export interface DisplayState {
   mode: "idle" | "cart" | "pay" | "done";
@@ -17,6 +20,8 @@ export interface DisplayState {
   total?: number;
   discount?: number;
   member?: string | null;
+  /** 金額明細：原價、各種折扣、購物金折抵、服務費 */
+  summary?: { gross: number; promo: number; member: number; order: number; reward: number; service: number; credit: number; allowance: number } | null;
   /** 付款畫面：要客人付的方式和金額（現金＋轉帳時只顯示轉帳那部分） */
   pay?: { method: string; amount: number } | null;
   change?: number;
@@ -33,8 +38,25 @@ export function pushDisplay(channel: string, s: DisplayState, now = false) {
   if (timer) clearTimeout(timer);
   const write = () => {
     last = json;
-    setDoc(doc(db, "customerDisplay", channel), { lines: [], total: 0, discount: 0, member: null, pay: null, change: 0, ...s, at: serverTimestamp() }).catch(() => undefined);
+    setDoc(doc(db, "customerDisplay", channel), { lines: [], total: 0, discount: 0, member: null, summary: null, pay: null, change: 0, ...s, at: serverTimestamp() }).catch(() => undefined);
   };
   if (now) write();
   else timer = setTimeout(write, 300);
 }
+
+/**
+ * 顧客螢幕上請客人自己填會員資料：customerSignup/{門市}
+ * open（等客人填）→ filled（客人送出，收銀電腦去 meepShop 建會員）→ done（成功）／open＋error（失敗，請客人修改）→ closed
+ */
+export interface SignupForm {
+  email: string;
+  name: string;
+  mobile: string;
+  birthDate: string;
+}
+export interface SignupState extends Partial<SignupForm> {
+  status: "open" | "filled" | "done" | "closed";
+  error?: string | null;
+}
+export const setSignup = (channel: string, s: SignupState) =>
+  setDoc(doc(db, "customerSignup", channel), { email: "", name: "", mobile: "", birthDate: "", error: null, ...s, at: serverTimestamp() });

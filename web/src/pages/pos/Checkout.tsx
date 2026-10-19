@@ -289,7 +289,7 @@ function LinePayScan({ amount, itemName, invoiceOk, stage, onBusy, onPaid }: { a
           </div>
         </>
       )}
-      {camera && <CameraScanner onClose={() => setCamera(false)} onCode={(c) => charge(c)} />}
+      {camera && <CameraScanner face="user" rememberKey="g29.cameraFace.linepay" onClose={() => setCamera(false)} onCode={(c) => charge(c)} />}
     </div>
   );
 }

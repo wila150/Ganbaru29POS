@@ -17,7 +17,7 @@ import { MemberTagEditor, ShopperGroup, TagChips, useShopperPrefs } from "../../
 import { beep, deviceId, money, newId, PAY_LABEL, pctToZhe, todayStr, zheToPct } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useDeviceLocation } from "../../lib/location";
-import { displayChannel, pushDisplay } from "../../lib/display";
+import { displayChannel, pushDisplay, setSignup, type SignupState } from "../../lib/display";
 import { Checkout, Done } from "./Checkout";
 import { useCurrentShift } from "./PosLayout";
 
@@ -172,10 +172,12 @@ export function Register() {
     if (!cart.length) return pushDisplay(ch, thanks !== null ? { mode: "done", change: thanks } : { mode: "idle" }, true);
     const lines = cart.map((l) => {
       const v = byId.get(l.variantId);
-      return { title: v?.productTitle ?? "商品", options: v?.options ?? "", qty: l.qty, amount: lineTotal(l) };
+      const orig = lineTotal(l);
+      const off = promo.lineDiscount[l.key] ?? 0;
+      return { title: v?.productTitle ?? "商品", options: v?.options ?? "", qty: l.qty, amount: orig - off, ...(off > 0 || l.discountPct > 0 ? { orig: l.unitPrice * l.qty, promo: (promo.lineLabels[l.key] ?? []).join("、") || `${pctToZhe(l.discountPct)} 折` } : {}) };
     });
     const pay = checkout ? payShow : null;
-    pushDisplay(ch, { mode: pay ? "pay" : "cart", lines, total: due, discount: Math.max(0, lines.reduce((a, l) => a + l.amount, 0) - due), member: shopper?.name || null, pay }, !!pay);
+    pushDisplay(ch, { mode: pay ? "pay" : "cart", lines, total: due, discount: Math.max(0, lines.reduce((a, l) => a + (l.orig ?? l.amount), 0) - due), member: shopper?.name || null, summary: { gross: t.gross, promo: t.promoTotal, member: t.memberDiscount, order: t.orderDiscount, reward: t.rewardDiscount, service: t.serviceFee, credit, allowance: disc.allowance }, pay }, !!pay);
   });
   const refundDue = Math.max(0, credit - t.total);
 
@@ -376,7 +378,7 @@ export function Register() {
             {shopper ? (
               <>
                 {isBirthday && "🎂 "}
-                {shopper.name || shopper.mobile} {shopper.tier && <span className="tag">{shopper.tier}</span>}
+                {shopper.name || shopper.mobile} {shopper.tier && shopper.tier !== shopper.group && <span className="tag">{shopper.tier}</span>}
                 {shopper.group && <span className="tag tag-promo">{shopper.group}</span>}
                 <small>購物金 {shopper.points}</small>
               </>
@@ -777,6 +779,43 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ email: "", name: "", mobile: "", birthDate: "" });
   const { busy, run } = useAction();
+  // 請客人在顧客螢幕（平板）自己填：等客人送出 → 這裡建立會員 → 平板顯示成功後消失
+  const { locationId } = useDeviceLocation();
+  const ch = displayChannel(locationId);
+  const [remote, setRemote] = useState(false);
+  const remoteDone = useRef(false);
+  const toastR = useToast();
+  useEffect(() => {
+    if (!remote) return;
+    remoteDone.current = false;
+    let working = false;
+    const unsub = onSnapshot(doc(db, "customerSignup", ch), async (d) => {
+      const x = d.data() as SignupState | undefined;
+      if (!x || x.status !== "filled" || working) return;
+      working = true;
+      const f = { email: x.email ?? "", name: x.name ?? "", mobile: x.mobile ?? "", birthDate: x.birthDate ?? "" };
+      setForm(f);
+      try {
+        const s = await call<Shopper>("createShopper", f);
+        remoteDone.current = true;
+        await setSignup(ch, { status: "done", name: f.name });
+        toastR(`已新增會員：${s.name || s.mobile}`, "ok");
+        onPick(s, true);
+        onClose();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await setSignup(ch, { status: "open", ...f, error: msg });
+        toastR(`新增失敗：${msg}（已請客人修改）`, "bad");
+      } finally {
+        working = false;
+      }
+    });
+    return () => {
+      unsub();
+      if (!remoteDone.current) setSignup(ch, { status: "closed" }).catch(() => undefined);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remote, ch]);
   const search = () =>
     run(async () => {
       // 會員條碼（掃描槍或手動輸入 M + 9 碼）
@@ -842,13 +881,25 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
       ) : (
         <>
           <p className="muted small">會員會建立在 meepShop，Email 和生日為必填（meepShop 規定）。</p>
+          {remote ? (
+            <div className="notice row-between">
+              📱 等客人在顧客螢幕填寫…（送出後自動建立並帶入）
+              <button className="btn btn-sm" onClick={() => setRemote(false)}>
+                取消
+              </button>
+            </div>
+          ) : (
+            <button className="btn" onClick={() => setSignup(ch, { status: "open", ...form }).then(() => setRemote(true))}>
+              📱 請客人在顧客螢幕填寫
+            </button>
+          )}
           <input placeholder="Email（必填）" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <input placeholder="姓名" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <input placeholder="手機" inputMode="tel" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
           <label className="small muted">生日（必填，meepShop 規定）</label>
           <input type="date" max={new Date().toISOString().slice(0, 10)} value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} />
           <div className="btn-row">
-            <button className="btn" onClick={() => setCreating(false)}>
+            <button className="btn" onClick={() => (setRemote(false), setCreating(false))}>
               返回
             </button>
             <button className="btn btn-primary" disabled={busy || !form.email || !form.birthDate} onClick={() => run(async () => choose(await call<Shopper>("createShopper", form), true), "已新增會員")}>
