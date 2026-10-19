@@ -23,7 +23,7 @@ export interface InvoiceInput {
 const PROVIDER_LABEL: Record<string, string> = { ecpay: "綠界", newebpay: "藍新" };
 
 /** 結帳：付款方式（含掃碼線上付款）＋電子發票開立方式。 */
-export function Checkout({ total, itemName, onClose, submit, onPayShow }: { total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void>; onPayShow?: (p: { method: string; amount: number; parts?: Pay[]; url?: string } | null) => void }) {
+export function Checkout({ total, itemName, onClose, submit, onPayShow, customerEmail }: { customerEmail?: string | null; total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void>; onPayShow?: (p: { method: string; amount: number; parts?: Pay[]; url?: string } | null) => void }) {
   const { settings } = useData();
   const provider = settings.payment?.provider ?? null;
   const linePayApi = !!settings.linePay?.enabled && total > 0;
@@ -36,6 +36,9 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
   const [mixAmt, setMixAmt] = useState("");
   const [inv, setInv] = useState<InvoiceInput>({ type: "print" });
   const [online, setOnline] = useState<{ id: string; url: string } | null>(null);
+  // 信用卡：有設定藍新／綠界時預設「傳付款連結」，也可以改用刷卡機
+  const [cardMode, setCardMode] = useState<"link" | "terminal">(provider ? "link" : "terminal");
+  const cardLink = method === "card" && !!provider && cardMode === "link" && total > 0;
   const { busy, run } = useAction();
 
   const cashIn = cash === "" ? total : Number(cash);
@@ -61,14 +64,14 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
   // 顧客螢幕：非現金的部分顯示給客人（轉帳帳號／QR、LINE Pay QR）
   const mixShow = [...mixed].reverse().find((p) => p.method !== "cash");
   const showPay =
-    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : { method, amount: total };
+    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" || cardLink ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : { method, amount: total };
   const showKey = JSON.stringify(showPay);
   useEffect(() => {
     onPayShow?.(showPay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showKey]);
   useEffect(() => () => onPayShow?.(null), [onPayShow]);
-  const ok = method !== "online" && !scanLinePay && !restScan && paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
+  const ok = method !== "online" && !cardLink && !scanLinePay && !restScan && paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
   const invoiceOk = !invoiceOn || inv.type === "print" || (inv.type === "mobile" && /^\/[0-9A-Z+\-.]{7}$/.test(inv.mobileBarcode ?? "")) || (inv.type === "taxId" && /^\d{8}$/.test(inv.taxId ?? "")) || (inv.type === "donate" && /^\d{3,7}$/.test(inv.loveCode ?? ""));
   const invoicePayload = invoiceOn ? inv : null;
 
@@ -80,7 +83,7 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
       onClose={() => !busy && !online && onClose()}
       wide
       footer={
-        method === "online" || scanLinePay || restScan ? null : (
+        method === "online" || cardLink || scanLinePay || restScan ? null : (
           <button className="btn btn-pay btn-lg block" disabled={!ok || !invoiceOk || busy} onClick={() => run(() => submit(payments, invoicePayload))}>
             {busy ? "結帳中…" : change > 0 ? `完成結帳（找零 ${money(change)}）` : "完成結帳"}
           </button>
@@ -153,8 +156,18 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
           onPaid={(paymentId) => run(() => submit([{ method: "linepay", amount: total, ref: paymentId }], invoicePayload))}
         />
       )}
-      {PAY_LABEL[method] && method !== "cash" && !scanLinePay && <p className="center big">請以 {PAY_LABEL[method]} 收款 {money(total)}{method === "card" ? "（刷卡機另外操作）" : ""}</p>}
-      {method === "online" && provider && (
+      {method === "card" && provider && total > 0 && (
+        <div className="seg center-seg">
+          <button className={cardMode === "link" ? "on" : ""} disabled={!!online} onClick={() => setCardMode("link")}>
+            📧 傳付款連結
+          </button>
+          <button className={cardMode === "terminal" ? "on" : ""} disabled={!!online} onClick={() => setCardMode("terminal")}>
+            刷卡機
+          </button>
+        </div>
+      )}
+      {PAY_LABEL[method] && method !== "cash" && !scanLinePay && !cardLink && <p className="center big">請以 {PAY_LABEL[method]} 收款 {money(total)}{method === "card" ? "（刷卡機另外操作）" : ""}</p>}
+      {(method === "online" || cardLink) && provider && (
         <OnlinePay
           provider={provider}
           amount={total}
@@ -162,6 +175,7 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
           invoiceOk={invoiceOk}
           session={online}
           setSession={setOnline}
+          defaultEmail={customerEmail ?? ""}
           onPaid={(paymentId) => run(() => submit([{ method: provider, amount: total, ref: paymentId }], invoicePayload))}
         />
       )}
@@ -363,7 +377,9 @@ function OnlinePay({
   session,
   setSession,
   onPaid,
+  defaultEmail = "",
 }: {
+  defaultEmail?: string;
   provider: string;
   amount: number;
   itemName: string;
@@ -374,7 +390,7 @@ function OnlinePay({
 }) {
   const { settings } = useData();
   const [pay, setPay] = useState<{ status: string; lastError?: string | null; providerTradeNo?: string | null; card4?: string | null; inst?: number; paymentType?: string | null }>({ status: "waiting" });
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(defaultEmail);
   const { busy, run } = useAction();
   const toast = useToast();
   const fired = useRef(false);
@@ -415,7 +431,12 @@ function OnlinePay({
   const paid = pay.status === "paid";
   const waiting = pay.status === "waiting";
   const how = pay.card4 ? `信用卡 **** ${pay.card4}${pay.inst ? `（分 ${pay.inst} 期）` : ""}` : pay.paymentType ? pay.paymentType : "—";
-  const mail = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(`${settings.shopName || "ganbaru29"} 付款連結 ${money(amount)}`)}&body=${encodeURIComponent(`您好，這是本次消費 ${money(amount)} 的付款連結（30 分鐘內有效）：\n${session.url}\n\n謝謝光臨！`)}`;
+  const subject = `${settings.shopName || "ganbaru29"} 付款連結 ${money(amount)}`;
+  const body = `您好，這是本次消費 ${money(amount)} 的付款連結（30 分鐘內有效），點開即可用信用卡付款：\n${session.url}\n\n付款完成後門市會自動完成結帳，謝謝光臨！`;
+  // Gmail 網頁版直接開好一封信（用這台電腦登入的 Gmail 寄出）
+  const gmail = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const mail = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   return (
     <div className="online-pay">
       <QrImg value={session.url} size={200} />
@@ -450,8 +471,11 @@ function OnlinePay({
           <>
             <div className="inline-form">
               <input type="email" placeholder="客人 Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <a className={`btn ${/@/.test(email) ? "" : "disabled"}`} href={/@/.test(email) ? mail : undefined}>
-                ✉️ 寄連結
+              <a className={`btn btn-primary ${emailOk ? "" : "disabled"}`} href={emailOk ? gmail : undefined} target="_blank" rel="noreferrer">
+                📧 用 Gmail 寄
+              </a>
+              <a className={`btn ${emailOk ? "" : "disabled"}`} href={emailOk ? mail : undefined}>
+                其他郵件 App
               </a>
               <button className="btn" onClick={() => navigator.clipboard?.writeText(session.url).then(() => toast("已複製付款連結", "ok"))}>
                 複製連結

@@ -600,6 +600,7 @@ export function Register() {
           onClose={() => setCheckout(false)}
           itemName={cart.map((l) => byId.get(l.variantId)?.productTitle ?? "商品").slice(0, 5).join("、") + (cart.length > 5 ? " 等" : "")}
           onPayShow={setPayShow}
+          customerEmail={shopper?.email}
           submit={async (payments, invoice) => {
             const id = orderId.current;
             type R = { id: string; status: string; stockIssues: { title: string; status: string; error: string | null }[] };

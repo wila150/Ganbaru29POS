@@ -930,3 +930,8 @@ span.tier-switch { cursor: default; }
 .cd-tel span { display: flex; align-items: center; padding: 0 12px; font-size: 22px; background: var(--surface-2); border: 1px solid var(--border); border-right: none; border-radius: 10px 0 0 10px; color: var(--text); }
 .cd-tel input { flex: 1; border-radius: 0 10px 10px 0 !important; min-width: 0; }
 .cred-set { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.seg.center-seg { display: flex; justify-content: center; gap: 0; margin: 4px auto 10px; }
+.seg.center-seg button { padding: 10px 20px; font-size: 16px; border: 1px solid var(--border); background: var(--surface); }
+.seg.center-seg button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+.seg.center-seg button:last-child { border-radius: 0 var(--radius) var(--radius) 0; border-left: none; }
+.seg.center-seg button.on { background: var(--primary); color: #fff; border-color: var(--primary); }
