@@ -40,7 +40,7 @@ export function Holds() {
         <div className="cards">
           {list.map((h) => {
             const tierPct = (settings.memberTiers ?? []).find((x) => x.name === h.shopper?.tier)?.discountPct ?? 0;
-            const t = totals(h.cart, h.discounts, settings.pointValue ?? 1, cartPromos(h.cart, byId, promotions, h.shopper), tierPct);
+            const t = totals(h.cart, h.discounts, settings.pointValue ?? 1, cartPromos(h.cart, byId, promotions, h.shopper, [], settings.noDiscountTags), tierPct);
             return (
               <div key={h.id} className="card">
                 <div className="row-between">

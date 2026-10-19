@@ -65,36 +65,49 @@ function Screen() {
       </div>
     );
   }
-  if (s.mode === "cart" && s.lines?.length)
+  if (s.mode === "cart" && s.lines?.length) {
+    const qty = s.lines.reduce((a, l) => a + l.qty, 0);
     return (
       <div className="cd cd-cart" onClick={full}>
-        <div className="cd-head">
-          <span>{shop}</span>
-          {s.member && <span>會員：{s.member}</span>}
-        </div>
-        <ul className="cd-lines">
-          {s.lines.map((l, i) => (
-            <li key={i}>
-              <div>
-                <div className="cd-title">{l.title}</div>
-                <div className="muted">{l.options} × {l.qty}</div>
-              </div>
-              <div className="cd-amt">
-                {l.orig != null && <s className="muted">{money(l.orig)}</s>}
-                <b>{money(l.amount)}</b>
-                {l.promo && <div className="cd-promo">{l.promo}</div>}
-              </div>
-            </li>
-          ))}
-        </ul>
-        <div className="cd-total">
-          {s.summary && <Breakdown x={s.summary} totalOff={s.discount ?? 0} />}
-          <div>
-            {(s.discount ?? 0) > 0 ? "折抵後" : "應付"} <b>{money(s.total ?? 0)}</b>
-          </div>
+        <header className="cd-bar">
+          <b>{shop}</b>
+          <span>{s.member ? `會員　${s.member}` : "非會員"}</span>
+        </header>
+        <div className="cd-cols">
+          <section className="cd-card cd-list">
+            <div className="cd-list-head">
+              <span>品項</span>
+              <span>共 {qty} 件</span>
+            </div>
+            <ul className="cd-lines">
+              {s.lines.map((l, i) => (
+                <li key={i}>
+                  <div className="cd-item">
+                    <div className="cd-title">{l.title}</div>
+                    <div className="cd-opt">
+                      {l.options || "單一規格"}　× {l.qty}
+                    </div>
+                    {l.promo && <span className="cd-chip">{l.promo}</span>}
+                  </div>
+                  <div className="cd-amt">
+                    {l.orig != null && <s>{money(l.orig)}</s>}
+                    <b>{money(l.amount)}</b>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section className="cd-card cd-sum">
+            <Breakdown x={s.summary ?? { gross: s.total ?? 0, rows: [] }} totalOff={s.discount ?? 0} />
+            <div className="cd-due">
+              <span>{(s.discount ?? 0) > 0 ? "折抵後應付" : "應付金額"}</span>
+              <b>{money(s.total ?? 0)}</b>
+            </div>
+          </section>
         </div>
       </div>
     );
+  }
   return (
     <div className="cd cd-center" onClick={full}>
       <div className="cd-big">歡迎光臨</div>
@@ -105,14 +118,13 @@ function Screen() {
 }
 
 function Breakdown({ x, totalOff }: { x: NonNullable<DisplayState["summary"]>; totalOff: number }) {
-  if (!x.rows?.length) return null;
   return (
     <div className="cd-break">
       <div>
         <span>商品原價</span>
         <span>{money(x.gross)}</span>
       </div>
-      {x.rows.map((r, i) => (
+      {(x.rows ?? []).map((r, i) => (
         <div key={i}>
           <span>{r.label}</span>
           <span className={r.amount < 0 ? "cd-minus" : ""}>{r.amount < 0 ? `−${money(-r.amount)}` : `＋${money(r.amount)}`}</span>

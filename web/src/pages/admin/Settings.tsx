@@ -563,7 +563,7 @@ function SoundSettings() {
 }
 
 function PosSettings() {
-  const { form, set, save, busy } = useSettingsForm(["shopName", "rewardPercent", "pointValue", "staffCanRefund", "serviceFeeDefault", "receiptHeader", "receiptFooter", "shiftNames", "siteBaseUrl", "openHours"]);
+  const { form, set, save, busy } = useSettingsForm(["shopName", "rewardPercent", "pointValue", "staffCanRefund", "serviceFeeDefault", "receiptHeader", "receiptFooter", "shiftNames", "siteBaseUrl", "openHours", "noDiscountTags"]);
   return (
     <section className="card">
       <h2>POS 與門市</h2>
@@ -598,6 +598,9 @@ function PosSettings() {
               ))}
             </select>
           </div>
+        </Field>
+        <Field label="不再折扣的標籤（逗號分隔）" hint="有這些 meepShop 標籤的商品，在 POS 不參加優惠活動、會員折扣、整單打折（店員手動單品打折仍可）">
+          <input value={(form.noDiscountTags ?? ["特價專區"]).join(",")} onChange={(e) => set("noDiscountTags", e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean))} />
         </Field>
         <Field label="班別名稱（逗號分隔）">
           <input value={(form.shiftNames ?? ["早班", "晚班"]).join(",")} onChange={(e) => set("shiftNames", e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean))} />

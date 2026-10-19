@@ -20,10 +20,10 @@ export interface CartDiscounts {
 
 export const lineTotal = (l: Pick<CartLine, "qty" | "unitPrice" | "discountPct">) => Math.round((l.unitPrice * l.qty * (100 - l.discountPct)) / 100);
 
-const NO_PROMO: PromoResult = { lineDiscount: {}, lineLabels: {}, noMemberStack: [], applied: [], total: 0 };
+const NO_PROMO: PromoResult = { lineDiscount: {}, lineLabels: {}, noMemberStack: [], noDiscount: [], applied: [], total: 0 };
 
-export function cartPromos(lines: CartLine[], byId: Map<string, Variant>, promotions: Promotion[], shopper?: { tier?: string | null; group?: string | null } | null, couponPromoIds: string[] = []): PromoResult {
-  if (!promotions.length) return NO_PROMO;
+export function cartPromos(lines: CartLine[], byId: Map<string, Variant>, promotions: Promotion[], shopper?: { tier?: string | null; group?: string | null } | null, couponPromoIds: string[] = [], noDiscountTags?: string[]): PromoResult {
+  if (!lines.length) return NO_PROMO;
   return applyPromotions(
     lines,
     (vid) => {
@@ -31,7 +31,7 @@ export function cartPromos(lines: CartLine[], byId: Map<string, Variant>, promot
       return v ? { productId: v.productId, category: v.posCategory, tags: v.tags ?? [] } : undefined;
     },
     promotions,
-    { ...taipeiClock(), isMember: !!shopper, tier: shopper?.tier ?? null, group: shopper?.group ?? null, coupons: couponPromoIds }
+    { ...taipeiClock(), isMember: !!shopper, tier: shopper?.tier ?? null, group: shopper?.group ?? null, coupons: couponPromoIds, noDiscountTags }
   );
 }
 
@@ -44,7 +44,10 @@ export function totals(lines: CartLine[], d: CartDiscounts, pointValue = 1, prom
   const memberBase = lines.reduce((s, l) => s + (noStack.has(l.key) ? 0 : lineTotal(l) - (promo.lineDiscount[l.key] ?? 0)), 0);
   const memberDiscount = Math.round((memberBase * memberPct) / 100);
   const afterMember = subtotal - memberDiscount;
-  const orderDiscount = Math.round((afterMember * d.orderDiscountPct) / 100);
+  // 特價商品（不再折扣）不算整單打折
+  const noDisc = new Set(promo.noDiscount ?? []);
+  const orderBase = afterMember - lines.reduce((s, l) => s + (noDisc.has(l.key) ? lineTotal(l) : 0), 0);
+  const orderDiscount = Math.round((orderBase * d.orderDiscountPct) / 100);
   const serviceFee = Math.round(((afterMember - orderDiscount) * d.serviceFeePct) / 100);
   const rewardDiscount = d.rewardPoints * pointValue;
   const total = afterMember - orderDiscount + serviceFee - d.allowance - rewardDiscount;

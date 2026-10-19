@@ -102,6 +102,15 @@ export interface PromoContext {
   group?: string | null;
   /** 結帳時輸入的優惠碼解鎖的促銷 id */
   coupons?: string[];
+  /** 有這些標籤／分類的商品不再打任何折扣（促銷、會員折扣、整單打折）；沒設定 = 「特價專區」 */
+  noDiscountTags?: string[];
+}
+
+export const DEFAULT_NO_DISCOUNT_TAGS = ["特價專區"];
+export const NO_DISCOUNT_LABEL = "特價商品・不再折扣";
+export function isNoDiscount(info: PromoItemInfo | undefined, tags: string[] | undefined): boolean {
+  if (!info) return false;
+  return (tags ?? DEFAULT_NO_DISCOUNT_TAGS).some((t) => t && (info.tags.includes(t) || info.category === t));
 }
 
 export interface PromoApplied {
@@ -113,6 +122,8 @@ export interface PromoApplied {
 export interface PromoResult {
   /** line key → promotion discount in dollars */
   lineDiscount: Record<string, number>;
+  /** 特價商品（不再折扣）的 line key：會員折扣、整單打折也不算這些 */
+  noDiscount: string[];
   /** line key → promotion names used on that line */
   lineLabels: Record<string, string[]>;
   /** line keys touched by a promotion that does not stack with the member discount */
@@ -272,17 +283,25 @@ function evaluate(p: Promotion, units: Unit[], free: boolean[]): { saving: numbe
 export function applyPromotions(lines: PromoLine[], infoOf: (variantId: string) => PromoItemInfo | undefined, promotions: Promotion[], context: PromoContext | string): PromoResult {
   const ctx = ctxOf(context);
   const units: Unit[] = [];
+  const lineDiscount: Record<string, number> = {};
+  const lineLabels: Record<string, string[]> = {};
+  const noStack = new Set<string>();
+  const noDiscount = new Set<string>();
+  const applied: PromoApplied[] = [];
   for (const l of lines) {
-    if (l.discountPct > 0) continue; // manual discount wins; no stacking
     const info = infoOf(l.variantId);
+    // 特價商品（例：meepShop 標籤「特價專區」）：不參加促銷，也不算會員折扣、整單打折
+    if (isNoDiscount(info, ctx.noDiscountTags)) {
+      noDiscount.add(l.key);
+      noStack.add(l.key);
+      lineLabels[l.key] = [NO_DISCOUNT_LABEL];
+      continue;
+    }
+    if (l.discountPct > 0) continue; // manual discount wins; no stacking
     if (!info) continue;
     for (let q = 0; q < l.qty; q++) units.push({ lineKey: l.key, price: l.unitPrice, info });
   }
   const free = units.map(() => true);
-  const lineDiscount: Record<string, number> = {};
-  const lineLabels: Record<string, string[]> = {};
-  const noStack = new Set<string>();
-  const applied: PromoApplied[] = [];
   const remaining = promotions.filter((p) => promoIsLive(p, ctx));
 
   for (;;) {
@@ -303,7 +322,7 @@ export function applyPromotions(lines: PromoLine[], infoOf: (variantId: string) 
     applied.push({ promoId: best.p.id, name: best.p.name, discount: best.saving });
     remaining.splice(remaining.indexOf(best.p), 1);
   }
-  return { lineDiscount, lineLabels, noMemberStack: [...noStack], applied, total: applied.reduce((s, a) => s + a.discount, 0) };
+  return { lineDiscount, lineLabels, noMemberStack: [...noStack], noDiscount: [...noDiscount], applied, total: applied.reduce((s, a) => s + a.discount, 0) };
 }
 
 export const PROMO_TYPE_LABEL: Record<PromoType, string> = {

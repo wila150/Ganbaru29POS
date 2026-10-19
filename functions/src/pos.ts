@@ -197,7 +197,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
     lines.map((l, i) => ({ key: String(i), variantId: l.variantId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct })),
     (vid) => infoById.get(vid),
     promotions,
-    { ...taipeiClock(), isMember: !!shopperId, tier: shopperDoc?.tier ?? null, group: shopperDoc?.posGroup ?? shopperDoc?.memberGroup ?? null, coupons: couponCheck.promoIds }
+    { ...taipeiClock(), isMember: !!shopperId, tier: shopperDoc?.tier ?? null, group: shopperDoc?.posGroup ?? shopperDoc?.memberGroup ?? null, coupons: couponCheck.promoIds, noDiscountTags: settings.noDiscountTags }
   );
   lines.forEach((l, i) => {
     l.promoDiscount = promo.lineDiscount[String(i)] ?? 0;
@@ -241,7 +241,10 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   const afterMember = subtotal - memberDiscount;
 
   const orderDiscountPct = num(d.orderDiscountPct ?? 0, "整單折扣", { min: 0, max: 100 });
-  const orderDiscount = Math.round((afterMember * orderDiscountPct) / 100);
+  // 特價商品不算整單打折
+  const noDisc = new Set(promo.noDiscount.map(Number));
+  const orderBase = afterMember - lines.reduce((s2, l, i) => s2 + (noDisc.has(i) ? l.total : 0), 0);
+  const orderDiscount = Math.round((orderBase * orderDiscountPct) / 100);
   const serviceFeePct = num(d.serviceFeePct ?? 0, "服務費", { min: 0, max: 100 });
   const serviceFee = Math.round(((afterMember - orderDiscount) * serviceFeePct) / 100);
   const allowance = num(d.allowance ?? 0, "折讓", { min: 0, max: 1e7 });

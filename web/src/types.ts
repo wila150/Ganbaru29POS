@@ -117,6 +117,8 @@ export interface ShopSettings {
   /** 網店寄件的寄件人（7-11 交貨便、全家匯入檔用），全店共用 */
   shipSenders?: { name: string; phone: string; email: string }[];
   /** 付款方式：順序、名稱、開關；key 以 c_ 開頭的是自訂（街口、悠遊付、禮券…） */
+  /** 有這些 meepShop 標籤的商品在 POS 不再打折（沒設定 = 特價專區） */
+  noDiscountTags?: string[];
   /** 顧客螢幕付款畫面：轉帳帳號、轉帳 QR、LINE Pay 收款 QR */
   payDisplay?: { transferBank?: string; transferAccount?: string; transferName?: string; transferQrUrl?: string; linepayQrUrl?: string };
   payMethods?: { key: string; label: string; enabled: boolean; feePct?: number }[];

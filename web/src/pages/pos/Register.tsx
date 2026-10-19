@@ -17,7 +17,7 @@ import { MemberTagEditor, ShopperGroup, TagChips, useShopperPrefs } from "../../
 import { beep, deviceId, money, newId, PAY_LABEL, pctToZhe, todayStr, zheToPct } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useDeviceLocation } from "../../lib/location";
-import { displayChannel, pushDisplay, setSignup, type SignupState } from "../../lib/display";
+import { displayChannel, pushDisplay, setSignup, type DisplayLine, type SignupState } from "../../lib/display";
 import { Checkout, Done } from "./Checkout";
 import { useCurrentShift } from "./PosLayout";
 
@@ -91,7 +91,7 @@ export function Register() {
   }, [incoming, nav]);
 
   const pointValue = settings.pointValue ?? 1;
-  const promo = useMemo(() => cartPromos(cart, byId, promotions, shopper, coupons.map((c) => c.promoId)), [cart, byId, promotions, shopper, coupons]);
+  const promo = useMemo(() => cartPromos(cart, byId, promotions, shopper, coupons.map((c) => c.promoId), settings.noDiscountTags), [cart, byId, promotions, shopper, coupons, settings.noDiscountTags]);
 
   // 帶入的會員：資料改了（購物金、群組、等級）畫面跟著更新
   const shopperId = shopper?.id;
@@ -183,11 +183,11 @@ export function Register() {
   useEffect(() => {
     const ch = displayChannel(locationId);
     if (!cart.length) return pushDisplay(ch, thanks !== null ? { mode: "done", change: thanks } : { mode: "idle" }, true);
-    const lines = cart.map((l) => {
+    const lines: DisplayLine[] = cart.map((l) => {
       const v = byId.get(l.variantId);
       const orig = lineTotal(l);
       const off = promo.lineDiscount[l.key] ?? 0;
-      return { title: v?.productTitle ?? "商品", options: v?.options ?? "", qty: l.qty, amount: orig - off, ...(off > 0 || l.discountPct > 0 ? { orig: l.unitPrice * l.qty, promo: (promo.lineLabels[l.key] ?? []).join("、") || `${pctToZhe(l.discountPct)} 折` } : {}) };
+      return { title: v?.productTitle ?? "商品", options: v?.options ?? "", qty: l.qty, amount: orig - off, ...(off > 0 || l.discountPct > 0 ? { orig: l.unitPrice * l.qty, promo: (promo.lineLabels[l.key] ?? []).join("、") || `${pctToZhe(l.discountPct)} 折` } : promo.noDiscount.includes(l.key) ? { promo: "特價商品・不再折扣" } : {}) };
     });
     const pay = checkout ? payShow : null;
     pushDisplay(ch, { mode: pay ? "pay" : "cart", lines, total: due, discount: Math.max(0, lines.reduce((a, l) => a + (l.orig ?? l.amount), 0) - due), member: shopper?.name || null, summary: { gross: lines.reduce((a, l) => a + (l.orig ?? l.amount), 0), rows: displayRows }, pay }, !!pay);
