@@ -424,6 +424,12 @@ function OnlinePay({
       await call("sendPayLink", { id: sess.id, email });
       setSentTo(email);
     }, `付款連結已寄到 ${email}`);
+  // 付款中：每 10 秒主動向金流查一次（萬一金流通知沒送到，也會自動完成）
+  useEffect(() => {
+    if (!session || pay.status !== "waiting") return;
+    const t = setInterval(() => call("checkOnlinePayment", { id: session.id }).catch(() => undefined), 10_000);
+    return () => clearInterval(t);
+  }, [session, pay.status]);
   if (!session && mode === "mail")
     return (
       <div className="op-mail">

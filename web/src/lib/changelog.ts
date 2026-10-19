@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-ai",
+    date: "2026-10-19",
+    title: "修正：藍新刷卡成功但 POS 沒完成",
+    items: [
+      "修正藍新付款成功後，系統讀不到付款結果的問題",
+      "付款中每 10 秒自動向藍新查詢一次，就算通知沒送到也會自動完成結帳；也可以按「查詢付款狀態」",
+    ],
+  },
+  {
     id: "2026-10-19-ah",
     date: "2026-10-19",
     title: "信用卡付款連結直接寄到客人 Email",

@@ -20,7 +20,12 @@ function encrypt(query: string, c: NewebCreds) {
 }
 export function decryptTradeInfo(hex: string, c: NewebCreds): Record<string, unknown> {
   const decipher = createDecipheriv("aes-256-cbc", Buffer.from(c.hashKey, "utf8"), Buffer.from(c.hashIv, "utf8"));
-  const plain = Buffer.concat([decipher.update(Buffer.from(hex, "hex")), decipher.final()]).toString("utf8").replace(/[\x00-\x1f]+$/g, "");
+  // 藍新回傳的補位不一定是標準 PKCS7（直接 final() 會 bad decrypt）→ 關掉自動補位，自己去掉尾巴的補位字元
+  decipher.setAutoPadding(false);
+  const buf = Buffer.concat([decipher.update(Buffer.from(hex.trim(), "hex")), decipher.final()]);
+  const pad = buf[buf.length - 1];
+  const body = pad > 0 && pad <= 32 && buf.subarray(buf.length - pad).every((b) => b === pad) ? buf.subarray(0, buf.length - pad) : buf;
+  const plain = body.toString("utf8").replace(/[\x00-\x1f]+$/g, "");
   try {
     return JSON.parse(plain);
   } catch {
@@ -52,4 +57,18 @@ export function mpgForm(c: NewebCreds, o: { orderNo: string; amount: number; ite
   }).toString();
   const TradeInfo = encrypt(q, c);
   return { action: mpgUrl(c.stage), params: { MerchantID: c.merchantId, TradeInfo, TradeSha: tradeSha(TradeInfo, c), Version: "2.0" } };
+}
+
+/** 查詢單筆交易（通知沒收到時補查）。TradeStatus 1 = 付款成功 */
+export async function queryTrade(c: NewebCreds, orderNo: string, amount: number): Promise<{ ok: boolean; data: Record<string, unknown> }> {
+  const amt = String(Math.round(amount));
+  const check = createHash("sha256").update(`IV=${c.hashIv}&Amt=${amt}&MerchantID=${c.merchantId}&MerchantOrderNo=${orderNo}&Key=${c.hashKey}`).digest("hex").toUpperCase();
+  const url = c.stage ? "https://ccore.newebpay.com/API/QueryTradeInfo" : "https://core.newebpay.com/API/QueryTradeInfo";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ MerchantID: c.merchantId, Version: "1.3", RespondType: "JSON", CheckValue: check, TimeStamp: String(Math.floor(Date.now() / 1000)), MerchantOrderNo: orderNo, Amt: amt }),
+  });
+  const j = (await res.json()) as { Status?: string; Result?: Record<string, unknown> };
+  return { ok: j.Status === "SUCCESS", data: j.Result ?? {} };
 }

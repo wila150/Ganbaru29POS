@@ -102,7 +102,19 @@ export const checkOnlinePayment = onCall(async (req) => {
   const ref = db.doc(`posPayments/${str(req.data?.id, "付款", { max: 40 })}`);
   const p = (await ref.get()).data();
   assert(p, "找不到這筆付款", "not-found");
-  if (p.status !== "waiting" || p.provider !== "ecpay") return { status: p.status };
+  if (p.status !== "waiting") return { status: p.status };
+  if (p.provider === "newebpay") {
+    const c = await newebCreds();
+    for (const no of p.tradeNos ?? []) {
+      const r = await neweb.queryTrade(c, no, p.amount);
+      if (r.ok && String(r.data.TradeStatus) === "1" && Number(r.data.Amt) === p.amount) {
+        await markPaid(ref, { tradeNo: no, providerTradeNo: String(r.data.TradeNo ?? ""), paymentType: String(r.data.PaymentType ?? ""), card4: String(r.data.Card4No ?? ""), raw: r.data });
+        return { status: "paid" };
+      }
+    }
+    return { status: p.status };
+  }
+  if (p.provider !== "ecpay") return { status: p.status };
   const c = await ecpayPaymentCreds();
   for (const no of p.tradeNos ?? []) {
     const r = await ecpay.queryTrade(c, no);
