@@ -235,7 +235,7 @@ function Signup() {
         <div className="cd-confirm">
           <div><span>Email</span><b>{f.email}</b></div>
           <div><span>姓名</span><b>{f.name}</b></div>
-          <div><span>手機</span><b>{region.id === "tw" ? "09" : `${region.cc} `}{f.mobile}</b></div>
+          <div><span>手機</span><b>{region.id === "tw" ? "09" : `${region.cc.replace("+", "")} `}{f.mobile}</b></div>
           <div><span>生日</span><b>{f.birthDate.replace(/-/g, " / ")}</b></div>
         </div>
         <div className="cd-confirm-btns">
@@ -264,7 +264,7 @@ function Signup() {
         手機
         <RegionTabs value={region} onChange={setRegion} />
         <div className="cd-tel">
-          <span>{region.cc}</span>
+          <span>{region.cc.replace("+", "")}</span>
           <input inputMode="tel" autoComplete="tel" placeholder={region.hint} value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} />
         </div>
       </label>
@@ -340,7 +340,7 @@ function PhoneEntry({ ch, s }: { ch: string; s: SignupState }) {
       <h1>請輸入會員手機</h1>
       <RegionTabs value={region} onChange={(r) => (setRegion(r), setV(""))} />
       <div className="cd-phone-num">
-        <span className={region.id === "tw" ? "" : "muted"}>{region.cc}</span>
+        <span className={region.id === "tw" ? "" : "muted"}>{region.cc.replace("+", "")}</span>
         {region.id === "tw" ? "" : " "}
         {v ? (region.id === "tw" ? v.replace(/^(\d{2})(\d{0,3})(\d{0,3}).*/, (_, a, b, c) => [a, b, c].filter(Boolean).join(" ")) : v.replace(/^(\d{4})(\d{0,4}).*/, (_, a, b) => [a, b].filter(Boolean).join(" "))) : <span className="muted">{region.hint}</span>}
       </div>
