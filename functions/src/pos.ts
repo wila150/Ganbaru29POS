@@ -841,14 +841,23 @@ export const cashMove = onCall(opts, async (req) => {
   const amount = num(req.data?.amount, "金額", { min: 1, max: 1e7 });
   const note = str(req.data?.note, "說明", { optional: true, max: 100 }) || null;
   const expenseCategory = type === "out" ? str(req.data?.expenseCategory, "開支分類", { optional: true, max: 30 }) : "";
+  // 歸屬月份（例：這個月的薪水下個月初才發 → 記到上個月）：YYYY-MM；不是本月就記在那個月最後一天
+  const today = taipeiDate();
+  let expenseDate = today;
+  const month = str(req.data?.expenseMonth, "歸屬月份", { optional: true, max: 7 });
+  if (expenseCategory && month && month !== today.slice(0, 7)) {
+    assert(/^\d{4}-(0[1-9]|1[0-2])$/.test(month) && month < today.slice(0, 7), "歸屬月份要是過去的月份");
+    const [y, m] = month.split("-").map(Number);
+    expenseDate = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+  }
   await db.doc(`shifts/${shiftId}`).update({
-    cashMoves: FieldValue.arrayUnion({ id: db.collection("x").doc().id, type, amount, note, by: actor.name, at: Timestamp.now(), expenseCategory: expenseCategory || null }),
+    cashMoves: FieldValue.arrayUnion({ id: db.collection("x").doc().id, type, amount, note, by: actor.name, at: Timestamp.now(), expenseCategory: expenseCategory || null, expenseDate: expenseCategory ? expenseDate : null }),
   });
   // 錢櫃提款同時記為開支（例如付貨運、買文具）
   if (expenseCategory) {
-    await db.collection("expenses").add({ date: taipeiDate(), category: expenseCategory, amount, note, payMethod: "cash", source: "drawer", shiftId, locationId: str(req.data?.locationId, "門市", { optional: true, max: 40 }) || null, createdBy: actor.uid, createdByName: actor.name, createdAt: FieldValue.serverTimestamp() });
+    await db.collection("expenses").add({ date: expenseDate, category: expenseCategory, amount, note, payMethod: "cash", source: "drawer", shiftId, locationId: str(req.data?.locationId, "門市", { optional: true, max: 40 }) || null, createdBy: actor.uid, createdByName: actor.name, createdAt: FieldValue.serverTimestamp() });
   }
-  await audit(actor, "drawer." + type, { amount, note, expenseCategory: expenseCategory || null, shiftId });
+  await audit(actor, "drawer." + type, { amount, note, expenseCategory: expenseCategory || null, expenseDate: expenseCategory ? expenseDate : null, shiftId });
   return { ok: true };
 });
 

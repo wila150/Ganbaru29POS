@@ -11,6 +11,12 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-p",
+    date: "2026-10-19",
+    title: "開支歸屬月份",
+    items: ["錢櫃提款記為開支時可以選「歸屬月份」（本月、上個月…）：例如這個月的薪水下個月初才發，選上個月，就會算在上個月的損益"],
+  },
+  {
     id: "2026-10-19-o",
     date: "2026-10-19",
     title: "周轉表整理",

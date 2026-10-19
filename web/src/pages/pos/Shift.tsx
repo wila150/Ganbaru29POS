@@ -8,7 +8,7 @@ import { Badge, Empty, Field, useAction } from "../../components/ui";
 import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { cartPromos, totals, type CartDiscounts, type CartLine } from "../../lib/cart";
-import { fmtTime, money, PAY_NAME } from "../../lib/util";
+import { fmtTime, money, PAY_NAME, todayStr } from "../../lib/util";
 import type { Shopper } from "../../types";
 import { useCurrentShift } from "./PosLayout";
 
@@ -275,7 +275,7 @@ interface ShiftDoc {
   name: string;
   businessDate: string;
   float: number;
-  cashMoves: { id: string; type: "in" | "out"; amount: number; note: string | null; by: string; at: Timestamp }[];
+  cashMoves: { id: string; type: "in" | "out"; amount: number; note: string | null; by: string; at: Timestamp; expenseCategory?: string | null; expenseDate?: string | null }[];
   openedByName: string;
   openedAt: Timestamp | null;
 }
@@ -291,6 +291,15 @@ export function Drawer() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [expCat, setExpCat] = useState("");
+  // 開支歸屬月份：本月、上個月…往前 12 個月
+  const thisMonth = todayStr().slice(0, 7);
+  const [expMonth, setExpMonth] = useState(thisMonth);
+  const monthOptions = Array.from({ length: 13 }, (_, i) => {
+    const [y, mo] = thisMonth.split("-").map(Number);
+    const d = new Date(Date.UTC(y, mo - 1 - i, 1));
+    const v = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    return [v, i === 0 ? `本月（${v}）` : i === 1 ? `上個月（${v}）` : v] as [string, string];
+  });
   const { busy, run } = useAction();
   const expenseCategories = settings.expenseCategories?.length ? settings.expenseCategories : DEFAULT_EXPENSE_CATEGORIES;
 
@@ -360,14 +369,24 @@ export function Drawer() {
               ))}
             </select>
           )}
+          {type === "out" && expCat && (
+            <select value={expMonth} onChange={(e) => setExpMonth(e.target.value)} title="這筆開支算在哪個月（例：這個月的薪水下個月初發，選上個月）">
+              {monthOptions.map(([v, l]) => (
+                <option key={v} value={v}>
+                  歸屬：{l}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             className="btn btn-primary"
             disabled={busy || !(Number(amount) > 0)}
             onClick={() =>
-              run(() => call("cashMove", { type, amount: Number(amount), note, locationId: getDeviceLocationId(), expenseCategory: type === "out" ? expCat : "" }), "已記錄").then(() => {
+              run(() => call("cashMove", { type, amount: Number(amount), note, locationId: getDeviceLocationId(), expenseCategory: type === "out" ? expCat : "", expenseMonth: type === "out" && expCat ? expMonth : "" }), "已記錄").then(() => {
                 setAmount("");
                 setNote("");
                 setExpCat("");
+                setExpMonth(thisMonth);
               })
             }
           >
@@ -382,7 +401,15 @@ export function Drawer() {
                   <td>{fmtTime(m.at, false)}</td>
                   <td>{m.type === "in" ? "存入" : "提出"}</td>
                   <td className={`num ${m.type === "in" ? "plus" : "minus"}`}>{m.type === "in" ? "+" : "−"}{money(m.amount)}</td>
-                  <td>{m.note}</td>
+                  <td>
+                    {m.note}
+                    {m.expenseCategory && (
+                      <span className="muted small">
+                        　開支：{m.expenseCategory}
+                        {m.expenseDate && m.expenseDate.slice(0, 7) !== thisMonth && `（算在 ${m.expenseDate.slice(0, 7)}）`}
+                      </span>
+                    )}
+                  </td>
                   <td className="muted">{m.by}</td>
                 </tr>
               ))}
