@@ -935,3 +935,4 @@ span.tier-switch { cursor: default; }
 .seg.center-seg button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
 .seg.center-seg button:last-child { border-radius: 0 var(--radius) var(--radius) 0; border-left: none; }
 .seg.center-seg button.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0 10px; }

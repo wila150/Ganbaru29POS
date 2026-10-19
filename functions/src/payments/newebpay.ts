@@ -29,7 +29,9 @@ export function decryptTradeInfo(hex: string, c: NewebCreds): Record<string, unk
 }
 export const tradeSha = (tradeInfo: string, c: NewebCreds) => createHash("sha256").update(`HashKey=${c.hashKey}&${tradeInfo}&HashIV=${c.hashIv}`).digest("hex").toUpperCase();
 
-export function mpgForm(c: NewebCreds, o: { orderNo: string; amount: number; itemDesc: string; notifyUrl: string; returnUrl?: string; email?: string }) {
+export const NEWEB_EXTRA = ["APPLEPAY", "ANDROIDPAY", "SAMSUNGPAY", "LINEPAY", "TAIWANPAY"];
+
+export function mpgForm(c: NewebCreds, o: { orderNo: string; amount: number; itemDesc: string; notifyUrl: string; returnUrl?: string; email?: string; extra?: string[] }) {
   const q = new URLSearchParams({
     MerchantID: c.merchantId,
     RespondType: "JSON",
@@ -45,6 +47,8 @@ export function mpgForm(c: NewebCreds, o: { orderNo: string; amount: number; ite
     LoginType: "0",
     // 只開信用卡（Apple Pay、LINE Pay 等要先向藍新申請啟用，沒啟用時送出會整筆失敗：MPG02003）
     CREDIT: "1",
+    // 店家在設定頁勾選、且已向藍新申請啟用的其他付款方式
+    ...Object.fromEntries((o.extra ?? []).filter((k) => NEWEB_EXTRA.includes(k)).map((k) => [k, "1"])),
   }).toString();
   const TradeInfo = encrypt(q, c);
   return { action: mpgUrl(c.stage), params: { MerchantID: c.merchantId, TradeInfo, TradeSha: tradeSha(TradeInfo, c), Version: "2.0" } };

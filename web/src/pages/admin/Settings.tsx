@@ -1044,6 +1044,29 @@ function PaymentSettings() {
           </select>
         </Field>
       </div>
+      {pay.provider === "newebpay" && (
+        <div className="field">
+          <div className="muted small">藍新付款頁除了信用卡，另外開放（要先向藍新申請啟用，沒啟用就勾會讓付款頁打不開）：</div>
+          <div className="chip-row">
+            {[
+              ["APPLEPAY", "Apple Pay"],
+              ["ANDROIDPAY", "Google Pay"],
+              ["SAMSUNGPAY", "Samsung Pay"],
+              ["LINEPAY", "LINE Pay"],
+              ["TAIWANPAY", "台灣 Pay"],
+            ].map(([k, l]) => (
+              <label key={k} className="check">
+                <input
+                  type="checkbox"
+                  checked={(pay.newebExtra ?? []).includes(k)}
+                  onChange={(e) => set("payment", { ...pay, newebExtra: e.target.checked ? [...(pay.newebExtra ?? []), k] : (pay.newebExtra ?? []).filter((x) => x !== k) })}
+                />{" "}
+                {l}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       <label className="check">
         <input type="checkbox" checked={!!inv.enabled} onChange={(e) => set("invoice", { ...inv, enabled: e.target.checked })} /> 結帳時自動開立電子發票（綠界）
       </label>

@@ -163,7 +163,7 @@ export const payPage = onRequest(async (req, res) => {
       const f = ecpay.aioForm(await ecpayPaymentCreds(), { tradeNo, amount: p.amount, itemName: p.itemName, returnUrl: fnUrl("ecpayNotify"), resultUrl: `${fnUrl("payReturn")}?id=${id}&t=${p.token}` });
       res.send(autoSubmit(f.action, f.params, p.amount));
     } else {
-      const f = neweb.mpgForm(await newebCreds(), { orderNo: tradeNo, amount: p.amount, itemDesc: p.itemName, notifyUrl: fnUrl("newebpayNotify"), returnUrl: `${fnUrl("payReturn")}?id=${id}&t=${p.token}` });
+      const f = neweb.mpgForm(await newebCreds(), { orderNo: tradeNo, amount: p.amount, itemDesc: p.itemName, notifyUrl: fnUrl("newebpayNotify"), extra: ((await settings()).payment?.newebExtra as string[] | undefined) ?? [], returnUrl: `${fnUrl("payReturn")}?id=${id}&t=${p.token}` });
       res.send(autoSubmit(f.action, f.params, p.amount));
     }
   } catch (e) {
