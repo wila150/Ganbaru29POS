@@ -770,3 +770,11 @@ span.tier-switch { cursor: default; }
 .disc-top button.on .disc-ic { background: #f59e0b; color: #fff; }
 .disc-top button.on strong { color: #b45309; }
 .disc-top button:disabled .disc-ic { opacity: 0.4; }
+.fee-cell { display: inline-flex; align-items: center; gap: 4px; }
+.fee-cell input { width: 56px; padding: 6px 6px; text-align: right; }
+.pl3 td { padding: 8px 10px; }
+.pl3 .tier td { background: var(--surface-2); font-weight: 700; font-size: 16px; }
+.pl3 .tier.final td { background: #ecfdf5; }
+.pl3 .tier.final.bad td { background: #fef2f2; }
+.pl3 .minus td:first-child { padding-left: 24px; color: var(--muted); }
+.pl3 .sub td { font-size: 13px; color: var(--muted); padding-left: 44px; }

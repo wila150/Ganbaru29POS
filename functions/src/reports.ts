@@ -365,26 +365,62 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
     invoices: inv,
   };
   if (withCost) {
-    // 損益：門市淨營收（扣退貨）＋網店營收（不含取消、退貨；含客人付的運費），扣門市＋網店的銷貨成本、開支
+    // 三階損益：
+    //  一、實際總收入 = 銷售總額（門市扣退貨＋網店）－ 金流手續費（各付款方式的手續費 %）
+    //  二、營業毛利 = 實際總收入 － 已銷商品總成本
+    //  三、當期淨收入 = 營業毛利 － 營業雜支 － 人事薪資與老闆提款（「進貨」不扣：已經算在商品成本裡）
     const storeCogs = round(sum.cogs - sum.refundCogs);
-    const online = includeOnline && !onlineError ? round(onlineSales) : 0;
-    const oCogs = includeOnline && !onlineError ? round(onlineCogs) : 0;
+    const onlineOk = includeOnline && !onlineError;
+    const online = onlineOk ? round(onlineSales) : 0;
+    const oCogs = onlineOk ? round(onlineCogs) : 0;
     const totalNet = net + online;
     const cogs = storeCogs + oCogs;
+    const feeOf = (method: string): number => {
+      const def = ((settings.payMethods ?? []) as { key: string; feePct?: number }[]).find((m) => m.key === method);
+      if (def && typeof def.feePct === "number") return def.feePct;
+      return method === "linepay" ? 5 : 0; // 預設：LINE Pay 5%
+    };
+    const fees = [...pay]
+      .map(([method, r]) => ({ method, base: r.sales - r.refunds, pct: feeOf(method) }))
+      .filter((f) => f.pct > 0 && f.base > 0)
+      .map((f) => ({ ...f, fee: round((f.base * f.pct) / 100) }));
+    const onlineFeePct = Number(settings.onlineFeePct ?? 0);
+    if (onlineOk && onlineFeePct > 0) fees.push({ method: "online", base: online, pct: onlineFeePct, fee: round((online * onlineFeePct) / 100) });
+    const feeTotal = fees.reduce((a, f) => a + f.fee, 0);
+    const actual = totalNet - feeTotal;
+    const gross = actual - cogs;
+    const PEOPLE = /薪|人事|獎金|勞健保|提款|老闆|股東/;
+    const peopleCats: string[] = Array.isArray(settings.payrollCategories) ? settings.payrollCategories : [];
+    const isPeople = (c: string) => (peopleCats.length ? peopleCats.includes(c) : PEOPLE.test(c));
+    const isPurchase = (c: string) => /^進貨/.test(c);
+    const list = [...expenses].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
+    const opex = list.filter((e) => !isPeople(e.category) && !isPurchase(e.category));
+    const people = list.filter((e) => isPeople(e.category));
+    const purchases = list.filter((e) => isPurchase(e.category));
+    const opexTotal = opex.reduce((a, e) => a + e.amount, 0);
+    const peopleTotal = people.reduce((a, e) => a + e.amount, 0);
     result.profit = {
       storeNet: net,
       storeCogs,
       onlineSales: online,
       onlineShipping: round(onlineShipping),
       onlineCogs: oCogs,
-      onlineIncluded: includeOnline && !onlineError,
+      onlineIncluded: onlineOk,
       net: totalNet,
+      fees,
+      feeTotal,
+      actual,
       cogs,
-      grossProfit: totalNet - cogs,
-      grossMargin: totalNet ? (totalNet - cogs) / totalNet : null,
-      expenses: [...expenses].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount),
-      expenseTotal,
-      netProfit: totalNet - cogs - expenseTotal,
+      grossProfit: gross,
+      grossMargin: actual ? gross / actual : null,
+      opex,
+      opexTotal,
+      people,
+      peopleTotal,
+      purchaseTotal: purchases.reduce((a, e) => a + e.amount, 0),
+      expenses: list,
+      expenseTotal: opexTotal + peopleTotal,
+      netProfit: gross - opexTotal - peopleTotal,
       noCostItems,
     };
   }

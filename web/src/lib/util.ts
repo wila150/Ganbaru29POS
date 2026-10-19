@@ -35,18 +35,20 @@ export interface PayMethodDef {
   key: string;
   label: string;
   enabled: boolean;
+  /** 金流手續費 %（報表「實際總收入」扣掉；例：LINE Pay 5） */
+  feePct?: number;
 }
 export const BUILTIN_PAY: PayMethodDef[] = [
   { key: "cash", label: "現金", enabled: true },
   { key: "card", label: "信用卡", enabled: true },
-  { key: "linepay", label: "LINE Pay", enabled: true },
+  { key: "linepay", label: "LINE Pay", enabled: true, feePct: 5 },
   { key: "transfer", label: "轉帳", enabled: true },
 ];
 /** 合併設定與內建：內建的一定在清單裡（可改名、關閉），自訂的接在後面；現金不能關 */
 export function payMethodList(cfg?: PayMethodDef[] | null): PayMethodDef[] {
   const list = [...(cfg ?? [])].filter((m) => m && m.key && m.label);
   for (const b of BUILTIN_PAY) if (!list.some((m) => m.key === b.key)) list.push({ ...b });
-  return list.map((m) => (m.key === "cash" ? { ...m, enabled: true } : m));
+  return list.map((m) => (m.key === "cash" ? { ...m, enabled: true } : m.feePct === undefined ? { ...m, feePct: BUILTIN_PAY.find((b) => b.key === m.key)?.feePct } : m));
 }
 /** 設定變了就更新 PAY_LABEL／PAY_NAME（所有畫面共用） */
 export function applyPayMethods(cfg?: PayMethodDef[] | null) {

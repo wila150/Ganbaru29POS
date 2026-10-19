@@ -1,5 +1,5 @@
 import { collection, limit, onSnapshot, orderBy, query, type Timestamp } from "firebase/firestore";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "../../auth";
 import { Badge, Empty } from "../../components/ui";
 import { daysSince, useData, variantName } from "../../data";
@@ -70,6 +70,14 @@ interface Report {
     onlineCogs?: number;
     onlineIncluded?: boolean;
     noCostItems?: number;
+    fees?: { method: string; base: number; pct: number; fee: number }[];
+    feeTotal?: number;
+    actual?: number;
+    opex?: { category: string; amount: number }[];
+    opexTotal?: number;
+    people?: { category: string; amount: number }[];
+    peopleTotal?: number;
+    purchaseTotal?: number;
   };
 }
 
@@ -758,80 +766,87 @@ function StaffTab({ r }: { r: Report }) {
 
 function ProfitTab({ r }: { r: Report }) {
   const p = r.profit!;
+  const fees = p.fees ?? [];
+  const feeTotal = p.feeTotal ?? 0;
+  const actual = p.actual ?? p.net;
+  const opex = p.opex ?? p.expenses;
+  const people = p.people ?? [];
+  const opexTotal = p.opexTotal ?? p.expenseTotal;
+  const peopleTotal = p.peopleTotal ?? 0;
+  const feeName = (m: string) => (m === "online" ? "網店金流" : PAY_NAME[m] ?? m);
+  const Row = ({ label, value, cls = "", minus = false }: { label: ReactNode; value: number; cls?: string; minus?: boolean }) => (
+    <tr className={cls}>
+      <td>{label}</td>
+      <td className="num">{minus ? `−${money(value)}` : money(value)}</td>
+    </tr>
+  );
+  const csv = () =>
+    downloadCsv(`三階損益_${r.from}_${r.to}.csv`, [
+      ["項目", "金額"],
+      ["當期銷售總額", p.net],
+      ...fees.map((f) => [`金流手續費：${feeName(f.method)} ${money(f.base)} × ${f.pct}%`, -f.fee]),
+      ["【實際總收入】", actual],
+      ["已銷商品總成本", -p.cogs],
+      ["【營業毛利】", p.grossProfit],
+      ...opex.map((e) => [`營業雜支：${e.category}`, -e.amount]),
+      ...people.map((e) => [`人事薪資與老闆提款：${e.category}`, -e.amount]),
+      ["【當期淨收入】", p.netProfit],
+    ]);
   return (
     <>
       <div className="kpis">
-        <Kpi label="賣出淨收" value={money(p.net)} hint={p.onlineIncluded ? `門市 ${money(p.storeNet ?? 0)}＋網店 ${money(p.onlineSales ?? 0)}` : "只含門市"} />
-        <Kpi label="銷貨成本" value={money(p.cogs)} hint="依商品成本" />
-        <Kpi label="毛利" value={money(p.grossProfit)} hint={`毛利率 ${pct(p.grossMargin)}`} />
-        <Kpi label="開支" value={money(p.expenseTotal)} />
-        <Kpi label="淨利" value={money(p.netProfit)} tone={p.netProfit < 0 ? "bad" : "ok"} />
+        <Kpi label="實際總收入" value={money(actual)} hint={`銷售 ${money(p.net)} − 手續費 ${money(feeTotal)}`} />
+        <Kpi label="營業毛利" value={money(p.grossProfit)} hint={`毛利率 ${pct(p.grossMargin)}`} />
+        <Kpi label="營運總開銷" value={money(opexTotal + peopleTotal)} />
+        <Kpi label="當期淨收入" value={money(p.netProfit)} tone={p.netProfit < 0 ? "bad" : "ok"} hint={p.netProfit > 0 ? "店鋪有真正賺錢" : "這段期間沒有賺錢"} />
       </div>
-      <Section
-        title={p.onlineIncluded ? "損益表（門市＋網店）" : "損益表（門市）"}
-        onExport={() =>
-          downloadCsv(`損益表_${r.from}_${r.to}.csv`, [
-            ["項目", "金額"],
-            ["門市淨營收（扣退貨）", p.storeNet ?? p.net],
-            ...(p.onlineIncluded ? [["網店營收（不含取消、退貨）", p.onlineSales ?? 0]] : []),
-            ["賣出淨收", p.net],
-            ["銷貨成本（門市）", -(p.storeCogs ?? p.cogs)],
-            ...(p.onlineIncluded ? [["銷貨成本（網店）", -(p.onlineCogs ?? 0)]] : []),
-            ["毛利", p.grossProfit],
-            ...p.expenses.map((e) => [`開支：${e.category}`, -e.amount]),
-            ["淨利", p.netProfit],
-          ])
-        }
-      >
-        <table className="table table-compact pl">
+      <Section title="三階損益" onExport={csv}>
+        <table className="table table-compact pl3">
           <tbody>
-            <tr>
-              <td>門市淨營收（扣退貨）</td>
-              <td className="num">{money(p.storeNet ?? p.net)}</td>
-            </tr>
+            <Row label="當期銷售總額（顧客付的金額，扣退貨）" value={p.net} />
             {p.onlineIncluded && (
-              <tr>
-                <td>
-                  網店營收<span className="muted small">（不含取消、退貨；含運費 {money(p.onlineShipping ?? 0)}）</span>
-                </td>
-                <td className="num">{money(p.onlineSales ?? 0)}</td>
+              <>
+                <tr className="sub">
+                  <td>門市 {money(p.storeNet ?? 0)}　網店 {money(p.onlineSales ?? 0)}（含運費 {money(p.onlineShipping ?? 0)}）</td>
+                  <td />
+                </tr>
+              </>
+            )}
+            {fees.length ? (
+              fees.map((f) => <Row key={f.method} cls="minus" minus label={`➖ 金流手續費：${feeName(f.method)}（${money(f.base)} × ${f.pct}%）`} value={f.fee} />)
+            ) : (
+              <Row cls="minus" minus label="➖ 金流手續費（沒有設定手續費 %）" value={0} />
+            )}
+            <Row cls="tier" label="＝ 【實際總收入】" value={actual} />
+            <Row cls="minus" minus label="➖ 已銷商品總成本（賣出商品的成本 × 數量）" value={p.cogs} />
+            {p.onlineIncluded && (
+              <tr className="sub">
+                <td>門市 {money(p.storeCogs ?? 0)}　網店 {money(p.onlineCogs ?? 0)}</td>
+                <td />
               </tr>
             )}
-            <tr className="strong">
-              <td>賣出淨收</td>
-              <td className="num">{money(p.net)}</td>
-            </tr>
-            <tr>
-              <td>　減：銷貨成本（門市）</td>
-              <td className="num">-{money(p.storeCogs ?? p.cogs)}</td>
-            </tr>
-            {p.onlineIncluded && (
-              <tr>
-                <td>　減：銷貨成本（網店）</td>
-                <td className="num">-{money(p.onlineCogs ?? 0)}</td>
-              </tr>
-            )}
-            <tr className="strong">
-              <td>毛利</td>
-              <td className="num">
-                {money(p.grossProfit)} <span className="muted small">（{pct(p.grossMargin)}）</span>
-              </td>
-            </tr>
-            {p.expenses.map((e) => (
-              <tr key={e.category}>
-                <td>　減：{e.category}</td>
-                <td className="num">-{money(e.amount)}</td>
+            <Row cls="tier" label={<>＝ 【營業毛利】<span className="muted small">　毛利率 {pct(p.grossMargin)}</span></>} value={p.grossProfit} />
+            <Row cls="minus" minus label="➖ 營業雜支（店租、水電、包材、行銷…）" value={opexTotal} />
+            {opex.map((e) => (
+              <tr key={e.category} className="sub">
+                <td>{e.category}</td>
+                <td className="num">−{money(e.amount)}</td>
               </tr>
             ))}
-            <tr className="strong">
-              <td>淨利</td>
-              <td className={`num ${p.netProfit < 0 ? "error" : "ok"}`}>{money(p.netProfit)}</td>
-            </tr>
+            <Row cls="minus" minus label="➖ 人事薪資與老闆提款" value={peopleTotal} />
+            {people.map((e) => (
+              <tr key={e.category} className="sub">
+                <td>{e.category}</td>
+                <td className="num">−{money(e.amount)}</td>
+              </tr>
+            ))}
+            <Row cls={`tier final ${p.netProfit < 0 ? "bad" : ""}`} label="＝ 【當期淨收入】" value={p.netProfit} />
           </tbody>
         </table>
         <p className="muted small">
-          成本來自「商品 → 商品成本」。{p.noCostItems ? `有 ${p.noCostItems} 件商品沒有成本（例：用「新品」結帳的），以 0 計，毛利會偏高；可以到交易瀏覽把「新品」換成正式商品。` : ""}
-          網店的金流、物流手續費不在這裡，開支請到「開支」頁登記。
+          手續費 % 在「設定 → 金流管理 → 付款方式」調整（LINE Pay 預設 5%）；開支在「報表 → 開支」登記，哪些分類算人事／老闆提款在「設定 → 抽成與開支」勾選。
+          {p.purchaseTotal ? `本期「進貨」開支 ${money(p.purchaseTotal)} 沒有扣（已經算在已銷商品總成本，避免重複扣）。` : ""}
+          {p.noCostItems ? `有 ${p.noCostItems} 件商品沒有成本（例：用「新品」結帳的），以 0 計。` : ""}
         </p>
       </Section>
     </>

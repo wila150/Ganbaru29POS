@@ -828,8 +828,9 @@ function PayMethodSettings() {
   const { settings } = useData();
   const [list, setList] = useState<PayMethodDef[]>(() => payMethodList(settings.payMethods));
   const [adding, setAdding] = useState("");
+  const [onlineFee, setOnlineFee] = useState(String(settings.onlineFeePct ?? ""));
   const { busy, run } = useAction();
-  const dirty = JSON.stringify(list) !== JSON.stringify(payMethodList(settings.payMethods));
+  const dirty = JSON.stringify(list) !== JSON.stringify(payMethodList(settings.payMethods)) || onlineFee !== String(settings.onlineFeePct ?? "");
   const upd = (i: number, patch: Partial<PayMethodDef>) => setList((l) => l.map((m, j) => (j === i ? { ...m, ...patch } : m)));
   const move = (i: number, d: number) =>
     setList((l) => {
@@ -848,7 +849,7 @@ function PayMethodSettings() {
         <div className="paym-row paym-head">
           <span />
           <span>名稱</span>
-          <span>類型</span>
+          <span>手續費</span>
           <span>排序</span>
           <span />
         </div>
@@ -856,7 +857,15 @@ function PayMethodSettings() {
           <div key={m.key} className={`paym-row ${m.enabled ? "" : "off"}`}>
             <button type="button" className={`tier-switch ${m.enabled ? "on" : ""}`} disabled={m.key === "cash"} title={m.key === "cash" ? "現金不能關閉（找零、錢櫃要用）" : m.enabled ? "關閉" : "開啟"} onClick={() => upd(i, { enabled: !m.enabled })} />
             <input value={m.label} maxLength={12} onChange={(e) => upd(i, { label: e.target.value })} />
-            <span className="muted small">{builtin(m.key) ? (m.key === "cash" ? "內建（可找零）" : "內建") : "自訂"}</span>
+            <span className="fee-cell">
+              {m.key === "cash" ? (
+                <span className="muted small">—</span>
+              ) : (
+                <>
+                  <input inputMode="decimal" value={m.feePct ?? ""} placeholder="0" onChange={(e) => upd(i, { feePct: e.target.value === "" ? undefined : Number(e.target.value.replace(/[^\d.]/g, "")) })} />%
+                </>
+              )}
+            </span>
             <span>
               <button type="button" className="btn-icon" disabled={i === 0} onClick={() => move(i, -1)}>
                 ↑
@@ -889,8 +898,26 @@ function PayMethodSettings() {
           ＋ 新增
         </button>
       </div>
-      <p className="muted small">「掃碼付款（綠界／藍新）」「LINE Pay 串接」在下方金流設定開啟；開啟後 POS 會自動出現。</p>
-      <button className="btn btn-primary" disabled={busy || !dirty || list.some((m) => !m.label.trim())} onClick={() => run(() => setDoc(doc(db, "settings", "shop"), { payMethods: list.map((m) => ({ ...m, label: m.label.trim() })) }, { merge: true }), "已儲存付款方式")}>
+      <div className="inline-form">
+        <span>網店（meepShop）金流手續費</span>
+        <span className="addon-input">
+          <input inputMode="decimal" value={onlineFee} placeholder="0" onChange={(e) => setOnlineFee(e.target.value.replace(/[^\d.]/g, ""))} />
+          <span>%</span>
+        </span>
+        <span className="muted small">報表「實際總收入」會扣掉；不確定就填 0</span>
+      </div>
+      <p className="muted small">手續費 % 用在報表中心的三階損益（例：LINE Pay 5% → 交易總額 × 5%）。「掃碼付款（綠界／藍新）」「LINE Pay 串接」在下方金流設定開啟。</p>
+      <button className="btn btn-primary" disabled={busy || !dirty || list.some((m) => !m.label.trim())} onClick={() =>
+          run(
+            () =>
+              setDoc(
+                doc(db, "settings", "shop"),
+                { payMethods: list.map((m) => ({ ...m, label: m.label.trim(), feePct: Number(m.feePct) || 0 })), onlineFeePct: Number(onlineFee) || 0 },
+                { merge: true }
+              ),
+            "已儲存付款方式"
+          )
+        }>
         儲存付款方式
       </button>
     </section>
@@ -1135,7 +1162,7 @@ function MerchantSettings() {
 
 /** 員工抽成與開支分類 */
 function StaffMoneySettings() {
-  const { form, set, save, busy } = useSettingsForm(["commissionPct", "commissionByUser", "expenseCategories"]);
+  const { form, set, save, busy } = useSettingsForm(["commissionPct", "commissionByUser", "expenseCategories", "payrollCategories"]);
   const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => onSnapshot(collection(db, "users"), (s) => setUsers(s.docs.filter((d) => d.data().active).map((d) => ({ id: d.id, name: d.data().name })))), []);
   const byUser = form.commissionByUser ?? {};
@@ -1173,6 +1200,19 @@ function StaffMoneySettings() {
           defaultValue={(form.expenseCategories?.length ? form.expenseCategories : DEFAULT_EXPENSE_CATEGORIES).join("\n")}
           onChange={(e) => set("expenseCategories", e.target.value.split("\n").map((x) => x.trim()).filter(Boolean))}
         />
+      </Field>
+      <Field label="哪些開支分類算「人事薪資與老闆提款」" hint="報表中心三階損益分開列；其他分類算「營業雜支」，「進貨」不扣（已算在商品成本）">
+        <div className="chips">
+          {(form.expenseCategories?.length ? form.expenseCategories : DEFAULT_EXPENSE_CATEGORIES).map((c) => {
+            const cur = form.payrollCategories ?? (form.expenseCategories?.length ? form.expenseCategories : DEFAULT_EXPENSE_CATEGORIES).filter((x) => /薪|人事|獎金|勞健保|提款|老闆|股東/.test(x));
+            const on = cur.includes(c);
+            return (
+              <button key={c} type="button" className={`chip ${on ? "active" : ""}`} disabled={/^進貨/.test(c)} onClick={() => set("payrollCategories", on ? cur.filter((x) => x !== c) : [...cur, c])}>
+                {c}
+              </button>
+            );
+          })}
+        </div>
       </Field>
       <button className="btn btn-primary" disabled={busy} onClick={save}>
         儲存

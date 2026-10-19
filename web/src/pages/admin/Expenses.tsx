@@ -8,7 +8,7 @@ import { db, storage } from "../../firebase";
 import { useDeviceLocation } from "../../lib/location";
 import { downloadCsv, money, PAY_LABEL, todayStr } from "../../lib/util";
 
-export const DEFAULT_EXPENSE_CATEGORIES = ["進貨", "房租", "薪資", "水電瓦斯", "網路電話", "運費", "包材耗材", "廣告行銷", "裝潢設備", "刷卡／金流手續費", "稅金規費", "雜支"];
+export const DEFAULT_EXPENSE_CATEGORIES = ["進貨", "房租", "薪資", "老闆提款", "水電瓦斯", "網路電話", "運費", "包材耗材", "廣告行銷", "裝潢設備", "刷卡／金流手續費", "稅金規費", "雜支"];
 
 interface Expense {
   id: string;
