@@ -11,6 +11,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-ak",
+    date: "2026-10-19",
+    title: "信用卡付款連結改由系統直接寄出",
+    items: [
+      "結帳選「信用卡」→「📧 傳付款連結」→ 輸入客人 Email →「寄出付款連結」，系統用店家信箱（29.studio.tc@gmail.com）直接寄出，不會再打開你的 Gmail",
+      "客人收到「【ganbaru29】門市付款連結」的信，按「前往付款」刷卡（可分期）",
+      "付款完成後 POS 自動完成結帳",
+      "金流設定頁不會再整頁顯示「未設定」",
+    ],
+  },
+  {
     id: "2026-10-19-aj",
     date: "2026-10-19",
     title: "修正：藍新刷卡成功但 POS 沒完成",
