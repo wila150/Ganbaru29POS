@@ -423,7 +423,7 @@ function OnlinePay({
   const enabledExtra = (settings.payment?.newebExtra ?? []) as string[];
   const instList = (settings.payment?.newebInst ?? []) as number[];
   const [useInst, setUseInst] = useState(instList.length > 0);
-  const [extra, setExtra] = useState<string[]>(enabledExtra);
+  const [extra, setExtra] = useState<string[]>([]); // 預設只開卡號；要 Apple Pay 再勾
   const EXTRA_LABEL: Record<string, string> = { APPLEPAY: "Apple Pay", ANDROIDPAY: "Google Pay", SAMSUNGPAY: "Samsung Pay", LINEPAY: "LINE Pay", TAIWANPAY: "台灣 Pay" };
   const payOpts = { inst: useInst, extra };
   const sendMail = (sess: { id: string; url: string }) =>
