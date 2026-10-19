@@ -52,7 +52,7 @@ function Screen() {
         <div className="cd-sub">請以 {PAY_LABEL[m] ?? m} 付款</div>
         <div className="cd-amount">{money(s.pay.amount)}</div>
         {qr && <img className="cd-qr" src={qr} alt="" />}
-        {m === "transfer" && (pd.transferBank || pd.transferAccount) && (
+        {m === "transfer" && !qr && (pd.transferBank || pd.transferAccount) && (
           <div className="cd-bank">
             {pd.transferBank && <div>銀行　<b>{pd.transferBank}</b></div>}
             {pd.transferAccount && <div>帳號　<b className="mono">{pd.transferAccount}</b></div>}
@@ -147,12 +147,14 @@ function Signup() {
   const [s, setS] = useState<SignupState | null>(null);
   const [f, setF] = useState({ email: "", name: "", mobile: "", birthDate: "" });
   const [err, setErr] = useState("");
+  const [confirming, setConfirming] = useState(false);
   useEffect(
     () =>
       onSnapshot(doc(db, "customerSignup", ch), (d) => {
         const x = (d.data() as SignupState) ?? null;
         setS(x);
         // 店員先填了一部分、或建立失敗退回來：帶入目前的資料
+        if (x?.status === "open") setConfirming(false);
         if (x?.status === "open") setF({ email: x.email ?? "", name: x.name ?? "", mobile: x.mobile ?? "", birthDate: x.birthDate ?? "" });
       }),
     [ch]
@@ -185,8 +187,30 @@ function Signup() {
     if (!/^09\d{8}$/.test(mobile)) return setErr("手機請填 09 開頭 10 碼");
     if (!f.birthDate) return setErr("請選生日");
     setErr("");
-    setSignup(ch, { status: "filled", email, name: f.name.trim(), mobile, birthDate: f.birthDate }).catch(() => setErr("送出失敗，請再按一次"));
+    setF({ email, name: f.name.trim(), mobile, birthDate: f.birthDate });
+    setConfirming(true);
   };
+  const confirmSend = () => setSignup(ch, { status: "filled", ...f }).catch(() => (setConfirming(false), setErr("送出失敗，請再按一次")));
+  if (confirming)
+    return (
+      <div className="cd cd-over cd-signup">
+        <h1>請確認資料</h1>
+        <div className="cd-confirm">
+          <div><span>Email</span><b>{f.email}</b></div>
+          <div><span>姓名</span><b>{f.name}</b></div>
+          <div><span>手機</span><b>{f.mobile}</b></div>
+          <div><span>生日</span><b>{f.birthDate.replace(/-/g, " / ")}</b></div>
+        </div>
+        <div className="cd-confirm-btns">
+          <button className="cd-back" onClick={() => setConfirming(false)}>
+            修改
+          </button>
+          <button className="cd-send" onClick={confirmSend}>
+            確認送出
+          </button>
+        </div>
+      </div>
+    );
   return (
     <div className="cd cd-over cd-signup">
       <h1>加入會員</h1>
@@ -209,7 +233,7 @@ function Signup() {
       </label>
       {(err || s.error) && <p className="cd-err">{err || s.error}</p>}
       <button className="cd-send" onClick={send}>
-        送出
+        下一步
       </button>
     </div>
   );
