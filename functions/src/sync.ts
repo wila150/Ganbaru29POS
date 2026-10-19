@@ -41,8 +41,25 @@ export function birthMonth(b: string | null | undefined): string | null {
 export function mobileKey(m: string | null | undefined): string | null {
   if (!m) return null;
   let d = m.replace(/\D/g, "");
-  if (d.startsWith("886")) d = "0" + d.slice(3);
+  if (d.startsWith("00")) d = d.slice(2); // 00852… 國際冠碼
+  if (d.startsWith("8860")) d = d.slice(3);
+  else if (d.startsWith("886")) d = "0" + d.slice(3);
   return d || null;
+}
+
+/**
+ * 查會員用：同一支手機可能存成不同格式（香港：91234567、85291234567、+852 9123 4567、0085291234567）。
+ * 回傳所有可能的 mobileKey。
+ */
+export function mobileKeyCandidates(q: string): string[] {
+  const k = mobileKey(q);
+  if (!k) return [];
+  const out = new Set([k]);
+  if (/^\d{8}$/.test(k)) ["852", "853"].forEach((cc) => out.add(cc + k)); // 香港／澳門 8 碼
+  const m = /^(852|853)(\d{8})$/.exec(k);
+  if (m) out.add(m[2]);
+  if (/^9\d{8}$/.test(k)) out.add("0" + k); // 台灣手機少打 0
+  return [...out];
 }
 
 function searchText(parts: (string | null | undefined)[]) {

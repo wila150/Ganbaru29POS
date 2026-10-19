@@ -912,3 +912,7 @@ span.tier-switch { cursor: default; }
 .cd-cardicon { font-size: 96px; }
 .cd-pay > .cd-hint.center { text-align: center; padding-bottom: 14px; }
 @media (orientation: portrait) { .cd-paycards.n2, .cd-paycards.n3 { grid-template-columns: 1fr; } }
+.cd-regions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.cd-regions button { font-size: 18px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.cd-regions button.on { background: var(--primary); color: #fff; border-color: var(--primary); }
+.cd-signup label .cd-regions { justify-content: flex-start; margin-bottom: 4px; }

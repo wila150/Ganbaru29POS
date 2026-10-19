@@ -10,7 +10,7 @@ import { refundLinePay } from "./payments/linepay";
 import { invoiceAfterRefund, issueForOrder, parseInvoiceRequest } from "./payments/invoice";
 import { audit } from "./lib/audit";
 import { consumeCoupons, ensureMemberCodes, validateCoupons } from "./cards";
-import { mobileKey } from "./sync";
+import { mobileKey, mobileKeyCandidates } from "./sync";
 
 /**
  * posOrders/{id}  id is generated on the tablet, so a double-tapped / re-sent checkout is stored once.
@@ -1009,9 +1009,9 @@ export const searchShopper = onCall(opts, async (req) => {
       await db.doc(`shoppers/${s.id}`).set({ email: s.email, emailLower: s.email.toLowerCase(), name: s.name ?? "", mobile: s.mobile ?? "", mobileKey: mobileKey(s.mobile), points: s.usableRewardPoints, updatedAt: s.updatedAt }, { merge: true });
     }
   } else {
-    const key = mobileKey(q);
-    assert(key && key.length >= 6, "請輸入完整手機號碼");
-    const snap = await db.collection("shoppers").where("mobileKey", "==", key).limit(5).get();
+    const keys = mobileKeyCandidates(q);
+    assert(keys.length && keys[0].length >= 6, "請輸入完整手機號碼");
+    const snap = await db.collection("shoppers").where("mobileKey", "in", keys.slice(0, 10)).limit(5).get();
     ids = snap.docs.map((d) => d.id);
   }
   const out = [];

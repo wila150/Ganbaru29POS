@@ -170,6 +170,7 @@ function Signup() {
   const [f, setF] = useState({ email: "", name: "", mobile: "", birthDate: "" });
   const [err, setErr] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [region, setRegion] = useState<Region>(REGIONS[0]);
   useEffect(
     () =>
       onSnapshot(doc(db, "customerSignup", ch), (d) => {
@@ -177,7 +178,11 @@ function Signup() {
         setS(x);
         // 店員先填了一部分、或建立失敗退回來：帶入目前的資料
         if (x?.status === "open") setConfirming(false);
-        if (x?.status === "open") setF({ email: x.email ?? "", name: x.name ?? "", mobile: x.mobile ?? "", birthDate: x.birthDate ?? "" });
+        if (x?.status === "open") {
+          const sm = splitMobile(x.mobile ?? "");
+          if (x.mobile) setRegion(sm.region);
+          setF({ email: x.email ?? "", name: x.name ?? "", mobile: x.mobile ? sm.local : "", birthDate: x.birthDate ?? "" });
+        }
       }),
     [ch]
   );
@@ -207,13 +212,13 @@ function Signup() {
     const mobile = f.mobile.replace(/\D/g, "");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setErr("請填正確的 Email");
     if (!f.name.trim()) return setErr("請填姓名");
-    if (!/^09\d{8}$/.test(mobile)) return setErr("手機請填 09 開頭 10 碼");
+    if (!region.re.test(mobile)) return setErr(region.cc ? `${region.label} 手機請填 8 碼` : "手機請填 09 開頭 10 碼");
     if (!f.birthDate) return setErr("請選生日");
     setErr("");
     setF({ email, name: f.name.trim(), mobile, birthDate: f.birthDate });
     setConfirming(true);
   };
-  const confirmSend = () => setSignup(ch, { status: "filled", ...f }).catch(() => (setConfirming(false), setErr("送出失敗，請再按一次")));
+  const confirmSend = () => setSignup(ch, { status: "filled", ...f, mobile: region.cc + f.mobile }).catch(() => (setConfirming(false), setErr("送出失敗，請再按一次")));
   if (confirming)
     return (
       <div className="cd cd-over cd-signup">
@@ -221,7 +226,7 @@ function Signup() {
         <div className="cd-confirm">
           <div><span>Email</span><b>{f.email}</b></div>
           <div><span>姓名</span><b>{f.name}</b></div>
-          <div><span>手機</span><b>{f.mobile}</b></div>
+          <div><span>手機</span><b>{region.cc ? `${region.cc} ` : ""}{f.mobile}</b></div>
           <div><span>生日</span><b>{f.birthDate.replace(/-/g, " / ")}</b></div>
         </div>
         <div className="cd-confirm-btns">
@@ -248,7 +253,8 @@ function Signup() {
       </label>
       <label>
         手機
-        <input inputMode="tel" autoComplete="tel" value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} />
+        <RegionTabs value={region} onChange={setRegion} />
+        <input inputMode="tel" autoComplete="tel" placeholder={region.hint} value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} />
       </label>
       <label>
         生日
@@ -262,22 +268,58 @@ function Signup() {
   );
 }
 
+/** 手機地區：台灣 09 開頭 10 碼；香港、澳門 8 碼，存成 +852／+853 開頭 */
+const REGIONS = [
+  { id: "tw", label: "🇹🇼 台灣", cc: "", re: /^09\d{8}$/, hint: "09xx xxx xxx", max: 10 },
+  { id: "hk", label: "🇭🇰 香港", cc: "+852", re: /^[4-9]\d{7}$/, hint: "xxxx xxxx", max: 8 },
+  { id: "mo", label: "🇲🇴 澳門", cc: "+853", re: /^6\d{7}$/, hint: "6xxx xxxx", max: 8 },
+] as const;
+type Region = (typeof REGIONS)[number];
+const splitMobile = (m: string): { region: Region; local: string } => {
+  const d = m.replace(/[^\d+]/g, "");
+  for (const r of REGIONS) if (r.cc && d.startsWith(r.cc)) return { region: r, local: d.slice(r.cc.length) };
+  return { region: REGIONS[0], local: d.replace(/\D/g, "") };
+};
+
+function RegionTabs({ value, onChange }: { value: Region; onChange: (r: Region) => void }) {
+  return (
+    <div className="cd-regions">
+      {REGIONS.map((r) => (
+        <button key={r.id} className={r.id === value.id ? "on" : ""} onClick={() => onChange(r)}>
+          {r.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** 客人自己輸入手機查會員（收銀電腦打開「會員」時出現） */
 function PhoneEntry({ ch, s }: { ch: string; s: SignupState }) {
   const [v, setV] = useState("");
-  useEffect(() => setV(s.status === "phone" && s.error ? s.mobile ?? "" : ""), [s.status, s.error, s.mobile]);
+  const [region, setRegion] = useState<Region>(REGIONS[0]);
+  useEffect(() => {
+    if (s.status === "phone" && s.error && s.mobile) {
+      const x = splitMobile(s.mobile);
+      setRegion(x.region);
+      setV(x.local);
+    } else setV("");
+  }, [s.status, s.error, s.mobile]);
   if (s.status === "phoneSent")
     return (
       <div className="cd cd-center cd-over">
         <div className="cd-sub">查詢中，請稍候…</div>
       </div>
     );
-  const ok = /^09\d{8}$/.test(v);
-  const press = (k: string) => setV((x) => (k === "del" ? x.slice(0, -1) : k === "clr" ? "" : x.length < 10 ? x + k : x));
+  const ok = region.re.test(v);
+  const press = (k: string) => setV((x) => (k === "del" ? x.slice(0, -1) : k === "clr" ? "" : x.length < region.max ? x + k : x));
   return (
     <div className="cd cd-over cd-phone">
       <h1>請輸入會員手機</h1>
-      <div className="cd-phone-num">{v ? v.replace(/^(\d{4})(\d{0,3})(\d{0,3}).*/, (_, a, b, c) => [a, b, c].filter(Boolean).join(" ")) : <span className="muted">09xx xxx xxx</span>}</div>
+      <RegionTabs value={region} onChange={(r) => (setRegion(r), setV(""))} />
+      <div className="cd-phone-num">
+        {region.cc && <span className="muted">{region.cc} </span>}
+        {v ? (region.cc ? v.replace(/^(\d{4})(\d{0,4}).*/, (_, a, b) => [a, b].filter(Boolean).join(" ")) : v.replace(/^(\d{4})(\d{0,3})(\d{0,3}).*/, (_, a, b, c) => [a, b, c].filter(Boolean).join(" "))) : <span className="muted">{region.hint}</span>}
+      </div>
       {s.error && <p className="cd-err">{s.error}</p>}
       <div className="cd-pad">
         {["1", "2", "3", "4", "5", "6", "7", "8", "9", "clr", "0", "del"].map((k) => (
@@ -286,7 +328,7 @@ function PhoneEntry({ ch, s }: { ch: string; s: SignupState }) {
           </button>
         ))}
       </div>
-      <button className="cd-send" disabled={!ok} onClick={() => setSignup(ch, { status: "phoneSent", mobile: v }).catch(() => undefined)}>
+      <button className="cd-send" disabled={!ok} onClick={() => setSignup(ch, { status: "phoneSent", mobile: region.cc + v }).catch(() => undefined)}>
         確定
       </button>
     </div>
