@@ -11,6 +11,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-v",
+    date: "2026-10-19",
+    title: "現金不夠，剩下的可以改用 LINE Pay／信用卡",
+    items: [
+      "結帳選「現金」，用數字鍵輸入客人給的現金（例如 1000）",
+      "下面會出現「剩下 $2,000 用：LINE Pay／信用卡…」，點一下就變成 現金＋LINE Pay（或信用卡）",
+      "另外收完剩下的錢後按「完成結帳」，收據和交易紀錄會分開記兩種付款方式",
+    ],
+  },
+  {
     id: "2026-10-19-u",
     date: "2026-10-19",
     title: "門市可以指定會員群組",

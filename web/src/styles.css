@@ -808,3 +808,7 @@ span.tier-switch { cursor: default; }
 .tag-opt .btn-icon { margin-left: auto; }
 .member-pref { flex-basis: 100%; background: #f0f9ff; border-radius: 8px; padding: 6px 10px; font-size: 13px; white-space: pre-wrap; margin-top: 4px; }
 .member-pref.bought { background: #f5f3ff; }
+
+.rest-pay { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.rest-pay button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border, #ccc); background: var(--card, #fff); font-size: 15px; }
+.rest-pay button.active { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }

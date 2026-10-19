@@ -31,19 +31,35 @@ export function Checkout({ total, itemName, onClose, submit }: { total: number; 
   const [method, setMethod] = useState<string>("cash");
   const [cash, setCash] = useState("");
   const [mixed, setMixed] = useState<Pay[]>([]);
+  // 先收現金，不夠的部分改用 LINE Pay／信用卡…（null = 全部現金）
+  const [restMethod, setRestMethod] = useState<string | null>(null);
   const [mixMethod, setMixMethod] = useState("card");
   const [mixAmt, setMixAmt] = useState("");
   const [inv, setInv] = useState<InvoiceInput>({ type: "print" });
   const [online, setOnline] = useState<{ id: string; url: string } | null>(null);
   const { busy, run } = useAction();
 
+  const cashIn = cash === "" ? total : Number(cash);
+  const rest = method === "cash" && restMethod && cashIn < total ? total - cashIn : 0;
   const payments: Pay[] =
-    method === "mixed" ? mixed : method === "cash" ? [{ method: "cash", amount: cash === "" ? total : Number(cash) }] : method === "online" ? [] : [{ method, amount: total }];
+    method === "mixed"
+      ? mixed
+      : method === "cash"
+        ? rest > 0
+          ? [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }]
+          : [{ method: "cash", amount: cashIn }]
+        : method === "online"
+          ? []
+          : [{ method, amount: total }];
+  const restScan = rest > 0 && restMethod === "linepay" && linePayApi;
+  const restChoices = Object.keys(PAY_LABEL)
+    .filter((k) => k !== "cash")
+    .sort((a, b) => (a === "linepay" ? -1 : b === "linepay" ? 1 : a === "card" ? -1 : b === "card" ? 1 : 0));
   const paid = payments.reduce((s, p) => s + p.amount, 0);
   const change = paid - total;
   const mixedLeft = total - mixed.reduce((s, p) => s + p.amount, 0);
   const scanLinePay = method === "linepay" && linePayApi;
-  const ok = method !== "online" && !scanLinePay && paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
+  const ok = method !== "online" && !scanLinePay && !restScan && paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
   const invoiceOk = !invoiceOn || inv.type === "print" || (inv.type === "mobile" && /^\/[0-9A-Z+\-.]{7}$/.test(inv.mobileBarcode ?? "")) || (inv.type === "taxId" && /^\d{8}$/.test(inv.taxId ?? "")) || (inv.type === "donate" && /^\d{3,7}$/.test(inv.loveCode ?? ""));
   const invoicePayload = invoiceOn ? inv : null;
 
@@ -55,7 +71,7 @@ export function Checkout({ total, itemName, onClose, submit }: { total: number; 
       onClose={() => !busy && !online && onClose()}
       wide
       footer={
-        method === "online" || scanLinePay ? null : (
+        method === "online" || scanLinePay || restScan ? null : (
           <button className="btn btn-pay btn-lg block" disabled={!ok || !invoiceOk || busy} onClick={() => run(() => submit(payments, invoicePayload))}>
             {busy ? "結帳中…" : change > 0 ? `完成結帳（找零 ${money(change)}）` : "完成結帳"}
           </button>
@@ -86,10 +102,37 @@ export function Checkout({ total, itemName, onClose, submit }: { total: number; 
                   </button>
                 ))}
             </div>
-            <div className={`change ${change < 0 ? "error" : ""}`}>{change >= 0 ? `找零 ${money(change)}` : `還差 ${money(-change)}`}</div>
+            {rest > 0 ? (
+              <div className="change">
+                現金 {money(cashIn)} ＋ {PAY_LABEL[restMethod!]} {money(rest)}
+              </div>
+            ) : (
+              <div className={`change ${change < 0 ? "error" : ""}`}>{change >= 0 ? `找零 ${money(change)}` : `還差 ${money(-change)}`}</div>
+            )}
+            {cashIn < total && (
+              <div className="rest-pay">
+                <span className="muted small">剩下 {money(total - cashIn)} 用：</span>
+                {restChoices.map((k) => (
+                  <button key={k} className={restMethod === k ? "active" : ""} onClick={() => setRestMethod(restMethod === k ? null : k)}>
+                    {PAY_LABEL[k]}
+                  </button>
+                ))}
+              </div>
+            )}
+            {rest > 0 && !restScan && <p className="muted small">請另外以 {PAY_LABEL[restMethod!]} 收 {money(rest)}{restMethod === "card" ? "（刷卡機另外操作）" : ""}，收到後按「完成結帳」</p>}
           </div>
           <Keypad value={cash} onChange={setCash} />
         </div>
+      )}
+      {restScan && (
+        <LinePayScan
+          amount={rest}
+          itemName={itemName}
+          invoiceOk={invoiceOk}
+          stage={settings.linePay?.stage !== false}
+          onBusy={(b) => setOnline(b ? { id: "linepay", url: "" } : null)}
+          onPaid={(paymentId) => run(() => submit([...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: "linepay", amount: rest, ref: paymentId }], invoicePayload))}
+        />
       )}
       {scanLinePay && (
         <LinePayScan
