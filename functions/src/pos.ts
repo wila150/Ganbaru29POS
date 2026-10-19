@@ -197,7 +197,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
     lines.map((l, i) => ({ key: String(i), variantId: l.variantId, qty: l.qty, unitPrice: l.unitPrice, discountPct: l.discountPct })),
     (vid) => infoById.get(vid),
     promotions,
-    { ...taipeiClock(), isMember: !!shopperId, tier: shopperDoc?.tier ?? null, group: shopperDoc?.memberGroup ?? null, coupons: couponCheck.promoIds }
+    { ...taipeiClock(), isMember: !!shopperId, tier: shopperDoc?.tier ?? null, group: shopperDoc?.posGroup ?? shopperDoc?.memberGroup ?? null, coupons: couponCheck.promoIds }
   );
   lines.forEach((l, i) => {
     l.promoDiscount = promo.lineDiscount[String(i)] ?? 0;
@@ -278,7 +278,7 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   assert(nonCash <= total, "非現金付款不能超過應收金額（不能找零）");
   const change = paid - total;
 
-  const shopper = shopperId ? { id: shopperId, name: shopperDoc?.name ?? "", email: shopperDoc?.email ?? "", mobile: shopperDoc?.mobile ?? "", tier: tier?.name ?? null, group: shopperDoc?.memberGroup ?? null } : null;
+  const shopper = shopperId ? { id: shopperId, name: shopperDoc?.name ?? "", email: shopperDoc?.email ?? "", mobile: shopperDoc?.mobile ?? "", tier: tier?.name ?? null, group: shopperDoc?.posGroup ?? shopperDoc?.memberGroup ?? null } : null;
   const pointMultiplier = (tier?.pointMultiplier || 1) * (birthdayMonth ? Number(settings.birthdayPointMultiplier || 1) : 1);
 
   // --- 1. pending record (idempotent) ---
@@ -1024,7 +1024,7 @@ export const searchShopper = onCall(opts, async (req) => {
       // fall back to cached points
     }
     const s = (await db.doc(`shoppers/${id}`).get()).data()!;
-    out.push({ id, name: s.name, email: s.email, mobile: s.mobile, points: points ?? s.points ?? 0, live: points !== null, tier: s.tier ?? null, birthMonth: s.birthMonth ?? null, spend12m: s.spend12m ?? 0, group: s.memberGroup ?? null });
+    out.push({ id, name: s.name, email: s.email, mobile: s.mobile, points: points ?? s.points ?? 0, live: points !== null, tier: s.tier ?? null, birthMonth: s.birthMonth ?? null, spend12m: s.spend12m ?? 0, group: s.posGroup ?? s.memberGroup ?? null, meepGroup: s.memberGroup ?? null, posGroup: s.posGroup ?? null });
   }
   return { shoppers: out };
 });
@@ -1038,8 +1038,10 @@ export const refreshShopper = onCall(opts, async (req) => {
   const id = str(req.data?.id, "會員", { max: 64 });
   const live = await meep.getShopper(id);
   assert(live, "找不到這位會員", "not-found");
-  await db.doc(`shoppers/${id}`).set({ points: live.usableRewardPoints, name: live.name ?? "", mobile: live.mobile ?? "", mobileKey: mobileKey(live.mobile), memberGroup: live.memberGroup?.title ?? null, ...(live.birthDate ? { birthDate: live.birthDate } : {}) }, { merge: true });
-  return { points: live.usableRewardPoints, group: live.memberGroup?.title ?? null, name: live.name ?? "" };
+  const ref = db.doc(`shoppers/${id}`);
+  const snap = await ref.get();
+  await ref.set({ points: live.usableRewardPoints, name: live.name ?? "", mobile: live.mobile ?? "", mobileKey: mobileKey(live.mobile), memberGroup: live.memberGroup?.title ?? null, ...(live.birthDate ? { birthDate: live.birthDate } : {}) }, { merge: true });
+  return { points: live.usableRewardPoints, group: snap.data()?.posGroup ?? live.memberGroup?.title ?? null, name: live.name ?? "" };
 });
 
 /** 會員的網店訂單（meepShop），會員頁和門市紀錄一起顯示 */
@@ -1081,6 +1083,23 @@ export const setShopperTags = onCall(opts, async (req) => {
   await ref.update({ tags, ...(prefNote !== undefined ? { prefNote } : {}), tagsAt: FieldValue.serverTimestamp(), tagsBy: actor.name });
   if (tags.length) await db.doc("meta/memberTags").set({ tags: FieldValue.arrayUnion(...tags) }, { merge: true });
   return { tags };
+});
+
+/**
+ * 門市指定群組（店長以上）：meepShop 群組不能用 API 改，這裡讓門市結帳時把客人當成某個群組
+ * （折扣、購物金回饋都照這個群組算）。官網仍照 meepShop 的群組。group 傳 null = 取消，改回 meepShop 群組。
+ */
+export const setShopperGroup = onCall(opts, async (req) => {
+  const actor = await requireRole(req, "manager");
+  const id = str(req.data?.id, "會員", { max: 64 });
+  const ref = db.doc(`shoppers/${id}`);
+  const cur = (await ref.get()).data();
+  assert(cur, "找不到這位會員", "not-found");
+  const group = req.data?.group ? str(req.data.group, "群組", { max: 30 }) : null;
+  if (group) assert(((await shopSettings()).memberGroups ?? []).includes(group), "沒有這個群組");
+  await ref.update({ posGroup: group, posGroupBy: actor.name, posGroupAt: FieldValue.serverTimestamp() });
+  await audit(actor, "member.group", { id, name: cur.name, from: cur.posGroup ?? cur.memberGroup ?? null, to: group });
+  return { ok: true };
 });
 
 /** 從標籤清單移除（店長以上；已經貼在會員身上的不會被拿掉） */

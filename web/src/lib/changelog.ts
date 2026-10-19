@@ -11,6 +11,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-u",
+    date: "2026-10-19",
+    title: "門市可以指定會員群組",
+    items: [
+      "會員視窗、會員頁的「群組」旁多了下拉選單（店長以上），可以在門市把客人設成甘爹或尊貴的客人",
+      "門市指定後，門市結帳的折扣、購物金回饋就照指定的群組算；官網還是照 meepShop 的群組",
+      "選「照官網」就改回 meepShop 的群組",
+    ],
+  },
+  {
     id: "2026-10-19-t",
     date: "2026-10-19",
     title: "會員標籤與喜好",

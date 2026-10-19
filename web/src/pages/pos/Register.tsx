@@ -13,7 +13,7 @@ import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from
 import { resolveCode, searchVariants } from "../../lib/lookup";
 import { playCheckoutSound, unlockAudio } from "../../lib/sound";
 import { ProductInfo } from "../../components/ProductInfo";
-import { MemberTagEditor, TagChips, useShopperPrefs } from "../../components/MemberTags";
+import { MemberTagEditor, ShopperGroup, TagChips, useShopperPrefs } from "../../components/MemberTags";
 import { beep, deviceId, money, newId, PAY_LABEL, pctToZhe, todayStr, zheToPct } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useDeviceLocation } from "../../lib/location";
@@ -100,8 +100,8 @@ export function Register() {
       const x = d.data();
       if (!x) return;
       setShopper((cur) =>
-        cur?.id === shopperId && (cur.points !== (x.points ?? 0) || cur.group !== (x.memberGroup ?? null) || cur.tier !== (x.tier ?? null) || cur.name !== (x.name ?? ""))
-          ? { ...cur, name: x.name ?? cur.name, points: x.points ?? 0, group: x.memberGroup ?? null, tier: x.tier ?? null, birthMonth: x.birthMonth ?? cur.birthMonth }
+        cur?.id === shopperId && (cur.points !== (x.points ?? 0) || cur.group !== (x.posGroup ?? x.memberGroup ?? null) || cur.tier !== (x.tier ?? null) || cur.name !== (x.name ?? ""))
+          ? { ...cur, name: x.name ?? cur.name, points: x.points ?? 0, group: x.posGroup ?? x.memberGroup ?? null, tier: x.tier ?? null, birthMonth: x.birthMonth ?? cur.birthMonth }
           : cur
       );
     });
@@ -120,7 +120,7 @@ export function Register() {
     const d = q.docs[0];
     if (!d) return false;
     const x = d.data();
-    const s: Shopper = { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null };
+    const s: Shopper = { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.posGroup ?? x.memberGroup ?? null, birthMonth: x.birthMonth ?? null };
     setShopper(s);
     toast(`會員：${s.name || s.mobile}`, "ok");
     if (s.email)
@@ -735,7 +735,7 @@ function CurrentMemberTags({ current }: { current: Shopper }) {
   return (
     <div className="member-meta">
       <span className="muted small">群組</span>
-      <span className="member-group" title="會員群組在 meepShop 後台設定（meepShop 不開放修改）">{current.group ?? "未加入群組"}</span>
+      <ShopperGroup shopperId={current.id} />
       {current.tier && <span className="muted small">等級 {current.tier}</span>}
       <span className="muted small">　標籤</span>
       {tags.length ? <TagChips tags={tags} /> : <span className="muted small">無</span>}
@@ -760,7 +760,7 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
       // 會員條碼（掃描槍或手動輸入 M + 9 碼）
       if (/^M\d{9}$/i.test(q.trim())) {
         const r = await getDocs(query(collection(db, "shoppers"), where("memberCode", "==", q.trim().toUpperCase()), limit(1)));
-        setList(r.docs.map((d) => ({ id: d.id, name: d.data().name ?? "", email: d.data().email ?? "", mobile: d.data().mobile ?? "", points: d.data().points ?? 0, tier: d.data().tier ?? null, group: d.data().memberGroup ?? null })));
+        setList(r.docs.map((d) => ({ id: d.id, name: d.data().name ?? "", email: d.data().email ?? "", mobile: d.data().mobile ?? "", points: d.data().points ?? 0, tier: d.data().tier ?? null, group: d.data().posGroup ?? d.data().memberGroup ?? null })));
         return;
       }
       setList((await call<{ shoppers: Shopper[] }>("searchShopper", { q })).shoppers);

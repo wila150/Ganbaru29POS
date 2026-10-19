@@ -13,7 +13,7 @@ import { InvoiceInfo } from "./Checkout";
 import { getDeviceLocationId } from "../../lib/location";
 import { MemberCardDialog } from "../../components/MemberCardDialog";
 import { MemberList } from "../../components/MemberList";
-import { MemberTagEditor, TagChips, useShopperPrefs } from "../../components/MemberTags";
+import { MemberTagEditor, ShopperGroup, TagChips, useShopperPrefs } from "../../components/MemberTags";
 import { MemberPicker } from "./Register";
 
 interface OnlineOrder {
@@ -433,7 +433,7 @@ export function Members() {
                   {shopper.mobile} · {shopper.email}
                 </div>
                 <div className="small">
-                  群組 <b>{shopper.group ?? "未加入群組"}</b>　<ShopperTagLine id={shopper.id} />
+                  群組 <ShopperGroup shopperId={shopper.id} />　<ShopperTagLine id={shopper.id} />
                 </div>
                 <div className="small">近 12 個月消費 {money(shopper.spend12m ?? 0)}（門市＋網店「已結案」訂單；網店處理中的訂單結案後才計入）</div>
               </div>

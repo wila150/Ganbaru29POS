@@ -797,6 +797,8 @@ span.tier-switch { cursor: default; }
 .bar-cell { width: 30%; }
 .hbar { display: block; height: 10px; background: #2563eb; border-radius: 5px; min-width: 2px; }
 .member-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.member-group-ctl { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.member-group-ctl select { padding: 2px 6px; font-size: 13px; border-radius: 6px; }
 .member-group { background: #e0f2fe; color: #075985; border-radius: 6px; padding: 2px 8px; font-size: 13px; }
 .tag-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .member-tag { background: #fef3c7; color: #92400e; border-radius: 999px; padding: 1px 8px; font-size: 12px; }

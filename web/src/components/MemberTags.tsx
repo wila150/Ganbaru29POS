@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../auth";
 import { call, db } from "../firebase";
 import { atLeast } from "../lib/util";
+import { useData } from "../data";
 import { Modal, useAction } from "./ui";
 
 /** 全店用過的會員標籤（meta/memberTags） */
@@ -92,5 +93,41 @@ export function MemberTagEditor({ shopperId, name, onClose }: { shopperId: strin
       <textarea rows={3} maxLength={300} placeholder="例：穿 L、喜歡寬褲和落肩、只買黑灰色、不喜歡亮色；生日 8 月想送禮給男友" value={pref ?? prefs.pref} onChange={(e) => setPref(e.target.value)} />
       <p className="muted small">標籤、喜好存在本系統（meepShop 沒有這個功能）；結帳帶入會員時會顯示，顧客名單可以用標籤篩選。</p>
     </Modal>
+  );
+}
+
+/**
+ * 群組：meepShop 的群組（官網用，不能從這裡改）＋門市指定群組（店長以上可改，只影響門市結帳的折扣與購物金回饋）
+ */
+export function ShopperGroup({ shopperId }: { shopperId: string }) {
+  const { settings } = useData();
+  const { profile } = useAuth();
+  const { busy, run } = useAction();
+  const [g, setG] = useState<{ meep: string | null; pos: string | null }>({ meep: null, pos: null });
+  useEffect(() => onSnapshot(doc(db, "shoppers", shopperId), (d) => setG({ meep: (d.data()?.memberGroup as string) ?? null, pos: (d.data()?.posGroup as string) ?? null })), [shopperId]);
+  const groups = (settings.memberGroups ?? []) as string[];
+  const canEdit = atLeast(profile?.role, "manager");
+  const shown = g.pos ?? g.meep;
+  return (
+    <span className="member-group-ctl">
+      <span className="member-group" title="官網（meepShop）的群組只能在 meepShop 後台改">{shown ?? "未加入群組"}</span>
+      {g.pos && <span className="muted small">（門市指定；官網是「{g.meep ?? "未加入群組"}」）</span>}
+      {canEdit && (
+        <select
+          className="small"
+          value={g.pos ?? ""}
+          disabled={busy}
+          title="門市指定群組：只影響門市結帳的折扣與購物金回饋"
+          onChange={(e) => run(() => call("setShopperGroup", { id: shopperId, group: e.target.value || null }), e.target.value ? `門市改為「${e.target.value}」` : "已改回官網群組")}
+        >
+          <option value="">門市指定：照官網</option>
+          {groups.map((x) => (
+            <option key={x} value={x}>
+              門市指定：{x}
+            </option>
+          ))}
+        </select>
+      )}
+    </span>
   );
 }

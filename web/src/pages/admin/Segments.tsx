@@ -51,7 +51,7 @@ export function Segments() {
               name: x.name ?? "",
               email: x.email ?? "",
               mobile: x.mobile ?? "",
-              group: x.memberGroup ?? null,
+              group: x.posGroup ?? x.memberGroup ?? null,
               tier: x.tier ?? null,
               points: x.points ?? 0,
               birthMonth: x.birthMonth ?? null,
