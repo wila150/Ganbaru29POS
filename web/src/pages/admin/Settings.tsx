@@ -821,25 +821,43 @@ export function MemberSettings() {
 
 const CRED_LABEL: Record<string, string> = { ecpay_payment: "綠界金流", newebpay_payment: "藍新金流", ecpay_invoice: "綠界電子發票" };
 
-/** 寄付款連結用的 Gmail：要用 Google「應用程式密碼」（不是 Gmail 登入密碼） */
+/** 寄付款連結用的信箱：Gmail／Google Workspace 用「應用程式密碼」；其他官方信箱填寄信伺服器（SMTP） */
 function MailCredForm({ current, onSaved }: { current: string | null | undefined; onSaved: () => void }) {
-  const [f, setF] = useState({ user: "", pass: "" });
+  const [f, setF] = useState({ user: "", pass: "", host: "smtp.gmail.com", port: "465" });
   const { busy, run } = useAction();
+  const google = f.host === "smtp.gmail.com";
   return (
     <div className="cred-form">
       <div className="row-between">
-        <strong>寄付款連結的 Gmail</strong>
+        <strong>寄付款連結的信箱</strong>
         {current ? <Badge tone="ok">已設定：{current}</Badge> : <Badge>未設定</Badge>}
       </div>
       <p className="muted small">
-        信用卡「傳付款連結」由這個 Gmail 寄給客人。密碼要用 Google 的「應用程式密碼」（16 個英文字母）：Google 帳戶 → 安全性 → 兩步驟驗證（要先開啟）→ 最下面「應用程式密碼」→ 建立一組，名稱打 POS。
+        信用卡「傳付款連結」由這個信箱寄給客人，寄件人名稱是店名。
+        <br />・Gmail 或 Google Workspace（官方網域信箱用 Google 的）：伺服器選 Google，密碼用「應用程式密碼」——Google 帳戶 → 安全性 → 兩步驟驗證（先開啟）→ 應用程式密碼 → 建立一組（16 個英文字母）。
+        <br />・其他官方信箱（主機商、Outlook 等）：選「其他」，填信箱商提供的 SMTP 伺服器、連接埠和信箱密碼。
       </p>
       <div className="inline-form">
-        <input type="email" placeholder="店家 Gmail" value={f.user} onChange={(e) => setF({ ...f, user: e.target.value.trim() })} />
-        <input type="password" autoComplete="off" placeholder="應用程式密碼（16 碼）" value={f.pass} onChange={(e) => setF({ ...f, pass: e.target.value })} />
-        <button className="btn" disabled={busy || !f.user || !f.pass} onClick={() => run(async () => {
-          await call("setMailCreds", f);
-          setF({ user: "", pass: "" });
+        <select value={google ? "google" : "other"} onChange={(e) => setF({ ...f, host: e.target.value === "google" ? "smtp.gmail.com" : "", port: "465" })}>
+          <option value="google">Google（Gmail／Workspace）</option>
+          <option value="other">其他（自己填 SMTP）</option>
+        </select>
+        {!google && (
+          <>
+            <input placeholder="SMTP 伺服器（例：smtp.office365.com）" value={f.host} onChange={(e) => setF({ ...f, host: e.target.value.trim() })} />
+            <select value={f.port} onChange={(e) => setF({ ...f, port: e.target.value })}>
+              <option value="465">465（SSL）</option>
+              <option value="587">587（STARTTLS）</option>
+            </select>
+          </>
+        )}
+      </div>
+      <div className="inline-form">
+        <input type="email" placeholder="寄件信箱（例：service@ganbaru29.com）" value={f.user} onChange={(e) => setF({ ...f, user: e.target.value.trim() })} />
+        <input type="password" autoComplete="off" placeholder={google ? "應用程式密碼（16 碼）" : "信箱密碼"} value={f.pass} onChange={(e) => setF({ ...f, pass: e.target.value })} />
+        <button className="btn" disabled={busy || !f.user || !f.pass || !f.host} onClick={() => run(async () => {
+          await call("setMailCreds", { ...f, port: Number(f.port) });
+          setF({ user: "", pass: "", host: "smtp.gmail.com", port: "465" });
           onSaved();
         }, "已儲存（已測試登入成功）")}>
           儲存
@@ -1090,6 +1108,19 @@ function PaymentSettings() {
                   onChange={(e) => set("payment", { ...pay, newebExtra: e.target.checked ? [...(pay.newebExtra ?? []), k] : (pay.newebExtra ?? []).filter((x) => x !== k) })}
                 />{" "}
                 {l}
+              </label>
+            ))}
+          </div>
+          <div className="muted small">信用卡分期（要先向藍新申請開通分期，沒開通就勾會讓付款頁打不開）：</div>
+          <div className="chip-row">
+            {[3, 6, 12, 18, 24, 30].map((n) => (
+              <label key={n} className="check">
+                <input
+                  type="checkbox"
+                  checked={(pay.newebInst ?? []).includes(n)}
+                  onChange={(e) => set("payment", { ...pay, newebInst: (e.target.checked ? [...(pay.newebInst ?? []), n] : (pay.newebInst ?? []).filter((x) => x !== n)).sort((a, b) => a - b) })}
+                />{" "}
+                {n} 期
               </label>
             ))}
           </div>

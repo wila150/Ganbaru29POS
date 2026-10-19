@@ -36,7 +36,7 @@ export const tradeSha = (tradeInfo: string, c: NewebCreds) => createHash("sha256
 
 export const NEWEB_EXTRA = ["APPLEPAY", "ANDROIDPAY", "SAMSUNGPAY", "LINEPAY", "TAIWANPAY"];
 
-export function mpgForm(c: NewebCreds, o: { orderNo: string; amount: number; itemDesc: string; notifyUrl: string; returnUrl?: string; email?: string; extra?: string[] }) {
+export function mpgForm(c: NewebCreds, o: { orderNo: string; amount: number; itemDesc: string; notifyUrl: string; returnUrl?: string; email?: string; extra?: string[]; inst?: number[] }) {
   const q = new URLSearchParams({
     MerchantID: c.merchantId,
     RespondType: "JSON",
@@ -54,6 +54,8 @@ export function mpgForm(c: NewebCreds, o: { orderNo: string; amount: number; ite
     CREDIT: "1",
     // 店家在設定頁勾選、且已向藍新申請啟用的其他付款方式
     ...Object.fromEntries((o.extra ?? []).filter((k) => NEWEB_EXTRA.includes(k)).map((k) => [k, "1"])),
+    // 信用卡分期（要先向藍新申請開通）：InstFlag = "3,6,12"
+    ...((o.inst ?? []).filter((n) => [3, 6, 12, 18, 24, 30].includes(n)).length ? { InstFlag: (o.inst ?? []).filter((n) => [3, 6, 12, 18, 24, 30].includes(n)).join(",") } : {}),
   }).toString();
   const TradeInfo = encrypt(q, c);
   return { action: mpgUrl(c.stage), params: { MerchantID: c.merchantId, TradeInfo, TradeSha: tradeSha(TradeInfo, c), Version: "2.0" } };

@@ -176,7 +176,7 @@ export const payPage = onRequest(async (req, res) => {
       const f = ecpay.aioForm(await ecpayPaymentCreds(), { tradeNo, amount: p.amount, itemName: p.itemName, returnUrl: fnUrl("ecpayNotify"), resultUrl: `${fnUrl("payReturn")}?id=${id}&t=${p.token}` });
       res.send(autoSubmit(f.action, f.params, p.amount));
     } else {
-      const f = neweb.mpgForm(await newebCreds(), { orderNo: tradeNo, amount: p.amount, itemDesc: p.itemName, notifyUrl: fnUrl("newebpayNotify"), extra: ((await settings()).payment?.newebExtra as string[] | undefined) ?? [], returnUrl: `${fnUrl("payReturn")}?id=${id}&t=${p.token}` });
+      const f = neweb.mpgForm(await newebCreds(), { orderNo: tradeNo, amount: p.amount, itemDesc: p.itemName, notifyUrl: fnUrl("newebpayNotify"), extra: ((await settings()).payment?.newebExtra as string[] | undefined) ?? [], inst: ((await settings()).payment?.newebInst as number[] | undefined) ?? [], returnUrl: `${fnUrl("payReturn")}?id=${id}&t=${p.token}` });
       res.send(autoSubmit(f.action, f.params, p.amount));
     }
   } catch (e) {
@@ -278,18 +278,22 @@ export const setPaymentCreds = onCall(async (req) => {
 /** 存寄信用的 Gmail 帳號與應用程式密碼（Secret Manager） */
 export const setMailCreds = onCall(async (req) => {
   await requireRole(req, "owner");
-  const user = str(req.data?.user, "Gmail", { max: 120 }).toLowerCase();
-  const pass = str(req.data?.pass, "應用程式密碼", { max: 40 }).replace(/\s+/g, "");
-  assert(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user), "Gmail 格式不正確");
-  assert(/^[a-z]{16}$/i.test(pass), "Google 應用程式密碼是 16 個英文字母（中間的空格可以不打）");
+  const user = str(req.data?.user, "寄件 Email", { max: 120 }).toLowerCase();
+  const host = (str(req.data?.host, "寄信伺服器", { optional: true, max: 120 }) || "smtp.gmail.com").toLowerCase();
+  const port = Number(req.data?.port) || 465;
+  const google = host === "smtp.gmail.com";
+  const pass = google ? str(req.data?.pass, "應用程式密碼", { max: 40 }).replace(/\s+/g, "") : str(req.data?.pass, "密碼", { max: 200 });
+  assert(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user), "寄件 Email 格式不正確");
+  assert(!google || /^[a-z]{16}$/i.test(pass), "Google 應用程式密碼是 16 個英文字母（中間的空格可以不打）");
+  assert([465, 587, 25, 2525].includes(port), "連接埠只能是 465 或 587");
   // 先試著登入，確定帳密可以用再存
-  const t = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass } });
+  const t = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } });
   try {
     await t.verify();
   } catch (e) {
-    throw new HttpsError("failed-precondition", `Gmail 登入失敗，請確認帳號與應用程式密碼（${errMsg(e).slice(0, 120)}）`);
+    throw new HttpsError("failed-precondition", `寄信伺服器登入失敗，請確認帳號、密碼、伺服器（${errMsg(e).slice(0, 120)}）`);
   }
-  await setSecret("MAIL_SMTP", JSON.stringify({ user, pass }));
+  await setSecret("MAIL_SMTP", JSON.stringify({ user, pass, host, port }));
   return { ok: true };
 });
 
@@ -304,11 +308,12 @@ export const sendPayLink = onCall({ timeoutSeconds: 60 }, async (req) => {
   assert(p, "找不到這筆付款", "not-found");
   assert(p.status === "waiting", "這筆付款已完成或已取消");
   const m = await secretJson("MAIL_SMTP", true);
-  assert(m?.user && m?.pass, "還沒設定寄信用的 Gmail（後台設定 → 金流管理 → 寄付款連結的 Gmail）", "failed-precondition");
+  assert(m?.user && m?.pass, "還沒設定寄信用的信箱（後台設定 → 金流管理 → 寄付款連結的信箱）", "failed-precondition");
   const shop = ((await settings()).shopName as string) || "ganbaru29";
   const url = `${fnUrl("payPage")}?id=${id}&t=${p.token}`;
   const amount = `$${Number(p.amount).toLocaleString("zh-TW")}`;
-  const t = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user: m.user, pass: m.pass } });
+  const port = Number(m.port) || 465;
+  const t = nodemailer.createTransport({ host: m.host || "smtp.gmail.com", port, secure: port === 465, auth: { user: m.user, pass: m.pass } });
   await t.sendMail({
     from: { name: shop, address: m.user },
     to,
