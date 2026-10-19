@@ -23,7 +23,7 @@ export interface InvoiceInput {
 const PROVIDER_LABEL: Record<string, string> = { ecpay: "綠界", newebpay: "藍新" };
 
 /** 結帳：付款方式（含掃碼線上付款）＋電子發票開立方式。 */
-export function Checkout({ total, itemName, onClose, submit, onPayShow }: { total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void>; onPayShow?: (p: { method: string; amount: number } | null) => void }) {
+export function Checkout({ total, itemName, onClose, submit, onPayShow }: { total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void>; onPayShow?: (p: { method: string; amount: number; parts?: Pay[] } | null) => void }) {
   const { settings } = useData();
   const provider = settings.payment?.provider ?? null;
   const linePayApi = !!settings.linePay?.enabled && total > 0;
@@ -33,7 +33,6 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
   const [mixed, setMixed] = useState<Pay[]>([]);
   // 先收現金，不夠的部分改用 LINE Pay／信用卡…（null = 全部現金）
   const [restMethod, setRestMethod] = useState<string | null>(null);
-  const [mixMethod, setMixMethod] = useState("card");
   const [mixAmt, setMixAmt] = useState("");
   const [inv, setInv] = useState<InvoiceInput>({ type: "print" });
   const [online, setOnline] = useState<{ id: string; url: string } | null>(null);
@@ -60,7 +59,9 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
   const mixedLeft = total - mixed.reduce((s, p) => s + p.amount, 0);
   const scanLinePay = method === "linepay" && linePayApi;
   // 顧客螢幕：非現金的部分顯示給客人（轉帳帳號／QR、LINE Pay QR）
-  const showPay = method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest } : null) : method === "mixed" || method === "online" ? null : { method, amount: total };
+  const mixShow = [...mixed].reverse().find((p) => p.method !== "cash");
+  const showPay =
+    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" ? null : { method, amount: total };
   const showKey = JSON.stringify(showPay);
   useEffect(() => {
     onPayShow?.(showPay);
@@ -165,38 +166,65 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
         />
       )}
       {method === "mixed" && (
-        <div>
-          <ul className="pick-list">
-            {mixed.map((p, i) => (
-              <li key={i} className="row-between">
-                {PAY_LABEL[p.method]} {money(p.amount)}
-                <button className="btn btn-sm btn-ghost" onClick={() => setMixed((m) => m.filter((_, j) => j !== i))}>
-                  移除
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p>{mixedLeft > 0 ? `尚餘 ${money(mixedLeft)}` : mixedLeft < 0 ? `找零 ${money(-mixedLeft)}` : "金額已足"}</p>
-          <div className="inline-form">
-            <select value={mixMethod} onChange={(e) => setMixMethod(e.target.value)}>
-              {Object.entries(PAY_LABEL).map(([k, l]) => (
-                <option key={k} value={k}>
-                  {l}
-                </option>
-              ))}
-            </select>
-            <input type="number" placeholder={String(Math.max(0, mixedLeft))} value={mixAmt} onChange={(e) => setMixAmt(e.target.value)} />
-            <button
-              className="btn"
-              onClick={() => {
-                const a = mixAmt === "" ? Math.max(0, mixedLeft) : Number(mixAmt);
-                if (a > 0) setMixed((m) => [...m, { method: mixMethod, amount: a }]);
-                setMixAmt("");
-              }}
-            >
-              加入
-            </button>
+        <div className="mix">
+          <div className="mix-sum">
+            <div>
+              <span>應收</span>
+              <b>{money(total)}</b>
+            </div>
+            <div>
+              <span>已收</span>
+              <b>{money(total - mixedLeft)}</b>
+            </div>
+            <div className="mix-detail">
+              {(() => {
+                const cashIn = mixed.filter((p) => p.method === "cash").reduce((a, p) => a + p.amount, 0);
+                const others = mixed.filter((p) => p.method !== "cash");
+                return (
+                  <>
+                    <span>現金 {money(cashIn)}</span>
+                    <span>其他支付 {others.length ? others.map((p) => `${PAY_LABEL[p.method] ?? p.method} ${money(p.amount)}`).join("＋") : "$0"}</span>
+                  </>
+                );
+              })()}
+            </div>
           </div>
+          {mixed.length > 0 && (
+            <div className="mix-list">
+              {mixed.map((p, i) => (
+                <div key={i} className="mix-row">
+                  <span>{PAY_LABEL[p.method] ?? p.method}</span>
+                  <b>{money(p.amount)}</b>
+                  <button className="btn-icon" title="移除" onClick={() => setMixed((m) => m.filter((_, j) => j !== i))}>
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className={`mix-left ${mixedLeft > 0 ? "due" : ""}`}>{mixedLeft > 0 ? `還差 ${money(mixedLeft)}` : mixedLeft < 0 ? `找零 ${money(-mixedLeft)}` : "金額已足 ✓"}</div>
+          {mixedLeft > 0 && (
+            <>
+              <div className="mix-add">
+                <input type="number" inputMode="numeric" placeholder={`金額（不填 = ${money(mixedLeft)}）`} value={mixAmt} onChange={(e) => setMixAmt(e.target.value)} />
+              </div>
+              <div className="mix-methods">
+                {Object.entries(PAY_LABEL).map(([k, l]) => (
+                  <button
+                    key={k}
+                    onClick={() => {
+                      const a = mixAmt === "" ? mixedLeft : Number(mixAmt);
+                      if (a > 0) setMixed((m) => [...m, { method: k, amount: a }]);
+                      setMixAmt("");
+                    }}
+                  >
+                    ＋ {l}
+                  </button>
+                ))}
+              </div>
+              <p className="muted small">先輸入金額，再點付款方式加入（例：輸入 1000 點「現金」，剩下的直接點「轉帳」）</p>
+            </>
+          )}
         </div>
       )}
     </Modal>

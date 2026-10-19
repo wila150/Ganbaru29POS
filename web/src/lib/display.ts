@@ -23,7 +23,7 @@ export interface DisplayState {
   /** 金額明細：原價、各種折扣、購物金折抵、服務費 */
   summary?: { gross: number; rows: { label: string; amount: number }[] } | null;
   /** 付款畫面：要客人付的方式和金額（現金＋轉帳時只顯示轉帳那部分） */
-  pay?: { method: string; amount: number } | null;
+  pay?: { method: string; amount: number; parts?: { method: string; amount: number }[] } | null;
   change?: number;
 }
 

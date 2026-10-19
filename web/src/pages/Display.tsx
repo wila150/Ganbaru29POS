@@ -45,23 +45,45 @@ function Screen() {
       </div>
     );
   if (s.mode === "pay" && s.pay) {
-    const m = s.pay.method;
-    const qr = m === "transfer" ? pd.transferQrUrl : m === "linepay" ? pd.linepayQrUrl : null;
+    const parts = s.pay.parts?.length ? s.pay.parts : [{ method: s.pay.method, amount: s.pay.amount }];
+    const cashIn = parts.filter((p) => p.method === "cash").reduce((a, p) => a + p.amount, 0);
+    const others = parts.filter((p) => p.method !== "cash");
+    const qrOf = (m: string) => (m === "transfer" ? pd.transferQrUrl : m === "linepay" ? pd.linepayQrUrl : null);
+    const hintOf = (m: string, amt: number) =>
+      m === "linepay" ? `用 LINE 掃描 QR，輸入 ${money(amt)}` : m === "transfer" ? `用銀行 App 掃描 QR 轉帳 ${money(amt)}` : m === "card" ? "請將信用卡交給店員刷卡" : `請以 ${PAY_LABEL[m] ?? m} 付款`;
     return (
-      <div className="cd cd-center" onClick={full}>
-        <div className="cd-sub">請以 {PAY_LABEL[m] ?? m} 付款</div>
-        <div className="cd-amount">{money(s.pay.amount)}</div>
-        {qr && <img className="cd-qr" src={qr} alt="" />}
-        {m === "transfer" && !qr && (pd.transferBank || pd.transferAccount) && (
-          <div className="cd-bank">
-            {pd.transferBank && <div>銀行　<b>{pd.transferBank}</b></div>}
-            {pd.transferAccount && <div>帳號　<b className="mono">{pd.transferAccount}</b></div>}
-            {pd.transferName && <div>戶名　<b>{pd.transferName}</b></div>}
+      <div className="cd cd-pay" onClick={full}>
+        <header className="cd-bar">
+          <b>{shop}</b>
+          <span>本次消費 {money(s.total ?? 0)}</span>
+        </header>
+        {(cashIn > 0 || others.length > 1) && (
+          <div className="cd-paysum">
+            {cashIn > 0 && <span>現金已收 {money(cashIn)}</span>}
+            <span>其他支付 {others.map((p) => `${PAY_LABEL[p.method] ?? p.method} ${money(p.amount)}`).join("＋")}</span>
           </div>
         )}
-        {m === "linepay" && <div className="cd-hint">請用 LINE 掃描上方 QR code，輸入金額 {money(s.pay.amount)}</div>}
-        {m === "transfer" && <div className="cd-hint">轉帳完成後請把畫面給店員確認</div>}
-        {(s.total ?? 0) !== s.pay.amount && <div className="cd-hint muted">本次消費 {money(s.total ?? 0)}，其餘以其他方式付款</div>}
+        <div className={`cd-paycards n${Math.min(others.length, 3)}`}>
+          {others.map((p, i) => {
+            const qr = qrOf(p.method);
+            return (
+              <section key={i} className="cd-card cd-paycard">
+                <div className="cd-pay-m">{PAY_LABEL[p.method] ?? p.method}</div>
+                <div className="cd-amount">{money(p.amount)}</div>
+                {qr ? <img className="cd-qr" src={qr} alt="" /> : p.method === "card" ? <div className="cd-cardicon">💳</div> : null}
+                {p.method === "transfer" && !qr && (pd.transferBank || pd.transferAccount) && (
+                  <div className="cd-bank">
+                    {pd.transferBank && <div>銀行　<b>{pd.transferBank}</b></div>}
+                    {pd.transferAccount && <div>帳號　<b className="mono">{pd.transferAccount}</b></div>}
+                    {pd.transferName && <div>戶名　<b>{pd.transferName}</b></div>}
+                  </div>
+                )}
+                <div className="cd-hint">{hintOf(p.method, p.amount)}</div>
+              </section>
+            );
+          })}
+        </div>
+        <div className="cd-hint center">付款完成後請出示畫面給店員確認</div>
       </div>
     );
   }
