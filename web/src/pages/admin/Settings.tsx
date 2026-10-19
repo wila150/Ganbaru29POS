@@ -821,14 +821,19 @@ export function MemberSettings() {
 
 const CRED_LABEL: Record<string, string> = { ecpay_payment: "綠界金流", newebpay_payment: "藍新金流", ecpay_invoice: "綠界電子發票" };
 
-function CredForm({ kind, current, onSaved }: { kind: string; current: string | null | undefined; onSaved: () => void }) {
+function CredForm({ kind, current, mask, onSaved }: { kind: string; current: string | null | undefined; mask?: string | null; onSaved: () => void }) {
   const [f, setF] = useState({ merchantId: "", hashKey: "", hashIv: "" });
   const { busy, run } = useAction();
   return (
     <div className="cred-form">
       <div className="row-between">
         <strong>{CRED_LABEL[kind]}</strong>
-        {current ? <Badge tone="ok">已設定：商店代號 {current}</Badge> : <Badge>未設定{kind.startsWith("ecpay") ? "（測試環境會用綠界公用測試帳號）" : ""}</Badge>}
+        {current ? (
+          <span className="cred-set">
+            <Badge tone="ok">已設定：商店代號 {current}</Badge>
+            {mask && <small className="muted mono">{mask}</small>}
+          </span>
+        ) : <Badge>未設定{kind.startsWith("ecpay") ? "（測試環境會用綠界公用測試帳號）" : ""}</Badge>}
       </div>
       <div className="inline-form">
         <input placeholder="商店代號 MerchantID" value={f.merchantId} onChange={(e) => setF({ ...f, merchantId: e.target.value.trim() })} />
@@ -1063,7 +1068,7 @@ function PaymentSettings() {
       <LinePaySettings />
       <h3>商店代號與金鑰</h3>
       {(["ecpay_payment", "newebpay_payment", "ecpay_invoice"] as const).map((k) => (
-        <CredForm key={k} kind={k} current={creds[k]} onSaved={load} />
+        <CredForm key={k} kind={k} current={creds[k]} mask={creds[`${k}_mask`]} onSaved={load} />
       ))}
     </section>
   );

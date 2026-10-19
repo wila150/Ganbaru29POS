@@ -262,7 +262,13 @@ export const setPaymentCreds = onCall(async (req) => {
 
 export const paymentCredsStatus = onCall(async (req) => {
   await requireRole(req, "owner");
+  // 只回傳遮罩過的金鑰（前 4 後 4），讓老闆核對有沒有填對
+  const mask = (v?: string) => (v ? (v.length > 8 ? `${v.slice(0, 4)}…${v.slice(-4)}` : `${v.slice(0, 2)}…`) : null);
   const out: Record<string, string | null> = {};
-  for (const [k, n] of Object.entries(CRED_SECRET)) out[k] = (await secretJson(n, true))?.merchantId ?? null;
+  for (const [k, n] of Object.entries(CRED_SECRET)) {
+    const s = await secretJson(n, true);
+    out[k] = s?.merchantId ?? null;
+    out[`${k}_mask`] = s?.merchantId ? `HashKey ${mask(s.hashKey)}（${s.hashKey?.length ?? 0} 碼）・HashIV ${mask(s.hashIv)}（${s.hashIv?.length ?? 0} 碼）` : null;
+  }
   return out;
 });
