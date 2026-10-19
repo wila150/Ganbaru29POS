@@ -11,6 +11,12 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-n",
+    date: "2026-10-19",
+    title: "單品規格排行",
+    items: ["報表中心「商品／尺寸顏色」新增單品規格排行：每個商品哪個顏色、尺寸最好賣，可從高到低或從低到高，依件數或金額"],
+  },
+  {
     id: "2026-10-19-m",
     date: "2026-10-19",
     title: "分攤法算成本",

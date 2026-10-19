@@ -8,6 +8,7 @@ import { useDeviceLocation } from "../../lib/location";
 import { addDays, atLeast, downloadCsv, fmtTime, money, num, PAY_NAME, todayStr } from "../../lib/util";
 
 interface Report {
+  variantSales?: { variantId: string; productId: string; store: number; online: number; sales: number }[];
   from: string;
   to: string;
   days: number;
@@ -379,6 +380,115 @@ function RevenueTab({ r }: { r: Report }) {
   );
 }
 
+/**
+ * 單品規格排行：每個商品裡，哪個尺寸／顏色賣最好（或最差）。
+ * 沒賣出的規格也列出來（0 件），從低到高時就看得到哪個顏色完全沒動。
+ */
+function VariantRank({ r }: { r: Report }) {
+  const { variants } = useData();
+  const [desc, setDesc] = useState(true);
+  const [by, setBy] = useState<"qty" | "sales">("qty");
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const groups = useMemo(() => {
+    const sold = new Map((r.variantSales ?? []).map((x) => [x.variantId, x]));
+    const m = new Map<string, { productId: string; title: string; total: number; amount: number; rows: { id: string; label: string; qty: number; store: number; online: number; amount: number; stock: number }[] }>();
+    for (const v of variants) {
+      const x = sold.get(v.id);
+      const g = m.get(v.productId) ?? m.set(v.productId, { productId: v.productId, title: v.productTitle, total: 0, amount: 0, rows: [] }).get(v.productId)!;
+      const qty = (x?.store ?? 0) + (x?.online ?? 0);
+      g.rows.push({ id: v.id, label: v.options || "單一規格", qty, store: x?.store ?? 0, online: x?.online ?? 0, amount: x?.sales ?? 0, stock: v.shopStock ?? 0 });
+      g.total += qty;
+      g.amount += x?.sales ?? 0;
+    }
+    const key = (a: { qty: number; amount: number }) => (by === "qty" ? a.qty : a.amount);
+    const dir = desc ? -1 : 1;
+    const t = q.trim().toLowerCase();
+    return [...m.values()]
+      .filter((g) => g.rows.length > 1 && (!t || g.title.toLowerCase().includes(t)))
+      .map((g) => ({ ...g, rows: [...g.rows].sort((a, b) => dir * (key(a) - key(b)) || a.label.localeCompare(b.label, "zh-Hant")) }))
+      .sort((a, b) => dir * ((by === "qty" ? a.total - b.total : a.amount - b.amount)) || a.title.localeCompare(b.title, "zh-Hant"));
+  }, [r, variants, desc, by, q]);
+  const toggle = (id: string) =>
+    setOpen((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  return (
+    <Section
+      title="單品規格排行（每個商品哪個尺寸／顏色最好賣）"
+      onExport={() =>
+        downloadCsv(`單品規格排行_${r.from}_${r.to}.csv`, [
+          ["商品", "規格", "名次", "門市件數", "網店件數", "合計件數", "金額", "目前庫存"],
+          ...groups.flatMap((g) => g.rows.map((x, i) => [g.title, x.label, i + 1, x.store, x.online, x.qty, x.amount, x.stock])),
+        ])
+      }
+    >
+      <div className="filters">
+        <input placeholder="搜尋商品" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="chips">
+          <button className={`chip ${desc ? "active" : ""}`} onClick={() => setDesc(true)}>
+            從高到低
+          </button>
+          <button className={`chip ${!desc ? "active" : ""}`} onClick={() => setDesc(false)}>
+            從低到高
+          </button>
+          <span className="muted small">　依</span>
+          <button className={`chip ${by === "qty" ? "active" : ""}`} onClick={() => setBy("qty")}>
+            件數
+          </button>
+          <button className={`chip ${by === "sales" ? "active" : ""}`} onClick={() => setBy("sales")}>
+            金額
+          </button>
+        </div>
+      </div>
+      {groups.length === 0 ? (
+        <Empty>沒有多規格的商品</Empty>
+      ) : (
+        <div className="vrank">
+          {groups.slice(0, 150).map((g) => {
+            const max = Math.max(1, ...g.rows.map((x) => (by === "qty" ? x.qty : x.amount)));
+            const expanded = open.has(g.productId);
+            const shown = expanded ? g.rows : g.rows.slice(0, 3);
+            return (
+              <div key={g.productId} className="vrank-item">
+                <div className="row-between">
+                  <strong>{g.title}</strong>
+                  <span className="muted small">
+                    共 {g.total} 件　{money(g.amount)}
+                  </span>
+                </div>
+                {shown.map((x, i) => {
+                  const v = by === "qty" ? x.qty : x.amount;
+                  return (
+                    <div key={x.id} className="vrank-row">
+                      <span className="vrank-no">{desc && v > 0 && i < 3 ? ["🥇", "🥈", "🥉"][i] : i + 1}</span>
+                      <span className="vrank-label">{x.label}</span>
+                      <span className="vrank-bar">
+                        <span style={{ width: `${(v / max) * 100}%` }} />
+                      </span>
+                      <span className="num vrank-val">{by === "qty" ? `${x.qty} 件` : money(x.amount)}</span>
+                      <span className="muted small vrank-stock">庫存 {x.stock}</span>
+                    </div>
+                  );
+                })}
+                {g.rows.length > 3 && (
+                  <button className="link-btn small" onClick={() => toggle(g.productId)}>
+                    {expanded ? "收起" : `看全部 ${g.rows.length} 個規格`}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="muted small">件數＝門市＋網店；只列有 2 個以上規格的商品。從低到高可以看出哪個顏色、尺寸賣不動。</p>
+    </Section>
+  );
+}
+
 function ProductsTab({ r }: { r: Report }) {
   const showCost = r.products.some((p) => p.cogs !== undefined);
   const sizes = useMemo(() => [...new Set(r.sizeColor.map((x) => x.size))], [r]);
@@ -427,6 +537,7 @@ function ProductsTab({ r }: { r: Report }) {
           </div>
         </Section>
       )}
+      <VariantRank r={r} />
       <Section
         title="商品銷售排行"
         onExport={() =>

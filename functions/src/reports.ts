@@ -82,8 +82,14 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
       color: opts.find((o) => COLOR_NAMES.test(o.name) && !SIZE_NAMES.test(o.name))?.value ?? (opts.length === 2 ? opts[0]?.value : null),
     };
   };
+  /** 每個款式（商品＋尺寸顏色）的門市、網店銷量與金額 */
+  const byVariant = new Map<string, { variantId: string; productId: string; store: number; online: number; sales: number }>();
   const addItem = (vid: string, qty: number, sales: number, online: boolean) => {
     const o = optionOf(vid);
+    const bv = byVariant.get(vid) ?? byVariant.set(vid, { variantId: vid, productId: o.productId, store: 0, online: 0, sales: 0 }).get(vid)!;
+    if (online) bv.online += qty;
+    else bv.store += qty;
+    bv.sales += sales;
     const p = prod.get(o.productId) ?? prod.set(o.productId, { productId: o.productId, title: o.title, qty: 0, sales: 0, online: 0, cogs: 0 }).get(o.productId)!;
     if (online) p.online += qty;
     else {
@@ -324,6 +330,7 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
       .map((p) => ({ productId: p.productId, title: p.title, store: p.qty, online: p.online, total: p.qty + p.online, sales: round(p.sales), ...(withCost ? { cogs: round(p.cogs), margin: round(p.sales - p.cogs) } : {}) }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 100),
+    variantSales: [...byVariant.values()].map((x) => ({ ...x, sales: Math.round(x.sales) })),
     sizes: [...size.values()].sort((a, b) => b.qty + b.online - (a.qty + a.online)),
     colors: [...color.values()].sort((a, b) => b.qty + b.online - (a.qty + a.online)),
     sizeColor: [...sizeColor].map(([k, qty]) => ({ color: k.split("|")[0], size: k.split("|")[1], qty })),
