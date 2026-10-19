@@ -10,7 +10,7 @@ import { refundLinePay } from "./payments/linepay";
 import { invoiceAfterRefund, issueForOrder, parseInvoiceRequest } from "./payments/invoice";
 import { audit } from "./lib/audit";
 import { consumeCoupons, ensureMemberCodes, validateCoupons } from "./cards";
-import { mobileKey, mobileKeyCandidates } from "./sync";
+import { mobileKey, mobileKeyCandidates, runShopperSync } from "./sync";
 
 /**
  * posOrders/{id}  id is generated on the tablet, so a double-tapped / re-sent checkout is stored once.
@@ -1011,8 +1011,17 @@ export const searchShopper = onCall(opts, async (req) => {
   } else {
     const keys = mobileKeyCandidates(q);
     assert(keys.length && keys[0].length >= 6, "請輸入完整手機號碼");
-    const snap = await db.collection("shoppers").where("mobileKey", "in", keys.slice(0, 10)).limit(5).get();
-    ids = snap.docs.map((d) => d.id);
+    const find = async () => (await db.collection("shoppers").where("mobileKey", "in", keys.slice(0, 10)).limit(5).get()).docs.map((d) => d.id);
+    ids = await find();
+    // 查不到：可能是剛在官網註冊、還沒同步過來（每 15 分鐘同步一次）→ 立刻抓一次最近新增／修改的會員再查
+    if (!ids.length) {
+      try {
+        await runShopperSync("incremental");
+        ids = await find();
+      } catch (e) {
+        logger.warn("on-demand shopper sync failed", e);
+      }
+    }
   }
   const out = [];
   for (const id of ids) {
