@@ -17,9 +17,10 @@ function projectId(): string {
   return p;
 }
 
-export async function getSecret(name: SecretName): Promise<string | null> {
+export async function getSecret(name: SecretName, fresh = false): Promise<string | null> {
   const hit = cache.get(name);
-  if (hit && Date.now() - hit.at < TTL) return hit.value;
+  // 「沒設定」只記 20 秒：剛在設定頁存好金鑰，其他函式很快就讀得到
+  if (!fresh && hit && Date.now() - hit.at < (hit.value === null ? 20_000 : TTL)) return hit.value;
   // Emulator / local dev: allow env override.
   if (process.env.FUNCTIONS_EMULATOR === "true" && process.env[name]) return process.env[name]!;
   let value: string | null = null;

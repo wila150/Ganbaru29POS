@@ -24,8 +24,8 @@ async function settings() {
   return (await db.doc("settings/shop").get()).data() ?? {};
 }
 
-async function secretJson(name: SecretName): Promise<Record<string, string> | null> {
-  const v = await getSecret(name);
+async function secretJson(name: SecretName, fresh = false): Promise<Record<string, string> | null> {
+  const v = await getSecret(name, fresh);
   if (!v) return null;
   try {
     return JSON.parse(v);
@@ -263,6 +263,6 @@ export const setPaymentCreds = onCall(async (req) => {
 export const paymentCredsStatus = onCall(async (req) => {
   await requireRole(req, "owner");
   const out: Record<string, string | null> = {};
-  for (const [k, n] of Object.entries(CRED_SECRET)) out[k] = (await secretJson(n))?.merchantId ?? null;
+  for (const [k, n] of Object.entries(CRED_SECRET)) out[k] = (await secretJson(n, true))?.merchantId ?? null;
   return out;
 });
