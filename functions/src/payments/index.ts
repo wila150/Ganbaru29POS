@@ -317,7 +317,9 @@ export const sendPayLink = onCall({ timeoutSeconds: 60 }, async (req) => {
   await t.sendMail({
     from: { name: shop, address: m.user },
     to,
-    subject: `${shop} 付款連結 ${amount}`,
+    // 主旨用【店名】開頭，客人一眼認得是哪家店
+    subject: `【${shop}】門市付款連結 ${amount}`,
+    replyTo: m.user,
     text: `您好，這是您在 ${shop} 本次消費 ${amount} 的付款連結（30 分鐘內有效）：\n${url}\n\n付款完成後門市會自動完成結帳，謝謝光臨！`,
     html: `<div style="font-family:-apple-system,'PingFang TC','Noto Sans TC',sans-serif;max-width:420px;margin:auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px">
 <h2 style="margin:0 0 4px">${esc(shop)}</h2><p style="color:#6b7280;margin:0 0 16px">門市消費付款</p>
@@ -335,11 +337,13 @@ export const paymentCredsStatus = onCall(async (req) => {
   // 只回傳遮罩過的金鑰（前 4 後 4），讓老闆核對有沒有填對
   const mask = (v?: string) => (v ? (v.length > 8 ? `${v.slice(0, 4)}…${v.slice(-4)}` : `${v.slice(0, 2)}…`) : null);
   const out: Record<string, string | null> = {};
+  // 一把讀不到（例如權限）只影響那一欄，不要讓整個設定頁都變成「未設定」
+  const safe = (n: SecretName) => secretJson(n, true).catch((e) => (logger.error("read secret", n, e), null));
   for (const [k, n] of Object.entries(CRED_SECRET)) {
-    const s = await secretJson(n, true);
+    const s = await safe(n);
     out[k] = s?.merchantId ?? null;
     out[`${k}_mask`] = s?.merchantId ? `HashKey ${mask(s.hashKey)}（${s.hashKey?.length ?? 0} 碼）・HashIV ${mask(s.hashIv)}（${s.hashIv?.length ?? 0} 碼）` : null;
   }
-  out.mail = (await secretJson("MAIL_SMTP", true))?.user ?? null;
+  out.mail = (await safe("MAIL_SMTP"))?.user ?? null;
   return out;
 });
