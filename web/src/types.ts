@@ -109,7 +109,7 @@ export interface ShopSettings {
   birthdayGiftPoints?: number;
   birthdayPointMultiplier?: number;
   tiersAt?: Timestamp;
-  payment?: { provider: "ecpay" | "newebpay" | null; stage: boolean };
+  payment?: { provider: "ecpay" | "newebpay" | null; stage: boolean; feePct?: number | null };
   /** 滯銷條件：幾天沒賣出、上架未滿幾天不算 */
   slowRule?: { days: number; newDays: number };
   /** 熱銷：近 30 天賣出至少幾件 */

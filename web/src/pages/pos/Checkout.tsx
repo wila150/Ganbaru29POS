@@ -23,7 +23,7 @@ export interface InvoiceInput {
 const PROVIDER_LABEL: Record<string, string> = { ecpay: "綠界", newebpay: "藍新" };
 
 /** 結帳：付款方式（含掃碼線上付款）＋電子發票開立方式。 */
-export function Checkout({ total, itemName, onClose, submit, onPayShow }: { total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void>; onPayShow?: (p: { method: string; amount: number; parts?: Pay[] } | null) => void }) {
+export function Checkout({ total, itemName, onClose, submit, onPayShow }: { total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void>; onPayShow?: (p: { method: string; amount: number; parts?: Pay[]; url?: string } | null) => void }) {
   const { settings } = useData();
   const provider = settings.payment?.provider ?? null;
   const linePayApi = !!settings.linePay?.enabled && total > 0;
@@ -61,7 +61,7 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
   // 顧客螢幕：非現金的部分顯示給客人（轉帳帳號／QR、LINE Pay QR）
   const mixShow = [...mixed].reverse().find((p) => p.method !== "cash");
   const showPay =
-    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" ? null : { method, amount: total };
+    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : { method, amount: total };
   const showKey = JSON.stringify(showPay);
   useEffect(() => {
     onPayShow?.(showPay);
@@ -72,7 +72,7 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow }: { tota
   const invoiceOk = !invoiceOn || inv.type === "print" || (inv.type === "mobile" && /^\/[0-9A-Z+\-.]{7}$/.test(inv.mobileBarcode ?? "")) || (inv.type === "taxId" && /^\d{8}$/.test(inv.taxId ?? "")) || (inv.type === "donate" && /^\d{3,7}$/.test(inv.loveCode ?? ""));
   const invoicePayload = invoiceOn ? inv : null;
 
-  const methods: [string, string][] = [...Object.entries(PAY_LABEL), ...(provider && total > 0 ? [["online", `掃碼付款（${PROVIDER_LABEL[provider]}）`] as [string, string]] : []), ["mixed", "混合付款"]];
+  const methods: [string, string][] = [...Object.entries(PAY_LABEL), ...(provider && total > 0 ? [["online", `線上刷卡（${PROVIDER_LABEL[provider]}）`] as [string, string]] : []), ["mixed", "混合付款"]];
 
   return (
     <Modal
@@ -372,24 +372,27 @@ function OnlinePay({
   setSession: (s: { id: string; url: string } | null) => void;
   onPaid: (id: string) => void;
 }) {
-  const [status, setStatus] = useState("waiting");
-  const [lastError, setLastError] = useState<string | null>(null);
+  const { settings } = useData();
+  const [pay, setPay] = useState<{ status: string; lastError?: string | null; providerTradeNo?: string | null; card4?: string | null; inst?: number; paymentType?: string | null }>({ status: "waiting" });
+  const [email, setEmail] = useState("");
   const { busy, run } = useAction();
   const toast = useToast();
   const fired = useRef(false);
   const paidCb = useRef(onPaid);
   paidCb.current = onPaid;
+  const feePct = settings.payment?.feePct ?? null;
+  const fee = feePct != null ? Math.round((amount * feePct) / 100) : null;
 
   useEffect(() => {
     if (!session) return;
     return onSnapshot(doc(db, "posPayments", session.id), (s) => {
-      const d = s.data();
-      setStatus(d?.status ?? "waiting");
-      setLastError(d?.lastError ?? null);
-      if (d?.status === "paid" && !fired.current) {
+      const d = s.data() ?? {};
+      setPay({ status: d.status ?? "waiting", lastError: d.lastError ?? null, providerTradeNo: d.providerTradeNo ?? null, card4: d.card4 ?? null, inst: d.inst ?? 0, paymentType: d.paymentType ?? null });
+      if (d.status === "paid" && !fired.current) {
         fired.current = true;
         toast("客人已付款", "ok");
-        paidCb.current(session.id);
+        // 讓店員看到「已完成」再自動結帳
+        setTimeout(() => paidCb.current(session.id), 1500);
       }
     });
   }, [session, toast]);
@@ -397,48 +400,80 @@ function OnlinePay({
   if (!session)
     return (
       <div className="center">
-        <p>產生付款 QR code，客人用手機掃描後可刷卡、Apple Pay、LINE Pay、台灣 Pay 等付款。</p>
+        <p>產生付款連結：顧客螢幕會顯示 QR code，也可以用 Email 寄給客人。客人用手機刷卡（也可 Apple Pay、LINE Pay、台灣 Pay），付款完成這裡自動結帳。</p>
         <button
           className="btn btn-primary btn-lg"
           disabled={busy || !invoiceOk}
           onClick={() => run(async () => setSession(await call<{ id: string; url: string }>("createOnlinePayment", { amount, itemName, orderId: "pos" })))}
         >
-          產生付款 QR（{money(amount)}）
+          產生付款連結（{money(amount)}）
         </button>
         {!invoiceOk && <p className="error small">請先填好發票資料</p>}
       </div>
     );
 
+  const paid = pay.status === "paid";
+  const waiting = pay.status === "waiting";
+  const how = pay.card4 ? `信用卡 **** ${pay.card4}${pay.inst ? `（分 ${pay.inst} 期）` : ""}` : pay.paymentType ? pay.paymentType : "—";
+  const mail = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(`${settings.shopName || "ganbaru29"} 付款連結 ${money(amount)}`)}&body=${encodeURIComponent(`您好，這是本次消費 ${money(amount)} 的付款連結（30 分鐘內有效）：\n${session.url}\n\n謝謝光臨！`)}`;
   return (
     <div className="online-pay">
-      <QrImg value={session.url} size={220} />
-      <div>
-        <div className="big strong">{money(amount)}</div>
-        <p>
-          {status === "paid" ? (
-            <span className="ok">✅ 已付款，正在完成結帳…</span>
-          ) : status === "waiting" ? (
-            <>請客人用手機相機掃描 QR code 付款（{PROVIDER_LABEL[provider]}）。付款後這裡會自動完成。</>
-          ) : (
-            <span className="error">付款已取消或失效</span>
-          )}
-        </p>
-        {lastError && <p className="error small">上次付款失敗：{lastError}</p>}
-        <div className="btn-row">
-          <button className="btn" disabled={busy || status !== "waiting"} onClick={() => run(async () => {
-            const r = await call<{ status: string }>("checkOnlinePayment", { id: session.id });
-            if (r.status !== "paid") toast("還沒有收到付款", "info");
-          })}>
-            查詢付款狀態
-          </button>
-          <button className="btn btn-ghost" disabled={busy || status === "paid"} onClick={() => run(async () => {
-            await call("cancelOnlinePayment", { id: session.id });
-            setSession(null);
-          })}>
-            取消，改用其他方式
-          </button>
-        </div>
-        <p className="muted small">QR 30 分鐘內有效。付款完成但這裡沒反應時，按「查詢付款狀態」。</p>
+      <QrImg value={session.url} size={200} />
+      <div className="op-body">
+        <div className={`op-status ${paid ? "ok" : waiting ? "wait" : "bad"}`}>{paid ? "✅ 已完成" : waiting ? "⏳ 付款中…" : "已取消或失效"}</div>
+        <table className="op-table">
+          <tbody>
+            <tr>
+              <th>序號</th>
+              <td className="mono">{pay.providerTradeNo || session.id.slice(-8).toUpperCase()}</td>
+            </tr>
+            <tr>
+              <th>付款方式</th>
+              <td>{paid ? how : `${PROVIDER_LABEL[provider]} 線上刷卡`}</td>
+            </tr>
+            <tr>
+              <th>手續費</th>
+              <td>{fee != null ? `${money(fee)}（${feePct}%）` : <span className="muted">未設定費率</span>}</td>
+            </tr>
+            <tr>
+              <th>本次金額</th>
+              <td className="strong">{money(amount)}</td>
+            </tr>
+            <tr>
+              <th>狀態</th>
+              <td>{paid ? "已完成" : waiting ? "付款中" : "已取消"}</td>
+            </tr>
+          </tbody>
+        </table>
+        {pay.lastError && <p className="error small">上次付款失敗：{pay.lastError}</p>}
+        {waiting && (
+          <>
+            <div className="inline-form">
+              <input type="email" placeholder="客人 Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <a className={`btn ${/@/.test(email) ? "" : "disabled"}`} href={/@/.test(email) ? mail : undefined}>
+                ✉️ 寄連結
+              </a>
+              <button className="btn" onClick={() => navigator.clipboard?.writeText(session.url).then(() => toast("已複製付款連結", "ok"))}>
+                複製連結
+              </button>
+            </div>
+            <div className="btn-row">
+              <button className="btn" disabled={busy} onClick={() => run(async () => {
+                const r = await call<{ status: string }>("checkOnlinePayment", { id: session.id });
+                if (r.status !== "paid") toast("還沒有收到付款", "info");
+              })}>
+                查詢付款狀態
+              </button>
+              <button className="btn btn-ghost" disabled={busy} onClick={() => run(async () => {
+                await call("cancelOnlinePayment", { id: session.id });
+                setSession(null);
+              })}>
+                取消，改用其他方式
+              </button>
+            </div>
+            <p className="muted small">QR／連結 30 分鐘內有效。客人付款完成後會自動完成結帳。</p>
+          </>
+        )}
       </div>
     </div>
   );

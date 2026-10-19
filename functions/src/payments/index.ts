@@ -113,11 +113,11 @@ export const checkOnlinePayment = onCall(async (req) => {
   return { status: p.status };
 });
 
-async function markPaid(ref: FirebaseFirestore.DocumentReference, info: { tradeNo: string; providerTradeNo?: string; paymentType?: string; raw: unknown }) {
+async function markPaid(ref: FirebaseFirestore.DocumentReference, info: { tradeNo: string; providerTradeNo?: string; paymentType?: string; card4?: string; inst?: number; raw: unknown }) {
   await db.runTransaction(async (tx) => {
     const p = (await tx.get(ref)).data();
     if (!p || p.status === "paid") return;
-    tx.update(ref, { status: "paid", paidAt: FieldValue.serverTimestamp(), paidTradeNo: info.tradeNo, providerTradeNo: info.providerTradeNo ?? null, paymentType: info.paymentType ?? null, raw: JSON.parse(JSON.stringify(info.raw)) });
+    tx.update(ref, { status: "paid", paidAt: FieldValue.serverTimestamp(), paidTradeNo: info.tradeNo, providerTradeNo: info.providerTradeNo ?? null, paymentType: info.paymentType ?? null, card4: info.card4 || null, inst: info.inst || 0, raw: JSON.parse(JSON.stringify(info.raw)) });
   });
 }
 
@@ -217,7 +217,7 @@ export const newebpayNotify = onRequest(async (req, res) => {
     const snap = await db.collection("posPayments").where("tradeNos", "array-contains", no).limit(1).get();
     const doc = snap.docs[0];
     if (doc && info.Status === "SUCCESS" && Number(r.Amt) === doc.data().amount) {
-      await markPaid(doc.ref, { tradeNo: no, providerTradeNo: String(r.TradeNo ?? ""), paymentType: String(r.PaymentType ?? ""), raw: info });
+      await markPaid(doc.ref, { tradeNo: no, providerTradeNo: String(r.TradeNo ?? ""), paymentType: String(r.PaymentType ?? ""), card4: String(r.Card4No ?? ""), inst: Number(r.Inst ?? 0), raw: info });
     } else if (doc) {
       await doc.ref.update({ lastError: `${info.Status} ${info.Message ?? ""}` });
     }

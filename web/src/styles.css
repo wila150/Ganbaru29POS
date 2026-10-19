@@ -916,3 +916,13 @@ span.tier-switch { cursor: default; }
 .cd-regions button { font-size: 18px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 .cd-regions button.on { background: var(--primary); color: #fff; border-color: var(--primary); }
 .cd-signup label .cd-regions { justify-content: flex-start; margin-bottom: 4px; }
+.op-body { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 260px; }
+.op-status { font-size: 22px; font-weight: 700; }
+.op-status.ok { color: var(--ok); }
+.op-status.wait { color: var(--warn); }
+.op-status.bad { color: var(--bad); }
+.op-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.op-table th { text-align: left; color: var(--muted); font-weight: 400; width: 6em; padding: 4px 0; }
+.op-table td { padding: 4px 0; }
+.op-body .inline-form input { flex: 1; min-width: 160px; }
+.btn.disabled { opacity: .45; pointer-events: none; }

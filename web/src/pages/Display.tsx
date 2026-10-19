@@ -1,6 +1,7 @@
 import { doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { QrImg } from "../components/QrImg";
 import { useData } from "../data";
 import { db } from "../firebase";
 import { displayChannel, setSignup, type DisplayState, type SignupState } from "../lib/display";
@@ -45,12 +46,12 @@ function Screen() {
       </div>
     );
   if (s.mode === "pay" && s.pay) {
-    const parts = s.pay.parts?.length ? s.pay.parts : [{ method: s.pay.method, amount: s.pay.amount }];
+    const parts: { method: string; amount: number; url?: string }[] = s.pay.parts?.length ? s.pay.parts : [{ method: s.pay.method, amount: s.pay.amount, url: s.pay.url }];
     const cashIn = parts.filter((p) => p.method === "cash").reduce((a, p) => a + p.amount, 0);
     const others = parts.filter((p) => p.method !== "cash");
     const qrOf = (m: string) => (m === "transfer" ? pd.transferQrUrl : m === "linepay" ? pd.linepayQrUrl : null);
     const hintOf = (m: string, amt: number) =>
-      m === "linepay" ? `用 LINE 掃描 QR，輸入 ${money(amt)}` : m === "transfer" ? `用銀行 App 掃描 QR 轉帳 ${money(amt)}` : m === "card" ? "請將信用卡交給店員刷卡" : `請以 ${PAY_LABEL[m] ?? m} 付款`;
+      m === "online" ? "用手機相機掃描 QR，刷卡或 Apple Pay 付款" : m === "linepay" ? `用 LINE 掃描 QR，輸入 ${money(amt)}` : m === "transfer" ? `用銀行 App 掃描 QR 轉帳 ${money(amt)}` : m === "card" ? "請將信用卡交給店員刷卡" : `請以 ${PAY_LABEL[m] ?? m} 付款`;
     return (
       <div className="cd cd-pay" onClick={full}>
         <header className="cd-bar">
@@ -68,9 +69,9 @@ function Screen() {
             const qr = qrOf(p.method);
             return (
               <section key={i} className="cd-card cd-paycard">
-                <div className="cd-pay-m">{PAY_LABEL[p.method] ?? p.method}</div>
+                <div className="cd-pay-m">{p.method === "online" ? "線上刷卡" : PAY_LABEL[p.method] ?? p.method}</div>
                 <div className="cd-amount">{money(p.amount)}</div>
-                {qr ? <img className="cd-qr" src={qr} alt="" /> : p.method === "card" ? <div className="cd-cardicon">💳</div> : null}
+                {p.url ? <div className="cd-qr"><QrImg value={p.url} size={320} /></div> : qr ? <img className="cd-qr" src={qr} alt="" /> : p.method === "card" ? <div className="cd-cardicon">💳</div> : null}
                 {p.method === "transfer" && !qr && (pd.transferBank || pd.transferAccount) && (
                   <div className="cd-bank">
                     {pd.transferBank && <div>銀行　<b>{pd.transferBank}</b></div>}
@@ -209,10 +210,18 @@ function Signup() {
     );
   const send = () => {
     const email = f.email.trim();
-    const mobile = f.mobile.replace(/\D/g, "");
+    let mobile = f.mobile.replace(/\D/g, "");
+    let rg = region;
+    // 自動偵測：打了 852／853／886 開頭
+    const cc = /^(852|853)(\d{8})$/.exec(mobile);
+    if (cc) {
+      rg = REGIONS.find((r) => r.cc === `+${cc[1]}`)!;
+      mobile = cc[2];
+      setRegion(rg);
+    } else if (/^8869\d{8}$/.test(mobile)) mobile = "0" + mobile.slice(3);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setErr("請填正確的 Email");
     if (!f.name.trim()) return setErr("請填姓名");
-    if (!region.re.test(mobile)) return setErr(region.cc ? `${region.label} 手機請填 8 碼` : "手機請填 09 開頭 10 碼");
+    if (!rg.re.test(mobile)) return setErr(rg.cc ? `${rg.label} 手機請填 8 碼` : "手機請填 09 開頭 10 碼");
     if (!f.birthDate) return setErr("請選生日");
     setErr("");
     setF({ email, name: f.name.trim(), mobile, birthDate: f.birthDate });
@@ -311,7 +320,18 @@ function PhoneEntry({ ch, s }: { ch: string; s: SignupState }) {
       </div>
     );
   const ok = region.re.test(v);
-  const press = (k: string) => setV((x) => (k === "del" ? x.slice(0, -1) : k === "clr" ? "" : x.length < region.max ? x + k : x));
+  const press = (k: string) => {
+    if (k === "del") return setV((x) => x.slice(0, -1));
+    if (k === "clr") return setV("");
+    const next = v + k;
+    // 自動偵測：台灣模式下打 852／853 → 切成香港／澳門；打 886 → 換成 0
+    if (region.id === "tw" && (next === "852" || next === "853")) {
+      setRegion(REGIONS.find((r) => r.cc === `+${next}`)!);
+      return setV("");
+    }
+    if (region.id === "tw" && next === "886") return setV("0");
+    if (next.length <= region.max) setV(next);
+  };
   return (
     <div className="cd cd-over cd-phone">
       <h1>請輸入會員手機</h1>

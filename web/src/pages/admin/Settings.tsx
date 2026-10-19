@@ -1029,6 +1029,9 @@ function PaymentSettings() {
             <option value="newebpay">藍新 NewebPay</option>
           </select>
         </Field>
+        <Field label="線上刷卡手續費 %" hint="例：藍新信用卡一次付清依你的合約費率；結帳畫面顯示手續費用">
+          <input type="number" step="0.01" min={0} max={20} value={pay.feePct ?? ""} onChange={(e) => set("payment", { ...pay, feePct: e.target.value === "" ? null : Number(e.target.value) })} />
+        </Field>
         <Field label="金流環境">
           <select value={pay.stage ? "stage" : "prod"} onChange={(e) => set("payment", { ...pay, stage: e.target.value === "stage" })}>
             <option value="stage">測試（不會真的扣款）</option>
