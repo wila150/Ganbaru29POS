@@ -160,6 +160,19 @@ export function Register() {
   const due = Math.max(0, t.total - credit);
 
   // ---- 顧客螢幕（平板開「顧客螢幕」即時顯示這台的購物車與付款畫面）----
+  // 金額明細：每一種折扣寫清楚名稱、打幾折、折多少
+  const displayRows = [
+    ...cart
+      .filter((l) => l.discountPct > 0)
+      .map((l) => ({ label: `${byId.get(l.variantId)?.productTitle ?? "商品"} 單品 ${pctToZhe(l.discountPct)} 折`, amount: -(l.unitPrice * l.qty - lineTotal(l)) })),
+    ...promo.applied.map((a) => ({ label: a.name, amount: -a.discount })),
+    ...(t.memberDiscount ? [{ label: `會員折扣（${shopper?.tier ?? "會員"} ${pctToZhe(tier?.discountPct ?? 0)} 折）`, amount: -t.memberDiscount }] : []),
+    ...(t.orderDiscount ? [{ label: `整單 ${pctToZhe(disc.orderDiscountPct)} 折`, amount: -t.orderDiscount }] : []),
+    ...(t.serviceFee ? [{ label: `服務費 ${disc.serviceFeePct}%`, amount: t.serviceFee }] : []),
+    ...(disc.allowance ? [{ label: "折讓", amount: -disc.allowance }] : []),
+    ...(t.rewardDiscount ? [{ label: `購物金折抵（${disc.rewardPoints} 點）`, amount: -t.rewardDiscount }] : []),
+    ...(credit ? [{ label: "換貨抵扣", amount: -credit }] : []),
+  ];
   const [payShow, setPayShow] = useState<{ method: string; amount: number } | null>(null);
   const [thanks, setThanks] = useState<number | null>(null);
   useEffect(() => {
@@ -177,7 +190,7 @@ export function Register() {
       return { title: v?.productTitle ?? "商品", options: v?.options ?? "", qty: l.qty, amount: orig - off, ...(off > 0 || l.discountPct > 0 ? { orig: l.unitPrice * l.qty, promo: (promo.lineLabels[l.key] ?? []).join("、") || `${pctToZhe(l.discountPct)} 折` } : {}) };
     });
     const pay = checkout ? payShow : null;
-    pushDisplay(ch, { mode: pay ? "pay" : "cart", lines, total: due, discount: Math.max(0, lines.reduce((a, l) => a + (l.orig ?? l.amount), 0) - due), member: shopper?.name || null, summary: { gross: t.gross, promo: t.promoTotal, member: t.memberDiscount, order: t.orderDiscount, reward: t.rewardDiscount, service: t.serviceFee, credit, allowance: disc.allowance }, pay }, !!pay);
+    pushDisplay(ch, { mode: pay ? "pay" : "cart", lines, total: due, discount: Math.max(0, lines.reduce((a, l) => a + (l.orig ?? l.amount), 0) - due), member: shopper?.name || null, summary: { gross: lines.reduce((a, l) => a + (l.orig ?? l.amount), 0), rows: displayRows }, pay }, !!pay);
   });
   const refundDue = Math.max(0, credit - t.total);
 

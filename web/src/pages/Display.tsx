@@ -88,11 +88,10 @@ function Screen() {
           ))}
         </ul>
         <div className="cd-total">
-          {s.summary && <Breakdown x={s.summary} />}
+          {s.summary && <Breakdown x={s.summary} totalOff={s.discount ?? 0} />}
           <div>
-            應付 <b>{money(s.total ?? 0)}</b>
+            {(s.discount ?? 0) > 0 ? "折抵後" : "應付"} <b>{money(s.total ?? 0)}</b>
           </div>
-          {(s.discount ?? 0) > 0 && <div className="cd-disc">共省 {money(s.discount!)}</div>}
         </div>
       </div>
     );
@@ -105,27 +104,26 @@ function Screen() {
   );
 }
 
-function Breakdown({ x }: { x: NonNullable<DisplayState["summary"]> }) {
-  const rows: [string, number][] = [
-    ["商品原價", x.gross],
-    ["優惠活動", -x.promo],
-    ["會員折扣", -x.member],
-    ["整單打折", -x.order],
-    ["服務費", x.service],
-    ["折讓", -x.allowance],
-    ["購物金折抵", -x.reward],
-    ["換貨抵扣", -x.credit],
-  ];
-  const shown = rows.filter(([, v], i) => i === 0 || v !== 0);
-  if (shown.length < 2) return null;
+function Breakdown({ x, totalOff }: { x: NonNullable<DisplayState["summary"]>; totalOff: number }) {
+  if (!x.rows?.length) return null;
   return (
     <div className="cd-break">
-      {shown.map(([k, v]) => (
-        <div key={k}>
-          <span>{k}</span>
-          <span className={v < 0 ? "cd-minus" : ""}>{v < 0 ? `−${money(-v)}` : money(v)}</span>
+      <div>
+        <span>商品原價</span>
+        <span>{money(x.gross)}</span>
+      </div>
+      {x.rows.map((r, i) => (
+        <div key={i}>
+          <span>{r.label}</span>
+          <span className={r.amount < 0 ? "cd-minus" : ""}>{r.amount < 0 ? `−${money(-r.amount)}` : `＋${money(r.amount)}`}</span>
         </div>
       ))}
+      {totalOff > 0 && (
+        <div className="cd-off">
+          <span>總折扣</span>
+          <span>−{money(totalOff)}</span>
+        </div>
+      )}
     </div>
   );
 }
