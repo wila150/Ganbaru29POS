@@ -125,14 +125,14 @@ export function Reports() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (tab === "stock" || tab === "audit") return;
+    if (tab === "audit") return;
     setLoading(true);
     setErr("");
     call<Report>("reportCenter", { from, to, locationId: loc || null, online })
       .then(setR)
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
-  }, [from, to, loc, online, tab === "stock" || tab === "audit"]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [from, to, loc, online, tab === "audit"]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tabs: [Tab, string][] = [
     ["revenue", "營收"],
@@ -199,7 +199,7 @@ export function Reports() {
       </div>
 
       {tab === "stock" ? (
-        <StockTab />
+        err ? <p className="error">{err}</p> : r && !loading ? <StockTab r={r} /> : <div className="loading">計算中{online ? "（會讀取網店訂單）" : ""}…</div>
       ) : tab === "audit" ? (
         <AuditTab />
       ) : loading ? (
@@ -643,17 +643,23 @@ function OptionTable({ rows, label }: { rows: { value: string; qty: number; sale
 }
 
 /** 庫存面（不受日期影響）：周轉天數、補貨、即將到期 — 用即時資料在前端算。 */
-function StockTab() {
+function StockTab({ r }: { r: Report }) {
   const { variants, settings } = useData();
+  // 銷量跟著上方選的期間（本月、本週、自訂）；可賣天數 = 庫存 ÷（期間銷量 ÷ 期間天數）
+  const periodDays = Math.max(1, Math.round((new Date(`${r.to}T00:00:00Z`).getTime() - new Date(`${r.from}T00:00:00Z`).getTime()) / 86400_000) + 1);
+  const sold = useMemo(() => new Map((r.variantSales ?? []).map((x) => [x.variantId, x])), [r]);
   const rows = useMemo(
     () =>
       variants
         .filter((v) => (v.shopStock ?? 0) > 0)
         .map((v) => {
-          const perDay = (v.sales30 ?? 0) / 30;
-          return { v, perDay, daysOfStock: perDay > 0 ? Math.round((v.shopStock ?? 0) / perDay) : null, lastSold: daysSince(v.lastSoldAt) };
+          const x = sold.get(v.id);
+          const store = x?.store ?? 0;
+          const online = x?.online ?? 0;
+          const perDay = (store + online) / periodDays;
+          return { v, store, online, perDay, daysOfStock: perDay > 0 ? Math.round((v.shopStock ?? 0) / perDay) : null, lastSold: daysSince(v.lastSoldAt) };
         }),
-    [variants]
+    [variants, sold, periodDays]
   );
   // 同一款商品的各顏色尺寸合在一起
   const [openP, setOpenP] = useState<Set<string>>(new Set());
@@ -664,24 +670,39 @@ function StockTab() {
       else n.add(id);
       return n;
     });
+  // 這段期間賣出什麼（同款合併，點開看顏色尺寸），含已經賣完沒庫存的
+  const soldGroups = useMemo(() => {
+    const byId = new Map(variants.map((v) => [v.id, v]));
+    const m = new Map<string, { productId: string; title: string; store: number; online: number; rows: { id: string; label: string; store: number; online: number; stock: number }[] }>();
+    for (const x of r.variantSales ?? []) {
+      if (!x.store && !x.online) continue;
+      const v = byId.get(x.variantId);
+      const g = m.get(x.productId) ?? m.set(x.productId, { productId: x.productId, title: v?.productTitle ?? "（已刪除的商品）", store: 0, online: 0, rows: [] }).get(x.productId)!;
+      g.store += x.store;
+      g.online += x.online;
+      g.rows.push({ id: x.variantId, label: v?.options || "單一規格", store: x.store, online: x.online, stock: v?.shopStock ?? 0 });
+    }
+    return [...m.values()].map((g) => ({ ...g, rows: g.rows.sort((a, b) => b.store + b.online - (a.store + a.online)) })).sort((a, b) => b.store + b.online - (a.store + a.online));
+  }, [r, variants]);
+  const soldTotal = soldGroups.reduce((a, g) => ({ store: a.store + g.store, online: a.online + g.online }), { store: 0, online: 0 });
   const slowGroups = useMemo(() => {
     const m = new Map<string, { productId: string; title: string; stock: number; store: number; online: number; rows: typeof rows; lastSold: number | null }>();
     for (const x of rows) {
       const g = m.get(x.v.productId) ?? m.set(x.v.productId, { productId: x.v.productId, title: x.v.productTitle, stock: 0, store: 0, online: 0, rows: [], lastSold: null }).get(x.v.productId)!;
       g.stock += x.v.shopStock ?? 0;
-      g.store += x.v.sales30Store ?? 0;
-      g.online += x.v.sales30Online ?? 0;
+      g.store += x.store;
+      g.online += x.online;
       g.rows.push(x);
       if (x.lastSold != null) g.lastSold = g.lastSold == null ? x.lastSold : Math.min(g.lastSold, x.lastSold);
     }
     return [...m.values()]
       .map((g) => {
-        const perDay = (g.store + g.online) / 30;
+        const perDay = (g.store + g.online) / periodDays;
         return { ...g, rows: [...g.rows].sort((a, b) => (b.daysOfStock ?? 99999) - (a.daysOfStock ?? 99999)), days: perDay > 0 ? Math.round(g.stock / perDay) : null };
       })
       .sort((a, b) => (b.days ?? 99999) - (a.days ?? 99999) || b.stock - a.stock)
       .slice(0, 150);
-  }, [rows]);
+  }, [rows, periodDays]);
   const reorder = variants.filter((v) => (v.reorderQty ?? 0) > 0).sort((a, b) => (b.reorderQty ?? 0) - (a.reorderQty ?? 0));
   const limit = todayStr(new Date(Date.now() + (settings.expiryDays ?? 30) * 86400_000));
   const expiring = variants.flatMap((v) => (v.batches ?? []).filter((b) => b.exp && b.exp <= limit).map((b) => ({ v, b }))).sort((a, b) => a.b.exp!.localeCompare(b.b.exp!));
@@ -690,19 +711,75 @@ function StockTab() {
   return (
     <>
       <div className="kpis">
+        <Kpi label="期間賣出" value={`${num(soldTotal.store + soldTotal.online)} 件`} hint={`門市 ${num(soldTotal.store)}　網店 ${num(soldTotal.online)}`} />
         <Kpi label="有庫存商品" value={num(new Set(rows.map((x) => x.v.productId)).size)} hint={`${num(rows.length)} 個顏色尺寸`} />
-        <Kpi label="平均可賣天數" value={avgDays == null ? "—" : `${avgDays} 天`} hint="目前庫存 ÷ 近 30 天日均銷量（門市＋網店）" />
-        <Kpi label="30 天沒賣出" value={num(rows.filter((x) => x.perDay === 0).length)} hint="有庫存但近 30 天零銷量" tone="bad" />
+        <Kpi label="平均可賣天數" value={avgDays == null ? "—" : `${avgDays} 天`} hint={`目前庫存 ÷ 期間日均銷量（${periodDays} 天，門市＋網店）`} />
+        <Kpi label="期間沒賣出" value={num(rows.filter((x) => x.perDay === 0).length)} hint="有庫存但這段期間零銷量（顏色尺寸數）" tone="bad" />
         <Kpi label="建議補貨" value={`${reorder.length} 款`} />
       </div>
+      <Section
+        title={`期間賣出明細（${r.from} ～ ${r.to}，共 ${num(soldTotal.store + soldTotal.online)} 件）`}
+        onExport={() =>
+          downloadCsv(`賣出明細_${r.from}_${r.to}.csv`, [
+            ["商品", "規格", "門市", "網店", "合計", "目前庫存"],
+            ...soldGroups.flatMap((g) => g.rows.map((x) => [g.title, x.label, x.store, x.online, x.store + x.online, x.stock])),
+          ])
+        }
+      >
+        {soldGroups.length === 0 ? (
+          <Empty>這段期間沒有賣出</Empty>
+        ) : (
+          <div className="table-wrap">
+            <table className="table table-compact turnover">
+              <thead>
+                <tr>
+                  <th>商品／規格</th>
+                  <th className="num">門市</th>
+                  <th className="num">網店</th>
+                  <th className="num">合計</th>
+                  <th className="num">目前庫存</th>
+                </tr>
+              </thead>
+              <tbody>
+                {soldGroups.map((g) => {
+                  const isOpen = openP.has(`s_${g.productId}`);
+                  return (
+                    <Fragment key={g.productId}>
+                      <tr className="turn-head" onClick={() => toggleP(`s_${g.productId}`)}>
+                        <td>
+                          <span className="turn-caret">{isOpen ? "▾" : "▸"}</span> <strong>{g.title}</strong> <span className="muted small">{g.rows.length} 個規格</span>
+                        </td>
+                        <td className="num">{g.store}</td>
+                        <td className="num">{g.online}</td>
+                        <td className="num strong">{g.store + g.online}</td>
+                        <td className="num">{g.rows.reduce((a, x) => a + x.stock, 0)}</td>
+                      </tr>
+                      {isOpen &&
+                        g.rows.map((x) => (
+                          <tr key={x.id} className="turn-sub">
+                            <td>　{x.label}</td>
+                            <td className="num">{x.store}</td>
+                            <td className="num">{x.online}</td>
+                            <td className="num">{x.store + x.online}</td>
+                            <td className="num">{x.stock}</td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
       <Section
         title="周轉最慢（庫存要賣最久，同款各顏色尺寸合在一起）"
         onExport={() =>
           downloadCsv(`周轉天數_${todayStr()}.csv`, [
-            ["商品", "規格", "庫存", "近30天門市", "近30天網店", "近30天合計", "可賣天數", "最後賣出(天前)"],
+            ["商品", "規格", "庫存", `門市（${r.from}~${r.to}）`, "網店（期間）", "合計", "可賣天數", "最後賣出(天前)"],
             ...slowGroups.flatMap((g) => [
-              [g.title, "（全部）", g.stock, g.store, g.online, g.store + g.online, g.days ?? "30天無銷售", g.lastSold ?? ">120"],
-              ...g.rows.map((x) => [g.title, x.v.options, x.v.shopStock ?? 0, x.v.sales30Store ?? 0, x.v.sales30Online ?? 0, x.v.sales30 ?? 0, x.daysOfStock ?? "30天無銷售", x.lastSold ?? ">120"]),
+              [g.title, "（全部）", g.stock, g.store, g.online, g.store + g.online, g.days ?? "期間無銷售", g.lastSold ?? ">120"],
+              ...g.rows.map((x) => [g.title, x.v.options, x.v.shopStock ?? 0, x.store, x.online, x.store + x.online, x.daysOfStock ?? "期間無銷售", x.lastSold ?? ">120"]),
             ]),
           ])
         }
@@ -713,8 +790,8 @@ function StockTab() {
               <tr>
                 <th>商品／規格</th>
                 <th className="num">庫存</th>
-                <th className="num">近 30 天門市</th>
-                <th className="num">近 30 天網店</th>
+                <th className="num">門市（期間）</th>
+                <th className="num">網店（期間）</th>
                 <th className="num">可賣天數</th>
                 <th>最後賣出</th>
               </tr>
@@ -739,8 +816,8 @@ function StockTab() {
                         <tr key={x.v.id} className="turn-sub">
                           <td>　{x.v.options || "單一規格"}</td>
                           <td className="num">{x.v.shopStock}</td>
-                          <td className="num">{x.v.sales30Store ?? 0}</td>
-                          <td className="num">{x.v.sales30Online ?? 0}</td>
+                          <td className="num">{x.store}</td>
+                          <td className="num">{x.online}</td>
                           <td className="num">{x.daysOfStock == null ? <span className="error">無銷售</span> : `${x.daysOfStock} 天`}</td>
                           <td>{x.lastSold == null ? "120 天以上" : `${x.lastSold} 天前`}</td>
                         </tr>
@@ -751,7 +828,9 @@ function StockTab() {
             </tbody>
           </table>
         </div>
-        <p className="muted small">點商品展開各顏色尺寸。可賣天數＝庫存 ÷ 近 30 天日均銷量（門市＋網店）。</p>
+        <p className="muted small">
+          點商品展開各顏色尺寸。門市、網店銷量是上方選的期間（{r.from} ～ {r.to}，{periodDays} 天）；可賣天數＝庫存 ÷ 期間日均銷量（門市＋網店）。{!r.online.included && "（沒勾「含網店銷量」，網店欄會是 0）"}
+        </p>
       </Section>
       <Section title="建議補貨" onExport={() => downloadCsv(`建議補貨_${todayStr()}.csv`, [["商品", "儲位", "庫存", "安全庫存", "建議補貨"], ...reorder.map((v) => [variantName(v), v.location, v.shopStock, v.safety, v.reorderQty])])}>
         {reorder.length === 0 ? (
