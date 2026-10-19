@@ -11,6 +11,12 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-o",
+    date: "2026-10-19",
+    title: "周轉表整理",
+    items: ["報表「庫存／斷碼／周轉」的周轉表：同款各顏色尺寸合成一列（點開看明細），近 30 天銷量分成門市、網店兩欄"],
+  },
+  {
     id: "2026-10-19-n",
     date: "2026-10-19",
     title: "單品規格排行",

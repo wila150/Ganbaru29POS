@@ -787,3 +787,7 @@ span.tier-switch { cursor: default; }
 .vrank-bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .vrank-bar span { display: block; height: 100%; background: #2563eb; border-radius: 4px; }
 .vrank-val { font-weight: 600; }
+.turnover .turn-head { cursor: pointer; }
+.turnover .turn-head:hover td { background: var(--surface-2); }
+.turnover .turn-sub td { background: var(--surface-2); font-size: 14px; color: var(--muted); }
+.turn-caret { display: inline-block; width: 14px; color: var(--muted); }
