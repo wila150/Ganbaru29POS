@@ -298,7 +298,7 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
   }
   const brokenSizes = [...byProduct]
     .filter(([, g]) => g.vs.length > 1 && g.vs.some((x) => x.stock > 0) && g.vs.some((x) => x.stock <= 0))
-    .map(([productId, g]) => ({ productId, title: g.title, out: g.vs.filter((x) => x.stock <= 0).map((x) => x.options), inStock: g.vs.filter((x) => x.stock > 0).length, total: g.vs.length, sold: prod.get(productId)?.qty ?? 0 }))
+    .map(([productId, g]) => ({ productId, title: g.title, out: g.vs.filter((x) => x.stock <= 0).map((x) => x.options), inStock: g.vs.filter((x) => x.stock > 0).length, total: g.vs.length, sold: (prod.get(productId)?.qty ?? 0) + (prod.get(productId)?.online ?? 0), soldStore: prod.get(productId)?.qty ?? 0, soldOnline: prod.get(productId)?.online ?? 0, inStockLabels: g.vs.filter((x) => x.stock > 0).map((x) => x.options) }))
     .sort((a, b) => b.sold - a.sold || b.out.length - a.out.length)
     .slice(0, 200);
 

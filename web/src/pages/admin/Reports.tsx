@@ -38,7 +38,7 @@ interface Report {
   sizes: { value: string; qty: number; sales: number; online: number }[];
   colors: { value: string; qty: number; sales: number; online: number }[];
   sizeColor: { color: string; size: string; qty: number }[];
-  brokenSizes: { productId: string; title: string; out: string[]; inStock: number; total: number; sold: number }[];
+  brokenSizes: { productId: string; title: string; out: string[]; inStock: number; total: number; sold: number; soldStore?: number; soldOnline?: number; inStockLabels?: string[] }[];
   online: { included: boolean; orders: number; sales: number; items: number; returned: number; avgTicket: number; error: string | null };
   combined: { sales: number; orders: number };
   staff: { uid: string; name: string; orders: number; sales: number; items: number; refunds: number; net: number; avgTicket: number; commissionPct: number; commission: number }[];
@@ -714,7 +714,7 @@ function ProductsTab({ r }: { r: Report }) {
       {view === "slow" && <StockTab r={r} only="slow" />}
       {view === "broken" && (
         <>
-      <Section title="斷碼（同款部分規格缺貨，依目前庫存）" onExport={() => downloadCsv(`斷碼_${todayStr()}.csv`, [["商品", "缺貨規格", "有貨規格數", "總規格數", "期間門市銷量"], ...r.brokenSizes.map((b) => [b.title, b.out.join("、"), b.inStock, b.total, b.sold])])}>
+      <Section title="斷碼（同一款有些顏色尺寸賣完了，依目前庫存）" onExport={() => downloadCsv(`斷碼_${todayStr()}.csv`, [["商品", "已賣完", "還有庫存", "共幾個顏色尺寸", "期間門市", "期間網店"], ...r.brokenSizes.map((b) => [b.title, b.out.join("、"), (b.inStockLabels ?? []).join("、"), b.total, b.soldStore ?? b.sold, b.soldOnline ?? 0])])}>
         {r.brokenSizes.length === 0 ? (
           <Empty>沒有斷碼的商品</Empty>
         ) : (
@@ -723,9 +723,9 @@ function ProductsTab({ r }: { r: Report }) {
               <thead>
                 <tr>
                   <th>商品</th>
-                  <th>缺貨規格</th>
-                  <th className="num">有貨</th>
-                  <th className="num">期間銷量</th>
+                  <th>已賣完（缺貨）</th>
+                  <th>還有庫存</th>
+                  <th className="num">期間賣出</th>
                 </tr>
               </thead>
               <tbody>
@@ -739,10 +739,22 @@ function ProductsTab({ r }: { r: Report }) {
                         </Badge>
                       ))}
                     </td>
-                    <td className="num">
-                      {b.inStock}/{b.total}
+                    <td>
+                      {(b.inStockLabels ?? []).map((o) => (
+                        <Badge key={o} tone="ok">
+                          {o}
+                        </Badge>
+                      ))}
+                      <div className="muted small">
+                        剩 {b.inStock} 個，共 {b.total} 個顏色尺寸
+                      </div>
                     </td>
-                    <td className="num">{b.sold}</td>
+                    <td className="num">
+                      {b.sold}
+                      <div className="muted small">
+                        門市 {b.soldStore ?? b.sold}／網店 {b.soldOnline ?? 0}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
