@@ -11,6 +11,18 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-w",
+    date: "2026-10-19",
+    title: "新功能：顧客螢幕（平板給客人看）",
+    items: [
+      "平板登入後，在 POS 選單按「顧客螢幕」，放在櫃台面向客人",
+      "電腦收銀加商品，平板會同步顯示品項和合計",
+      "結帳選「轉帳」或「LINE Pay」（或現金不夠剩下用轉帳／LINE Pay），平板顯示帳號和 QR code 讓客人掃",
+      "確認收到款、按完成結帳後，QR code 自動消失，顯示「謝謝光臨」",
+      "轉帳帳號、QR 圖片在 後台設定 → 金流管理 → 顧客螢幕 設定",
+    ],
+  },
+  {
     id: "2026-10-19-v",
     date: "2026-10-19",
     title: "現金不夠，剩下的可以改用 LINE Pay／信用卡",

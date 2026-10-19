@@ -64,6 +64,7 @@ const Ship = page(() => import("./pages/pos/Ship"), "Ship");
 const MemberCard = page(() => import("./pages/MemberCard"), "MemberCard");
 const LineCard = page(() => import("./pages/LineCard"), "LineCard");
 const Help = page(() => import("./pages/admin/Help"), "Help");
+const Display = page(() => import("./pages/Display"), "Display");
 const Costs = page(() => import("./pages/admin/Costs"), "Costs");
 
 /** 登入後，閒置時把所有頁面預先載入 */
@@ -102,6 +103,7 @@ export function App() {
               <Route path="/invite/:id" element={<AcceptInvite />} />
               <Route path="/card/:token" element={<MemberCard />} />
               <Route path="/line" element={<LineCard />} />
+              <Route path="/display" element={<Guard><Display /></Guard>} />
               <Route path="/admin" element={<Guard><AdminLayout /></Guard>}>
                 <Route index element={<Navigate to="scan" replace />} />
                 <Route path="scan" element={<Scan />} />

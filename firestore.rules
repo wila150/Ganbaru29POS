@@ -69,6 +69,15 @@ service cloud.firestore {
       allow delete: if isManager();
     }
 
+    // 顧客螢幕：收銀電腦寫入、平板讀取
+    match /customerDisplay/{id} {
+      allow read: if active();
+      allow write: if active()
+        && request.resource.data.keys().hasOnly(['mode', 'lines', 'total', 'discount', 'member', 'pay', 'change', 'at'])
+        && request.resource.data.mode in ['idle', 'cart', 'pay', 'done']
+        && request.resource.data.lines is list && request.resource.data.lines.size() <= 200;
+    }
+
     match /posHolds/{id} {
       allow read, delete: if active();
       allow create, update: if active()
@@ -87,7 +96,7 @@ service cloud.firestore {
       return ['shopName', 'leadDays', 'expiryDays', 'lineTargets', 'rewardPercent', 'pointValue',
               'staffCanRefund', 'siteBaseUrl', 'receiptHeader', 'receiptFooter', 'serviceFeeDefault', 'shiftNames',
               'memberTiers', 'birthdayGiftPoints', 'birthdayPointMultiplier', 'tagTemplate', 'payment', 'linePay', 'invoice',
-              'locations', 'onlineLocationId', 'merchantId', 'commissionPct', 'commissionByUser', 'expenseCategories', 'rewardRules', 'pointGifts', 'lineLogin', 'checkoutSound', 'navConfig', 'alerts', 'slowRule', 'hotRule', 'shipSenders', 'payMethods', 'onlineFeePct', 'payrollCategories', 'openHours'];
+              'locations', 'onlineLocationId', 'merchantId', 'commissionPct', 'commissionByUser', 'expenseCategories', 'rewardRules', 'pointGifts', 'lineLogin', 'checkoutSound', 'navConfig', 'alerts', 'slowRule', 'hotRule', 'shipSenders', 'payMethods', 'onlineFeePct', 'payrollCategories', 'openHours', 'payDisplay'];
     }
   }
 }

@@ -10,7 +10,7 @@ import type { AlertPrefs, RewardRule, ShopSettings, TierCond, TierDef } from "..
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
 import { ADMIN_NAV, applyNavConfig, NAV_LOCKED } from "../../components/Layout";
 import { QrImg } from "../../components/QrImg";
-import { ref, uploadBytes } from "firebase/storage";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { storage } from "../../firebase";
 import { DEFAULT_SOUND, playCheckoutSound, SOUND_PRESETS, SOUND_WHEN_LABEL, type CheckoutSound, type SoundChoice, type SoundPreset, type SoundRule, type SoundWhen } from "../../lib/sound";
 
@@ -37,6 +37,7 @@ const SECTIONS: { id: string; icon: string; title: string; desc: string; render:
     render: () => (
       <>
         <PayMethodSettings />
+        <PayDisplaySettings />
         <PaymentSettings />
       </>
     ),
@@ -843,6 +844,64 @@ function CredForm({ kind, current, onSaved }: { kind: string; current: string | 
 }
 
 /** 付款方式（同 meepShop「物流管理」的樣子）：開關、改名、排序、新增自訂方式 */
+/** 顧客螢幕：客人選轉帳／LINE Pay 時，平板顯示的帳號與 QR code */
+function PayDisplaySettings() {
+  const { settings } = useData();
+  const [v, setV] = useState(settings.payDisplay ?? {});
+  const { busy, run } = useAction();
+  const dirty = JSON.stringify(v) !== JSON.stringify(settings.payDisplay ?? {});
+  const upload = (key: "transferQrUrl" | "linepayQrUrl", file: File) =>
+    run(async () => {
+      if (!file.type.startsWith("image/")) throw new Error("請選擇圖片（QR code 截圖）");
+      const path = `paydisplay/${key}-${Date.now()}.${(file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+      await uploadBytes(ref(storage, path), file, { contentType: file.type });
+      setV((x) => ({ ...x, [key]: "" }));
+      const url = await getDownloadURL(ref(storage, path));
+      setV((x) => ({ ...x, [key]: url }));
+    }, "已上傳，記得按儲存");
+  const qr = (key: "transferQrUrl" | "linepayQrUrl", label: string) => (
+    <div className="paydisp-qr">
+      <div className="muted small">{label}</div>
+      {v[key] ? <img src={v[key]} alt="" /> : <div className="paydisp-empty">未上傳</div>}
+      <label className="btn btn-sm">
+        {v[key] ? "更換" : "上傳 QR 圖片"}
+        <input type="file" accept="image/*" hidden disabled={busy} onChange={(e) => e.target.files?.[0] && upload(key, e.target.files[0])} />
+      </label>
+      {v[key] && (
+        <button className="btn btn-sm btn-ghost" onClick={() => setV((x) => ({ ...x, [key]: "" }))}>
+          移除
+        </button>
+      )}
+    </div>
+  );
+  return (
+    <section className="card">
+      <h2>顧客螢幕（平板給客人看）</h2>
+      <p className="muted small">
+        平板登入後按 POS 選單的「顧客螢幕」，放在櫃台面向客人。收銀電腦加商品，平板會跟著顯示品項和金額；結帳選「轉帳」或「LINE Pay」時，平板顯示下面的帳號和 QR code，按完成結帳後自動換成「謝謝光臨」。
+      </p>
+      <div className="paydisp-fields">
+        <Field label="轉帳銀行（例：822 中國信託）">
+          <input value={v.transferBank ?? ""} onChange={(e) => setV({ ...v, transferBank: e.target.value })} />
+        </Field>
+        <Field label="帳號">
+          <input value={v.transferAccount ?? ""} inputMode="numeric" onChange={(e) => setV({ ...v, transferAccount: e.target.value.replace(/[^\d-]/g, "") })} />
+        </Field>
+        <Field label="戶名">
+          <input value={v.transferName ?? ""} onChange={(e) => setV({ ...v, transferName: e.target.value })} />
+        </Field>
+      </div>
+      <div className="paydisp-qrs">
+        {qr("transferQrUrl", "轉帳 QR（銀行 App「收款碼」截圖）")}
+        {qr("linepayQrUrl", "LINE Pay 收款 QR（店家 QR code）")}
+      </div>
+      <button className="btn btn-primary" disabled={!dirty || busy} onClick={() => run(() => setDoc(doc(db, "settings", "shop"), { payDisplay: v }, { merge: true }), "已儲存")}>
+        儲存
+      </button>
+    </section>
+  );
+}
+
 function PayMethodSettings() {
   const { settings } = useData();
   const [list, setList] = useState<PayMethodDef[]>(() => payMethodList(settings.payMethods));

@@ -17,6 +17,7 @@ import { MemberTagEditor, ShopperGroup, TagChips, useShopperPrefs } from "../../
 import { beep, deviceId, money, newId, PAY_LABEL, pctToZhe, todayStr, zheToPct } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useDeviceLocation } from "../../lib/location";
+import { displayChannel, pushDisplay } from "../../lib/display";
 import { Checkout, Done } from "./Checkout";
 import { useCurrentShift } from "./PosLayout";
 
@@ -157,6 +158,25 @@ export function Register() {
   const t = totals(cart, disc, pointValue, promo, tier?.discountPct ?? 0);
   const credit = exchange?.credit ?? 0;
   const due = Math.max(0, t.total - credit);
+
+  // ---- 顧客螢幕（平板開「顧客螢幕」即時顯示這台的購物車與付款畫面）----
+  const [payShow, setPayShow] = useState<{ method: string; amount: number } | null>(null);
+  const [thanks, setThanks] = useState<number | null>(null);
+  useEffect(() => {
+    if (thanks === null) return;
+    const id = setTimeout(() => setThanks(null), 6000);
+    return () => clearTimeout(id);
+  }, [thanks]);
+  useEffect(() => {
+    const ch = displayChannel(locationId);
+    if (!cart.length) return pushDisplay(ch, thanks !== null ? { mode: "done", change: thanks } : { mode: "idle" }, true);
+    const lines = cart.map((l) => {
+      const v = byId.get(l.variantId);
+      return { title: v?.productTitle ?? "商品", options: v?.options ?? "", qty: l.qty, amount: lineTotal(l) };
+    });
+    const pay = checkout ? payShow : null;
+    pushDisplay(ch, { mode: pay ? "pay" : "cart", lines, total: due, discount: Math.max(0, lines.reduce((a, l) => a + l.amount, 0) - due), member: shopper?.name || null, pay }, !!pay);
+  });
   const refundDue = Math.max(0, credit - t.total);
 
   // ---- product grid ----
@@ -564,6 +584,7 @@ export function Register() {
           total={due}
           onClose={() => setCheckout(false)}
           itemName={cart.map((l) => byId.get(l.variantId)?.productTitle ?? "商品").slice(0, 5).join("、") + (cart.length > 5 ? " 等" : "")}
+          onPayShow={setPayShow}
           submit={async (payments, invoice) => {
             const id = orderId.current;
             type R = { id: string; status: string; stockIssues: { title: string; status: string; error: string | null }[] };
@@ -610,6 +631,7 @@ export function Register() {
               playCheckoutSound(settings.checkoutSound, false, { isMember: !!shopper, birthDate, group: shopper?.group ?? null, total: due, today: todayStr() });
             })();
             setDone({ order, issues: r.stockIssues });
+            setThanks(Math.max(0, payments.reduce((a, p) => a + p.amount, 0) - due));
             reset();
           }}
         />

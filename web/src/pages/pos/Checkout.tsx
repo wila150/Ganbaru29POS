@@ -23,7 +23,7 @@ export interface InvoiceInput {
 const PROVIDER_LABEL: Record<string, string> = { ecpay: "綠界", newebpay: "藍新" };
 
 /** 結帳：付款方式（含掃碼線上付款）＋電子發票開立方式。 */
-export function Checkout({ total, itemName, onClose, submit }: { total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void> }) {
+export function Checkout({ total, itemName, onClose, submit, onPayShow }: { total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void>; onPayShow?: (p: { method: string; amount: number } | null) => void }) {
   const { settings } = useData();
   const provider = settings.payment?.provider ?? null;
   const linePayApi = !!settings.linePay?.enabled && total > 0;
@@ -59,6 +59,14 @@ export function Checkout({ total, itemName, onClose, submit }: { total: number; 
   const change = paid - total;
   const mixedLeft = total - mixed.reduce((s, p) => s + p.amount, 0);
   const scanLinePay = method === "linepay" && linePayApi;
+  // 顧客螢幕：非現金的部分顯示給客人（轉帳帳號／QR、LINE Pay QR）
+  const showPay = method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest } : null) : method === "mixed" || method === "online" ? null : { method, amount: total };
+  const showKey = JSON.stringify(showPay);
+  useEffect(() => {
+    onPayShow?.(showPay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showKey]);
+  useEffect(() => () => onPayShow?.(null), [onPayShow]);
   const ok = method !== "online" && !scanLinePay && !restScan && paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
   const invoiceOk = !invoiceOn || inv.type === "print" || (inv.type === "mobile" && /^\/[0-9A-Z+\-.]{7}$/.test(inv.mobileBarcode ?? "")) || (inv.type === "taxId" && /^\d{8}$/.test(inv.taxId ?? "")) || (inv.type === "donate" && /^\d{3,7}$/.test(inv.loveCode ?? ""));
   const invoicePayload = invoiceOn ? inv : null;

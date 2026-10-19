@@ -25,6 +25,13 @@ service firebase.storage {
     match /thumbs/{path=**} {
       allow read: if active();
     }
+    // 顧客螢幕的轉帳／LINE Pay 收款 QR（設定頁上傳）
+    match /paydisplay/{file} {
+      allow read: if active();
+      allow write: if isManager()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
     // 結帳音效（設定頁上傳）
     match /sounds/{file} {
       allow read: if active();

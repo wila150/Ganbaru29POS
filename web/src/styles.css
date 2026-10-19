@@ -812,3 +812,30 @@ span.tier-switch { cursor: default; }
 .rest-pay { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .rest-pay button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border, #ccc); background: var(--card, #fff); font-size: 15px; }
 .rest-pay button.active { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }
+
+/* ---- 顧客螢幕 ---- */
+.cd { position: fixed; inset: 0; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; padding: 24px; overflow: auto; }
+.cd-center { align-items: center; justify-content: center; text-align: center; gap: 14px; }
+.cd-big { font-size: clamp(40px, 9vw, 96px); font-weight: 700; }
+.cd-shop { font-size: 22px; opacity: 0.7; letter-spacing: 2px; }
+.cd-sub { font-size: clamp(22px, 4vw, 34px); }
+.cd-amount { font-size: clamp(48px, 11vw, 110px); font-weight: 800; color: #fde047; }
+.cd-qr { width: min(60vw, 46vh); max-width: 420px; background: #fff; padding: 12px; border-radius: 16px; }
+.cd-bank { font-size: clamp(20px, 3.4vw, 30px); line-height: 1.6; background: rgba(255,255,255,.08); padding: 12px 24px; border-radius: 12px; }
+.cd-bank .mono { font-family: ui-monospace, Menlo, monospace; letter-spacing: 1px; }
+.cd-hint { font-size: 18px; opacity: .85; }
+.cd .muted { color: #cbd5e1; }
+.cd-cart { gap: 12px; }
+.cd-head { display: flex; justify-content: space-between; font-size: 20px; opacity: .8; }
+.cd-lines { list-style: none; margin: 0; padding: 0; flex: 1; overflow: auto; }
+.cd-lines li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.12); font-size: 22px; }
+.cd-title { font-weight: 600; }
+.cd-total { text-align: right; font-size: clamp(30px, 6vw, 56px); }
+.cd-total b { color: #fde047; }
+.cd-disc { font-size: 20px; color: #86efac; }
+.cd-exit { position: fixed; left: 10px; bottom: 10px; color: #94a3b8; font-size: 13px; opacity: .45; z-index: 2; }
+.paydisp-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.paydisp-qrs { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; }
+.paydisp-qr { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.paydisp-qr img, .paydisp-empty { width: 140px; height: 140px; object-fit: contain; border: 1px solid #ddd; border-radius: 8px; background: #fff; }
+.paydisp-empty { display: flex; align-items: center; justify-content: center; color: #999; }
