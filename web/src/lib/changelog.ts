@@ -11,6 +11,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-al",
+    date: "2026-10-19",
+    title: "結帳完自動寄消費明細",
+    items: [
+      "每次結帳完成，系統自動把消費明細寄到客人 Email（會員 Email，或線上刷卡填的 Email）：品項、原價、各項折扣、總折扣、實付金額、付款方式、回饋購物金",
+      "沒有 Email 的客人，可以在「結帳完成」畫面輸入 Email 再按「📧 寄明細」",
+      "信用卡傳付款連結時，可以選這筆讓客人用：信用卡（卡號）、分期、Apple Pay（要藍新開通並在金流設定勾選）",
+    ],
+  },
+  {
     id: "2026-10-19-ak",
     date: "2026-10-19",
     title: "信用卡付款連結改由系統直接寄出",

@@ -938,3 +938,7 @@ span.tier-switch { cursor: default; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0 10px; }
 .op-mail { display: flex; flex-direction: column; gap: 8px; }
 .op-mail .inline-form input { flex: 1; min-width: 200px; font-size: 17px; }
+.done-mail { margin: 10px 0; text-align: center; }
+.done-mail .inline-form { justify-content: center; margin-top: 6px; }
+.done-mail .inline-form input { min-width: 220px; }
+.op-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }

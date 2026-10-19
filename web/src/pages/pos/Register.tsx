@@ -653,7 +653,7 @@ export function Register() {
         />
       )}
 
-      {done && <Done order={done.order} issues={done.issues} onClose={() => setDone(null)} />}
+      {done && <Done order={done.order} issues={done.issues} onClose={() => setDone(null)} autoMail />}
       {noteFor && (
         <LineNote
           line={noteFor}

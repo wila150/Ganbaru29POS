@@ -9,7 +9,7 @@ export { setApiKey, testConnection, setLineToken, testLine, secretStatus } from 
 export { posCheckout, posRefund, posVoid, posEditOrder, exchangeQuote, openShift, cashMove, shiftSummary, closeShift, listOnlineOrders, pendingShipments, updateShipment, searchShopper, createShopper, refreshShopper, setShopperPin, shopperOnlineOrders, setShopperTags, removeMemberTag, setShopperGroup } from "./pos";
 export { retryFailed, lowStockAlert, previewDailyAlert, refreshStats, salesReport } from "./jobs";
 export { memberTiersDaily, recomputeMemberTiers, birthdayGiftsMonthly } from "./members";
-export { createOnlinePayment, cancelOnlinePayment, checkOnlinePayment, payPage, payReturn, ecpayNotify, newebpayNotify, setPaymentCreds, paymentCredsStatus, setMailCreds, sendPayLink } from "./payments/index";
+export { createOnlinePayment, cancelOnlinePayment, checkOnlinePayment, payPage, payReturn, ecpayNotify, newebpayNotify, setPaymentCreds, paymentCredsStatus, setMailCreds, sendPayLink, sendReceipt } from "./payments/index";
 export { reissueInvoice, invoicePrint } from "./payments/invoice";
 export { linePayCharge, linePayCheck, linePayRefundUnused, setLinePayCreds, testLinePay, linePayStatus } from "./payments/linepay";
 export { initLocationStock, requestTransfer, shipTransfer, receiveTransfer, cancelTransfer } from "./locations";

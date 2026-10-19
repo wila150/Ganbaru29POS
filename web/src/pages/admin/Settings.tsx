@@ -563,7 +563,7 @@ function SoundSettings() {
 }
 
 function PosSettings() {
-  const { form, set, save, busy } = useSettingsForm(["shopName", "rewardPercent", "pointValue", "staffCanRefund", "serviceFeeDefault", "receiptHeader", "receiptFooter", "shiftNames", "siteBaseUrl", "openHours", "noDiscountTags"]);
+  const { form, set, save, busy } = useSettingsForm(["shopName", "rewardPercent", "pointValue", "staffCanRefund", "serviceFeeDefault", "receiptHeader", "receiptFooter", "shiftNames", "siteBaseUrl", "openHours", "noDiscountTags", "autoReceiptMail"]);
   return (
     <section className="card">
       <h2>POS 與門市</h2>
@@ -599,6 +599,9 @@ function PosSettings() {
             </select>
           </div>
         </Field>
+        <label className="check">
+          <input type="checkbox" checked={form.autoReceiptMail !== false} onChange={(e) => set("autoReceiptMail", e.target.checked)} /> 結帳完自動寄消費明細給客人（有會員 Email 或線上刷卡 Email 時）
+        </label>
         <Field label="不再折扣的標籤（逗號分隔）" hint="有這些 meepShop 標籤的商品，在 POS 不參加優惠活動、會員折扣、整單打折（店員手動單品打折仍可）">
           <input value={(form.noDiscountTags ?? ["特價專區"]).join(",")} onChange={(e) => set("noDiscountTags", e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean))} />
         </Field>

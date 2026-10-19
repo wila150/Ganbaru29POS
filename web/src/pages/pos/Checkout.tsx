@@ -419,6 +419,13 @@ function OnlinePay({
 
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  // 這筆讓客人用什麼付：卡號一次付清一定有；分期、Apple Pay 等要設定頁有開才能選
+  const enabledExtra = (settings.payment?.newebExtra ?? []) as string[];
+  const instList = (settings.payment?.newebInst ?? []) as number[];
+  const [useInst, setUseInst] = useState(instList.length > 0);
+  const [extra, setExtra] = useState<string[]>(enabledExtra);
+  const EXTRA_LABEL: Record<string, string> = { APPLEPAY: "Apple Pay", ANDROIDPAY: "Google Pay", SAMSUNGPAY: "Samsung Pay", LINEPAY: "LINE Pay", TAIWANPAY: "台灣 Pay" };
+  const payOpts = { inst: useInst, extra };
   const sendMail = (sess: { id: string; url: string }) =>
     run(async () => {
       await call("sendPayLink", { id: sess.id, email });
@@ -433,7 +440,24 @@ function OnlinePay({
   if (!session && mode === "mail")
     return (
       <div className="op-mail">
-        <p>輸入客人 Email，系統會把 {money(amount)} 的付款連結寄過去；客人用信用卡付完款，這裡自動完成結帳。</p>
+        <p>輸入客人 Email，系統會把 {money(amount)} 的付款連結寄過去；客人付完款，這裡自動完成結帳。</p>
+        <div className="op-opts">
+          <span className="muted small">客人可以用：</span>
+          <label className="check">
+            <input type="checkbox" checked disabled /> 信用卡（輸入卡號）
+          </label>
+          {instList.length > 0 && (
+            <label className="check">
+              <input type="checkbox" checked={useInst} onChange={(e) => setUseInst(e.target.checked)} /> 分期（{instList.join("／")} 期）
+            </label>
+          )}
+          {enabledExtra.map((k) => (
+            <label key={k} className="check">
+              <input type="checkbox" checked={extra.includes(k)} onChange={(e) => setExtra(e.target.checked ? [...extra, k] : extra.filter((x) => x !== k))} /> {EXTRA_LABEL[k] ?? k}
+            </label>
+          ))}
+          {!enabledExtra.length && <span className="muted small">（Apple Pay 要先向藍新開通，再到金流設定勾選）</span>}
+        </div>
         <div className="inline-form">
           <input type="email" inputMode="email" placeholder="客人 Email" value={email} onChange={(e) => setEmail(e.target.value.trim())} />
           <button
@@ -441,7 +465,7 @@ function OnlinePay({
             disabled={busy || !emailOk || !invoiceOk}
             onClick={() =>
               run(async () => {
-                const s = await call<{ id: string; url: string }>("createOnlinePayment", { amount, itemName, orderId: "pos" });
+                const s = await call<{ id: string; url: string }>("createOnlinePayment", { amount, itemName, orderId: "pos", ...payOpts });
                 setSession(s);
                 await call("sendPayLink", { id: s.id, email });
                 setSentTo(email);
@@ -595,8 +619,24 @@ export function InvoiceInfo({ order }: { order: PosOrder }) {
   );
 }
 
-export function Done({ order, issues, onClose }: { order: PosOrder; issues: { title: string; status: string; error: string | null }[]; onClose: () => void }) {
+export function Done({ order, issues, onClose, autoMail = false }: { order: PosOrder; issues: { title: string; status: string; error: string | null }[]; onClose: () => void; autoMail?: boolean }) {
   const { settings } = useData();
+  // 結帳完自動寄消費明細（有會員 Email，或線上刷卡寄過付款連結的 Email）
+  const [mail, setMail] = useState<{ state: "idle" | "sending" | "sent" | "none" | "error"; email?: string; error?: string }>({ state: "idle" });
+  const [mailTo, setMailTo] = useState("");
+  const sendReceipt = (email?: string) => {
+    setMail({ state: "sending" });
+    call<{ sent: boolean; email?: string }>("sendReceipt", { orderId: order.id, ...(email ? { email } : {}) })
+      .then((r) => setMail(r.sent ? { state: "sent", email: r.email } : { state: "none" }))
+      .catch((e) => setMail({ state: "error", error: (e as Error).message }));
+  };
+  const autoSent = useRef(false);
+  useEffect(() => {
+    if (!autoMail || autoSent.current || settings.autoReceiptMail === false) return;
+    autoSent.current = true;
+    sendReceipt();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoMail]);
   return (
     <Modal
       title="結帳完成"
@@ -622,6 +662,19 @@ export function Done({ order, issues, onClose }: { order: PosOrder; issues: { ti
         <div className="done-total">{money(order.total)}</div>
         {order.change > 0 && <div className="done-change">找零 {money(order.change)}</div>}
         {order.rewardEarned > 0 && <div className="ok">回饋購物金 {order.rewardEarned} 點</div>}
+      </div>
+      <div className="done-mail">
+        {mail.state === "sending" && <span className="muted">📧 寄送消費明細中…</span>}
+        {mail.state === "sent" && <span className="ok">📧 消費明細已寄到 {mail.email}</span>}
+        {mail.state === "error" && <span className="error">明細沒寄出：{mail.error}</span>}
+        {mail.state !== "sending" && mail.state !== "sent" && (
+          <div className="inline-form">
+            <input type="email" inputMode="email" placeholder={mail.state === "none" ? "沒有客人 Email，要寄明細請輸入" : "客人 Email"} value={mailTo} onChange={(e) => setMailTo(e.target.value.trim())} />
+            <button className="btn" disabled={!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mailTo)} onClick={() => sendReceipt(mailTo)}>
+              📧 寄明細
+            </button>
+          </div>
+        )}
       </div>
       <InvoiceInfo order={order} />
       {issues.length > 0 && (

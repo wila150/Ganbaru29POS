@@ -75,6 +75,9 @@ export const createOnlinePayment = onCall(async (req) => {
     orderId: str(req.data?.orderId, "訂單", { max: 64 }),
     amount,
     itemName: str(req.data?.itemName, "品名", { optional: true, max: 300 }) || "門市消費",
+    // 這筆讓客人用哪些方式付（只能選設定頁有開的）：null = 照設定
+    payExtra: Array.isArray(req.data?.extra) ? (req.data.extra as unknown[]).map(String).filter((k) => ((s.payment?.newebExtra as string[]) ?? []).includes(k)) : null,
+    payInst: typeof req.data?.inst === "boolean" ? req.data.inst : null,
     status: "waiting",
     token,
     tradeNos: [],
@@ -176,7 +179,7 @@ export const payPage = onRequest(async (req, res) => {
       const f = ecpay.aioForm(await ecpayPaymentCreds(), { tradeNo, amount: p.amount, itemName: p.itemName, returnUrl: fnUrl("ecpayNotify"), resultUrl: `${fnUrl("payReturn")}?id=${id}&t=${p.token}` });
       res.send(autoSubmit(f.action, f.params, p.amount));
     } else {
-      const f = neweb.mpgForm(await newebCreds(), { orderNo: tradeNo, amount: p.amount, itemDesc: p.itemName, notifyUrl: fnUrl("newebpayNotify"), extra: ((await settings()).payment?.newebExtra as string[] | undefined) ?? [], inst: ((await settings()).payment?.newebInst as number[] | undefined) ?? [], returnUrl: `${fnUrl("payReturn")}?id=${id}&t=${p.token}` });
+      const f = neweb.mpgForm(await newebCreds(), { orderNo: tradeNo, amount: p.amount, itemDesc: p.itemName, notifyUrl: fnUrl("newebpayNotify"), extra: (p.payExtra as string[] | null) ?? ((await settings()).payment?.newebExtra as string[] | undefined) ?? [], inst: p.payInst === false ? [] : ((await settings()).payment?.newebInst as number[] | undefined) ?? [], returnUrl: `${fnUrl("payReturn")}?id=${id}&t=${p.token}` });
       res.send(autoSubmit(f.action, f.params, p.amount));
     }
   } catch (e) {
@@ -295,6 +298,79 @@ export const setMailCreds = onCall(async (req) => {
   }
   await setSecret("MAIL_SMTP", JSON.stringify({ user, pass, host, port }));
   return { ok: true };
+});
+
+async function mailer() {
+  const m = await secretJson("MAIL_SMTP", true);
+  assert(m?.user && m?.pass, "還沒設定寄信用的信箱（後台設定 → 金流管理 → 寄付款連結的信箱）", "failed-precondition");
+  const port = Number(m.port) || 465;
+  const t = nodemailer.createTransport({ host: m.host || "smtp.gmail.com", port, secure: port === 465, auth: { user: m.user, pass: m.pass } });
+  const shop = ((await settings()).shopName as string) || "ganbaru29";
+  return { t, from: { name: shop, address: m.user as string }, shop };
+}
+
+const $ = (n: number) => `$${Math.round(n).toLocaleString("zh-TW")}`;
+const PAY_ZH: Record<string, string> = { cash: "現金", card: "信用卡", linepay: "LINE Pay", transfer: "轉帳", newebpay: "線上刷卡（藍新）", ecpay: "線上刷卡（綠界）", exchange: "換貨抵用" };
+
+/**
+ * 寄消費明細給客人。email 沒給時：會員 Email → 這張單線上刷卡寄過付款連結的 Email。
+ * 回傳 sent=false 表示找不到 Email（不算錯誤）。
+ */
+export const sendReceipt = onCall({ timeoutSeconds: 60 }, async (req) => {
+  const actor = await requireRole(req, "staff");
+  const orderId = str(req.data?.orderId, "訂單", { max: 64 });
+  const ref = db.doc(`posOrders/${orderId}`);
+  const o = (await ref.get()).data();
+  assert(o, "找不到這張單", "not-found");
+  let to = req.data?.email ? str(req.data.email, "Email", { max: 120 }).trim() : "";
+  if (!to) to = o.shopper?.email ?? "";
+  if (!to) {
+    const pay = await db.collection("posPayments").where("usedBy", "==", orderId).limit(1).get();
+    const mailed = (pay.docs[0]?.data().mailedTo as string[] | undefined) ?? [];
+    to = mailed[mailed.length - 1] ?? "";
+  }
+  if (!to) return { sent: false };
+  assert(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to), "Email 格式不正確");
+  const { t, from, shop } = await mailer();
+  const s = await settings();
+  const when = (o.createdAt?.toDate?.() ?? new Date()).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false });
+  type L = { productTitle: string; options: string; qty: number; listPrice: number; unitPrice: number; discountPct: number; promoLabels?: string[]; total: number };
+  const lines = (o.lines as L[]).map((l) => {
+    const orig = l.listPrice * l.qty;
+    const note = [l.discountPct > 0 ? `${(100 - l.discountPct) % 10 === 0 ? (100 - l.discountPct) / 10 : 100 - l.discountPct} 折` : "", ...(l.promoLabels ?? [])].filter(Boolean).join("、");
+    return `<tr><td style="padding:8px 0;border-bottom:1px solid #eee">${esc(l.productTitle)}<div style="color:#6b7280;font-size:13px">${esc(l.options || "")} × ${l.qty}${note ? `　<span style="color:#059669">${esc(note)}</span>` : ""}</div></td>
+<td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${orig !== l.total ? `<s style="color:#9ca3af;font-size:13px">${$(orig)}</s><br>` : ""}${$(l.total)}</td></tr>`;
+  });
+  const gross = (o.lines as L[]).reduce((a, l) => a + l.listPrice * l.qty, 0);
+  const rows: [string, number][] = [
+    ["商品原價", gross],
+    ...(((o.lines as L[]).reduce((a, l) => a + l.listPrice * l.qty - l.total, 0) ? [["商品折扣", -(o.lines as L[]).reduce((a, l) => a + l.listPrice * l.qty - l.total, 0)]] : []) as [string, number][]),
+    ...((o.memberDiscount ? [[`會員折扣${o.memberTier ? `（${o.memberTier}）` : ""}`, -o.memberDiscount]] : []) as [string, number][]),
+    ...((o.orderDiscount ? [["整單折扣", -o.orderDiscount]] : []) as [string, number][]),
+    ...((o.serviceFee ? [["服務費", o.serviceFee]] : []) as [string, number][]),
+    ...((o.allowance ? [["折讓", -o.allowance]] : []) as [string, number][]),
+    ...((o.rewardDiscount ? [[`購物金折抵（${o.rewardPoints} 點）`, -o.rewardDiscount]] : []) as [string, number][]),
+  ];
+  const totalOff = gross - o.total + (o.serviceFee ?? 0);
+  const pays = (o.payments as { method: string; amount: number }[]).map((p) => `${esc(PAY_ZH[p.method] ?? p.method)} ${$(p.amount)}`).join("、");
+  const html = `<div style="font-family:-apple-system,'PingFang TC','Noto Sans TC',sans-serif;max-width:480px;margin:auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px;color:#111">
+<h2 style="margin:0">${esc(shop)}</h2><p style="color:#6b7280;margin:4px 0 16px">消費明細　${esc(o.orderNo)}<br>${esc(when)}</p>
+${o.shopper?.name ? `<p style="margin:0 0 12px">${esc(o.shopper.name)} 您好，感謝您的光臨！</p>` : ""}
+<table style="width:100%;border-collapse:collapse;font-size:15px">${lines.join("")}</table>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:12px">${rows
+    .map(([k, v]) => `<tr><td style="color:#6b7280;padding:3px 0">${esc(k)}</td><td style="text-align:right;${v < 0 ? "color:#b91c1c" : ""}">${v < 0 ? `−${$(-v)}` : $(v)}</td></tr>`)
+    .join("")}${totalOff > 0 ? `<tr><td style="padding:6px 0 3px;border-top:1px dashed #ddd;font-weight:700;color:#b91c1c">總折扣</td><td style="text-align:right;border-top:1px dashed #ddd;font-weight:700;color:#b91c1c">−${$(totalOff)}</td></tr>` : ""}
+<tr><td style="padding-top:10px;border-top:2px solid #111;font-size:17px;font-weight:700">實付金額</td><td style="padding-top:10px;border-top:2px solid #111;text-align:right;font-size:22px;font-weight:800;color:#059669">${$(o.total)}</td></tr></table>
+<p style="font-size:14px;margin:14px 0 4px">付款方式：${pays}</p>
+${o.rewardEarned > 0 ? `<p style="font-size:14px;margin:4px 0;color:#059669">本次回饋購物金 ${o.rewardEarned} 點</p>` : ""}
+${o.invoice?.no ? `<p style="font-size:14px;margin:4px 0">電子發票：${esc(o.invoice.no)}</p>` : ""}
+${s.receiptFooter ? `<p style="color:#6b7280;font-size:13px;margin-top:16px;white-space:pre-line">${esc(s.receiptFooter)}</p>` : ""}
+</div>`;
+  const text = `${shop} 消費明細 ${o.orderNo}\n${when}\n\n${(o.lines as L[]).map((l) => `${l.productTitle} ${l.options} ×${l.qty}  ${$(l.total)}`).join("\n")}\n\n${rows.map(([k, v]) => `${k} ${v < 0 ? "-" : ""}${$(Math.abs(v))}`).join("\n")}\n實付金額 ${$(o.total)}\n付款方式：${(o.payments as { method: string; amount: number }[]).map((p) => `${PAY_ZH[p.method] ?? p.method} ${$(p.amount)}`).join("、")}`;
+  await t.sendMail({ from, to, replyTo: from.address, subject: `【${shop}】消費明細 ${o.orderNo}　${$(o.total)}`, html, text });
+  await ref.update({ receiptMailedTo: FieldValue.arrayUnion(to), receiptMailedAt: FieldValue.serverTimestamp() });
+  logger.info("receipt mailed", { orderId, by: actor.name });
+  return { sent: true, email: to };
 });
 
 /** 把付款連結寄到客人 Email（寄件人：店家 Gmail） */
