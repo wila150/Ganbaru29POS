@@ -43,12 +43,8 @@ export function mpgForm(c: NewebCreds, o: { orderNo: string; amount: number; ite
     ...(o.email ? { Email: o.email } : {}),
     EmailModify: "1",
     LoginType: "0",
-    // 只開即時完成的付款方式
+    // 只開信用卡（Apple Pay、LINE Pay 等要先向藍新申請啟用，沒啟用時送出會整筆失敗：MPG02003）
     CREDIT: "1",
-    APPLEPAY: "1",
-    ANDROIDPAY: "1",
-    LINEPAY: "1",
-    TAIWANPAY: "1",
   }).toString();
   const TradeInfo = encrypt(q, c);
   return { action: mpgUrl(c.stage), params: { MerchantID: c.merchantId, TradeInfo, TradeSha: tradeSha(TradeInfo, c), Version: "2.0" } };
