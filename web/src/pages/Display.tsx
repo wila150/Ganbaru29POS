@@ -166,6 +166,7 @@ function Signup() {
     return () => clearTimeout(id);
   }, [s?.status, ch]);
   if (!s || s.status === "closed") return null;
+  if (s.status === "phone" || s.status === "phoneSent") return <PhoneEntry ch={ch} s={s} />;
   if (s.status === "done")
     return (
       <div className="cd cd-center cd-over">
@@ -234,6 +235,37 @@ function Signup() {
       {(err || s.error) && <p className="cd-err">{err || s.error}</p>}
       <button className="cd-send" onClick={send}>
         下一步
+      </button>
+    </div>
+  );
+}
+
+/** 客人自己輸入手機查會員（收銀電腦打開「會員」時出現） */
+function PhoneEntry({ ch, s }: { ch: string; s: SignupState }) {
+  const [v, setV] = useState("");
+  useEffect(() => setV(s.status === "phone" && s.error ? s.mobile ?? "" : ""), [s.status, s.error, s.mobile]);
+  if (s.status === "phoneSent")
+    return (
+      <div className="cd cd-center cd-over">
+        <div className="cd-sub">查詢中，請稍候…</div>
+      </div>
+    );
+  const ok = /^09\d{8}$/.test(v);
+  const press = (k: string) => setV((x) => (k === "del" ? x.slice(0, -1) : k === "clr" ? "" : x.length < 10 ? x + k : x));
+  return (
+    <div className="cd cd-over cd-phone">
+      <h1>請輸入會員手機</h1>
+      <div className="cd-phone-num">{v ? v.replace(/^(\d{4})(\d{0,3})(\d{0,3}).*/, (_, a, b, c) => [a, b, c].filter(Boolean).join(" ")) : <span className="muted">09xx xxx xxx</span>}</div>
+      {s.error && <p className="cd-err">{s.error}</p>}
+      <div className="cd-pad">
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9", "clr", "0", "del"].map((k) => (
+          <button key={k} className={k.length > 1 ? "fn" : ""} onClick={() => press(k)}>
+            {k === "del" ? "⌫" : k === "clr" ? "清除" : k}
+          </button>
+        ))}
+      </div>
+      <button className="cd-send" disabled={!ok} onClick={() => setSignup(ch, { status: "phoneSent", mobile: v }).catch(() => undefined)}>
+        確定
       </button>
     </div>
   );

@@ -872,3 +872,12 @@ span.tier-switch { cursor: default; }
 .cd-confirm-btns { display: flex; gap: 12px; width: min(520px, 92vw); }
 .cd-confirm-btns .cd-send { flex: 2; width: auto; }
 .cd-back { flex: 1; font-size: 22px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); margin-top: 8px; }
+.cd-phone { align-items: center; gap: 14px; padding: 5vh 16px 24px; }
+.cd-phone h1 { margin: 0; font-size: 34px; }
+.cd-phone-num { font-size: 44px; font-weight: 700; letter-spacing: 3px; min-height: 56px; font-variant-numeric: tabular-nums; }
+.cd-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: min(420px, 90vw); }
+.cd-pad button { font-size: 32px; padding: 16px 0; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.cd-pad button.fn { font-size: 20px; color: var(--muted); }
+.cd-pad button:active { background: var(--surface-2); }
+.cd-phone .cd-send { width: min(420px, 90vw); }
+.cd-send:disabled { opacity: .4; }

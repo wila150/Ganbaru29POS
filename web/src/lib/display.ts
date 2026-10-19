@@ -55,7 +55,8 @@ export interface SignupForm {
   birthDate: string;
 }
 export interface SignupState extends Partial<SignupForm> {
-  status: "open" | "filled" | "done" | "closed";
+  /** phone = 請客人輸入手機查會員；phoneSent = 客人送出手機 */
+  status: "open" | "filled" | "done" | "closed" | "phone" | "phoneSent";
   error?: string | null;
 }
 export const setSignup = (channel: string, s: SignupState) =>

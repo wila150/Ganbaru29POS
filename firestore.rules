@@ -83,7 +83,7 @@ service cloud.firestore {
       allow read: if active();
       allow write: if active()
         && request.resource.data.keys().hasOnly(['status', 'email', 'name', 'mobile', 'birthDate', 'error', 'at'])
-        && request.resource.data.status in ['open', 'filled', 'done', 'closed'];
+        && request.resource.data.status in ['open', 'filled', 'done', 'closed', 'phone', 'phoneSent'];
     }
 
     match /posHolds/{id} {

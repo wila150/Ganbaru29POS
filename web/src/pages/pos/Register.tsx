@@ -796,6 +796,43 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
   const { locationId } = useDeviceLocation();
   const ch = displayChannel(locationId);
   const [remote, setRemote] = useState(false);
+  // 打開會員視窗（還沒帶會員）→ 顧客螢幕請客人自己輸入手機；客人送出後這裡查詢，只有一位就直接帶入
+  const phoneDone = useRef(false);
+  useEffect(() => {
+    if (current) return;
+    setSignup(ch, { status: "phone" }).catch(() => undefined);
+    let working = false;
+    const unsub = onSnapshot(doc(db, "customerSignup", ch), async (d) => {
+      const x = d.data() as SignupState | undefined;
+      if (x?.status !== "phoneSent" || working) return;
+      working = true;
+      const mobile = x.mobile ?? "";
+      setQ(mobile);
+      try {
+        const found = await lookup(mobile);
+        setList(found);
+        if (found.length === 1) {
+          phoneDone.current = true;
+          await setSignup(ch, { status: "closed" });
+          toastR(`客人輸入手機，已帶入會員：${found[0].name || found[0].mobile}`, "ok");
+          choose(found[0]);
+        } else if (found.length === 0) {
+          await setSignup(ch, { status: "phone", mobile, error: "查不到這支手機的會員，請確認號碼，或請店員協助加入會員" });
+        } else {
+          await setSignup(ch, { status: "phone", mobile, error: "請稍候，店員為您確認" });
+        }
+      } catch (e) {
+        await setSignup(ch, { status: "phone", mobile, error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        working = false;
+      }
+    });
+    return () => {
+      unsub();
+      if (!phoneDone.current) setSignup(ch, { status: "closed" }).catch(() => undefined);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ch]);
   const remoteDone = useRef(false);
   const toastR = useToast();
   useEffect(() => {
@@ -811,6 +848,7 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
       try {
         const s = await call<Shopper>("createShopper", f);
         remoteDone.current = true;
+        phoneDone.current = true;
         await setSignup(ch, { status: "done", name: f.name });
         toastR(`已新增會員：${s.name || s.mobile}`, "ok");
         onPick(s, true);
@@ -829,16 +867,15 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remote, ch]);
-  const search = () =>
-    run(async () => {
-      // 會員條碼（掃描槍或手動輸入 M + 9 碼）
-      if (/^M\d{9}$/i.test(q.trim())) {
-        const r = await getDocs(query(collection(db, "shoppers"), where("memberCode", "==", q.trim().toUpperCase()), limit(1)));
-        setList(r.docs.map((d) => ({ id: d.id, name: d.data().name ?? "", email: d.data().email ?? "", mobile: d.data().mobile ?? "", points: d.data().points ?? 0, tier: d.data().tier ?? null, group: d.data().posGroup ?? d.data().memberGroup ?? null })));
-        return;
-      }
-      setList((await call<{ shoppers: Shopper[] }>("searchShopper", { q })).shoppers);
-    });
+  const lookup = async (qq: string): Promise<Shopper[]> => {
+    // 會員條碼（掃描槍或手動輸入 M + 9 碼）
+    if (/^M\d{9}$/i.test(qq.trim())) {
+      const r = await getDocs(query(collection(db, "shoppers"), where("memberCode", "==", qq.trim().toUpperCase()), limit(1)));
+      return r.docs.map((d) => ({ id: d.id, name: d.data().name ?? "", email: d.data().email ?? "", mobile: d.data().mobile ?? "", points: d.data().points ?? 0, tier: d.data().tier ?? null, group: d.data().posGroup ?? d.data().memberGroup ?? null }));
+    }
+    return (await call<{ shoppers: Shopper[] }>("searchShopper", { q: qq })).shoppers;
+  };
+  const search = () => run(async () => setList(await lookup(q)));
   const choose = (s: Shopper, created = false) => {
     onPick(s, created);
     onClose();
