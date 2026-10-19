@@ -64,7 +64,7 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow, customer
   // 顧客螢幕：非現金的部分顯示給客人（轉帳帳號／QR、LINE Pay QR）
   const mixShow = [...mixed].reverse().find((p) => p.method !== "cash");
   const showPay =
-    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" || cardLink ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : { method, amount: total };
+    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : cardLink ? null : { method, amount: total };
   const showKey = JSON.stringify(showPay);
   useEffect(() => {
     onPayShow?.(showPay);
@@ -176,6 +176,7 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow, customer
           session={online}
           setSession={setOnline}
           defaultEmail={customerEmail ?? ""}
+          mode={cardLink ? "mail" : "qr"}
           onPaid={(paymentId) => run(() => submit([{ method: provider, amount: total, ref: paymentId }], invoicePayload))}
         />
       )}
@@ -378,8 +379,11 @@ function OnlinePay({
   setSession,
   onPaid,
   defaultEmail = "",
+  mode = "qr",
 }: {
   defaultEmail?: string;
+  /** mail = 系統直接寄付款連結到客人 Email（不顯示 QR）；qr = 顯示 QR 給客人掃 */
+  mode?: "qr" | "mail";
   provider: string;
   amount: number;
   itemName: string;
@@ -413,6 +417,37 @@ function OnlinePay({
     });
   }, [session, toast]);
 
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const sendMail = (sess: { id: string; url: string }) =>
+    run(async () => {
+      await call("sendPayLink", { id: sess.id, email });
+      setSentTo(email);
+    }, `付款連結已寄到 ${email}`);
+  if (!session && mode === "mail")
+    return (
+      <div className="op-mail">
+        <p>輸入客人 Email，系統會把 {money(amount)} 的付款連結寄過去；客人用信用卡付完款，這裡自動完成結帳。</p>
+        <div className="inline-form">
+          <input type="email" inputMode="email" placeholder="客人 Email" value={email} onChange={(e) => setEmail(e.target.value.trim())} />
+          <button
+            className="btn btn-primary"
+            disabled={busy || !emailOk || !invoiceOk}
+            onClick={() =>
+              run(async () => {
+                const s = await call<{ id: string; url: string }>("createOnlinePayment", { amount, itemName, orderId: "pos" });
+                setSession(s);
+                await call("sendPayLink", { id: s.id, email });
+                setSentTo(email);
+              }, `付款連結已寄到 ${email}`)
+            }
+          >
+            {busy ? "寄送中…" : "📧 寄出付款連結"}
+          </button>
+        </div>
+        {!invoiceOk && <p className="error small">請先填好發票資料</p>}
+      </div>
+    );
   if (!session)
     return (
       <div className="center">
@@ -436,10 +471,9 @@ function OnlinePay({
   // Gmail 網頁版直接開好一封信（用這台電腦登入的 Gmail 寄出）
   const gmail = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   const mail = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   return (
     <div className="online-pay">
-      <QrImg value={session.url} size={200} />
+      {mode === "qr" && <QrImg value={session.url} size={200} />}
       <div className="op-body">
         <div className={`op-status ${paid ? "ok" : waiting ? "wait" : "bad"}`}>{paid ? "✅ 已完成" : waiting ? "⏳ 付款中…" : "已取消或失效"}</div>
         <table className="op-table">
@@ -467,9 +501,18 @@ function OnlinePay({
           </tbody>
         </table>
         {pay.lastError && <p className="error small">上次付款失敗：{pay.lastError}</p>}
+        {mode === "mail" && sentTo && <p className="small">📧 付款連結已寄到 <b>{sentTo}</b>，等客人付款中…</p>}
+        {waiting && mode === "mail" && (
+          <div className="inline-form">
+            <input type="email" placeholder="客人 Email" value={email} onChange={(e) => setEmail(e.target.value.trim())} />
+            <button className="btn" disabled={busy || !emailOk} onClick={() => sendMail(session)}>
+              {sentTo === email ? "重寄" : "改寄到這個 Email"}
+            </button>
+          </div>
+        )}
         {waiting && (
           <>
-            <div className="inline-form">
+            {mode === "qr" && <div className="inline-form">
               <input type="email" placeholder="客人 Email" value={email} onChange={(e) => setEmail(e.target.value)} />
               <a className={`btn btn-primary ${emailOk ? "" : "disabled"}`} href={emailOk ? gmail : undefined} target="_blank" rel="noreferrer">
                 📧 用 Gmail 寄
@@ -480,7 +523,7 @@ function OnlinePay({
               <button className="btn" onClick={() => navigator.clipboard?.writeText(session.url).then(() => toast("已複製付款連結", "ok"))}>
                 複製連結
               </button>
-            </div>
+            </div>}
             <div className="btn-row">
               <button className="btn" disabled={busy} onClick={() => run(async () => {
                 const r = await call<{ status: string }>("checkOnlinePayment", { id: session.id });

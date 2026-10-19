@@ -821,6 +821,34 @@ export function MemberSettings() {
 
 const CRED_LABEL: Record<string, string> = { ecpay_payment: "綠界金流", newebpay_payment: "藍新金流", ecpay_invoice: "綠界電子發票" };
 
+/** 寄付款連結用的 Gmail：要用 Google「應用程式密碼」（不是 Gmail 登入密碼） */
+function MailCredForm({ current, onSaved }: { current: string | null | undefined; onSaved: () => void }) {
+  const [f, setF] = useState({ user: "", pass: "" });
+  const { busy, run } = useAction();
+  return (
+    <div className="cred-form">
+      <div className="row-between">
+        <strong>寄付款連結的 Gmail</strong>
+        {current ? <Badge tone="ok">已設定：{current}</Badge> : <Badge>未設定</Badge>}
+      </div>
+      <p className="muted small">
+        信用卡「傳付款連結」由這個 Gmail 寄給客人。密碼要用 Google 的「應用程式密碼」（16 個英文字母）：Google 帳戶 → 安全性 → 兩步驟驗證（要先開啟）→ 最下面「應用程式密碼」→ 建立一組，名稱打 POS。
+      </p>
+      <div className="inline-form">
+        <input type="email" placeholder="店家 Gmail" value={f.user} onChange={(e) => setF({ ...f, user: e.target.value.trim() })} />
+        <input type="password" autoComplete="off" placeholder="應用程式密碼（16 碼）" value={f.pass} onChange={(e) => setF({ ...f, pass: e.target.value })} />
+        <button className="btn" disabled={busy || !f.user || !f.pass} onClick={() => run(async () => {
+          await call("setMailCreds", f);
+          setF({ user: "", pass: "" });
+          onSaved();
+        }, "已儲存（已測試登入成功）")}>
+          儲存
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CredForm({ kind, current, mask, onSaved }: { kind: string; current: string | null | undefined; mask?: string | null; onSaved: () => void }) {
   const [f, setF] = useState({ merchantId: "", hashKey: "", hashIv: "" });
   const { busy, run } = useAction();
@@ -1089,6 +1117,7 @@ function PaymentSettings() {
         儲存金流與發票設定
       </button>
       <LinePaySettings />
+      <MailCredForm current={creds.mail} onSaved={load} />
       <h3>商店代號與金鑰</h3>
       {(["ecpay_payment", "newebpay_payment", "ecpay_invoice"] as const).map((k) => (
         <CredForm key={k} kind={k} current={creds[k]} mask={creds[`${k}_mask`]} onSaved={load} />

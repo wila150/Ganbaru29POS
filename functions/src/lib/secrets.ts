@@ -5,7 +5,7 @@ import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
  * meepShop key from the settings page without a redeploy.
  * The secrets must exist beforehand (see README) — this module only adds versions.
  */
-export type SecretName = "MEEPSHOP_API_KEY" | "LINE_CHANNEL_TOKEN" | "ECPAY_PAYMENT" | "ECPAY_INVOICE" | "NEWEBPAY_PAYMENT" | "LINEPAY";
+export type SecretName = "MEEPSHOP_API_KEY" | "LINE_CHANNEL_TOKEN" | "ECPAY_PAYMENT" | "ECPAY_INVOICE" | "NEWEBPAY_PAYMENT" | "LINEPAY" | "MAIL_SMTP";
 
 const client = new SecretManagerServiceClient();
 const cache = new Map<SecretName, { value: string | null; at: number }>();

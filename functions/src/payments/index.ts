@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import nodemailer from "nodemailer";
 import { logger } from "firebase-functions";
 import { onCall, onRequest } from "firebase-functions/v2/https";
 import { requireRole } from "../lib/auth";
@@ -260,6 +261,58 @@ export const setPaymentCreds = onCall(async (req) => {
   return { ok: true };
 });
 
+// ---------- 寄付款連結（用店家 Gmail＋應用程式密碼） ----------
+
+/** 存寄信用的 Gmail 帳號與應用程式密碼（Secret Manager） */
+export const setMailCreds = onCall(async (req) => {
+  await requireRole(req, "owner");
+  const user = str(req.data?.user, "Gmail", { max: 120 }).toLowerCase();
+  const pass = str(req.data?.pass, "應用程式密碼", { max: 40 }).replace(/\s+/g, "");
+  assert(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user), "Gmail 格式不正確");
+  assert(/^[a-z]{16}$/i.test(pass), "Google 應用程式密碼是 16 個英文字母（中間的空格可以不打）");
+  // 先試著登入，確定帳密可以用再存
+  const t = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass } });
+  try {
+    await t.verify();
+  } catch (e) {
+    throw new HttpsError("failed-precondition", `Gmail 登入失敗，請確認帳號與應用程式密碼（${errMsg(e).slice(0, 120)}）`);
+  }
+  await setSecret("MAIL_SMTP", JSON.stringify({ user, pass }));
+  return { ok: true };
+});
+
+/** 把付款連結寄到客人 Email（寄件人：店家 Gmail） */
+export const sendPayLink = onCall({ timeoutSeconds: 60 }, async (req) => {
+  const actor = await requireRole(req, "staff");
+  const id = str(req.data?.id, "付款", { max: 40 });
+  const to = str(req.data?.email, "Email", { max: 120 }).trim();
+  assert(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to), "Email 格式不正確");
+  const ref = db.doc(`posPayments/${id}`);
+  const p = (await ref.get()).data();
+  assert(p, "找不到這筆付款", "not-found");
+  assert(p.status === "waiting", "這筆付款已完成或已取消");
+  const m = await secretJson("MAIL_SMTP", true);
+  assert(m?.user && m?.pass, "還沒設定寄信用的 Gmail（後台設定 → 金流管理 → 寄付款連結的 Gmail）", "failed-precondition");
+  const shop = ((await settings()).shopName as string) || "ganbaru29";
+  const url = `${fnUrl("payPage")}?id=${id}&t=${p.token}`;
+  const amount = `$${Number(p.amount).toLocaleString("zh-TW")}`;
+  const t = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user: m.user, pass: m.pass } });
+  await t.sendMail({
+    from: { name: shop, address: m.user },
+    to,
+    subject: `${shop} 付款連結 ${amount}`,
+    text: `您好，這是您在 ${shop} 本次消費 ${amount} 的付款連結（30 分鐘內有效）：\n${url}\n\n付款完成後門市會自動完成結帳，謝謝光臨！`,
+    html: `<div style="font-family:-apple-system,'PingFang TC','Noto Sans TC',sans-serif;max-width:420px;margin:auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px">
+<h2 style="margin:0 0 4px">${esc(shop)}</h2><p style="color:#6b7280;margin:0 0 16px">門市消費付款</p>
+<div style="font-size:32px;font-weight:800;margin:8px 0 16px">${amount}</div>
+<p style="margin:0 0 6px;color:#374151">${esc(p.itemName ?? "")}</p>
+<a href="${esc(url)}" style="display:block;text-align:center;background:#059669;color:#fff;text-decoration:none;font-size:18px;font-weight:700;padding:14px;border-radius:10px;margin:18px 0">前往付款</a>
+<p style="color:#6b7280;font-size:13px">連結 30 分鐘內有效。付款完成後門市會自動完成結帳，謝謝光臨！</p></div>`,
+  });
+  await ref.update({ mailedTo: FieldValue.arrayUnion(to), mailedAt: FieldValue.serverTimestamp(), mailedBy: actor.name });
+  return { ok: true };
+});
+
 export const paymentCredsStatus = onCall(async (req) => {
   await requireRole(req, "owner");
   // 只回傳遮罩過的金鑰（前 4 後 4），讓老闆核對有沒有填對
@@ -270,5 +323,6 @@ export const paymentCredsStatus = onCall(async (req) => {
     out[k] = s?.merchantId ?? null;
     out[`${k}_mask`] = s?.merchantId ? `HashKey ${mask(s.hashKey)}（${s.hashKey?.length ?? 0} 碼）・HashIV ${mask(s.hashIv)}（${s.hashIv?.length ?? 0} 碼）` : null;
   }
+  out.mail = (await secretJson("MAIL_SMTP", true))?.user ?? null;
   return out;
 });

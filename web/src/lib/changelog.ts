@@ -11,6 +11,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-ah",
+    date: "2026-10-19",
+    title: "信用卡付款連結直接寄到客人 Email",
+    items: [
+      "結帳選「信用卡」→「📧 傳付款連結」→ 輸入（或自動帶入會員）Email →「寄出付款連結」，系統直接寄信，不會顯示在平板上",
+      "客人在信裡按「前往付款」刷卡，付完這裡自動完成結帳；可以改寄別的 Email 或重寄",
+      "寄件的 Gmail 在 後台設定 → 金流管理 →「寄付款連結的 Gmail」設定（用 Google 應用程式密碼）",
+    ],
+  },
+  {
     id: "2026-10-19-ag",
     date: "2026-10-19",
     title: "信用卡可以傳 Gmail 付款連結",
