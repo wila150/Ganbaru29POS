@@ -562,7 +562,7 @@ function SoundSettings() {
 }
 
 function PosSettings() {
-  const { form, set, save, busy } = useSettingsForm(["shopName", "rewardPercent", "pointValue", "staffCanRefund", "serviceFeeDefault", "receiptHeader", "receiptFooter", "shiftNames", "siteBaseUrl"]);
+  const { form, set, save, busy } = useSettingsForm(["shopName", "rewardPercent", "pointValue", "staffCanRefund", "serviceFeeDefault", "receiptHeader", "receiptFooter", "shiftNames", "siteBaseUrl", "openHours"]);
   return (
     <section className="card">
       <h2>POS 與門市</h2>
@@ -578,6 +578,25 @@ function PosSettings() {
         </Field>
         <Field label="預設服務費（%）">
           <input type="number" min={0} max={100} value={form.serviceFeeDefault ?? 0} onChange={(e) => set("serviceFeeDefault", Number(e.target.value))} />
+        </Field>
+        <Field label="營業時間" hint="報表「時段」只顯示營業時間">
+          <div className="inline-form" style={{ margin: 0 }}>
+            <select value={form.openHours?.from ?? 15} onChange={(e) => set("openHours", { from: Number(e.target.value), to: form.openHours?.to ?? 22 })}>
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>
+                  {h}:00
+                </option>
+              ))}
+            </select>
+            ～
+            <select value={form.openHours?.to ?? 22} onChange={(e) => set("openHours", { from: form.openHours?.from ?? 15, to: Number(e.target.value) })}>
+              {Array.from({ length: 24 }, (_, h) => h + 1).map((h) => (
+                <option key={h} value={h}>
+                  {h}:00
+                </option>
+              ))}
+            </select>
+          </div>
         </Field>
         <Field label="班別名稱（逗號分隔）">
           <input value={(form.shiftNames ?? ["早班", "晚班"]).join(",")} onChange={(e) => set("shiftNames", e.target.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean))} />

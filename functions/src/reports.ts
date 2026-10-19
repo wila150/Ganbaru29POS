@@ -64,8 +64,10 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
   const dayRow = (date: string) => daily.get(date) ?? daily.set(date, { date, orders: 0, sales: 0, refunds: 0, items: 0, guests: 0, onlineOrders: 0, onlineSales: 0 }).get(date)!;
   const pay = new Map<string, { sales: number; refunds: number; count: number }>();
   const payRow = (m: string) => pay.get(m) ?? pay.set(m, { sales: 0, refunds: 0, count: 0 }).get(m)!;
-  const byHour = new Array(24).fill(0).map((_, h) => ({ hour: h, orders: 0, sales: 0 }));
-  const byWeekday = new Array(7).fill(0).map((_, w) => ({ weekday: w, orders: 0, sales: 0 }));
+  const byHour = new Array(24).fill(0).map((_, h) => ({ hour: h, orders: 0, sales: 0, items: 0, guests: 0, onlineOrders: 0 }));
+  const byWeekday = new Array(7).fill(0).map((_, w) => ({ weekday: w, orders: 0, sales: 0, items: 0, guests: 0, onlineOrders: 0, onlineSales: 0 }));
+  /** 星期 × 時段（門市來客筆數），看「週六下午最多人」這種 */
+  const weekHour = new Array(7).fill(0).map(() => new Array(24).fill(0) as number[]);
 
   // 商品／尺寸／顏色
   const prod = new Map<string, { productId: string; title: string; qty: number; sales: number; online: number; cogs: number }>();
@@ -142,10 +144,17 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
     dr.guests += o.guests ?? 0;
     if (t) {
       const twTime = new Date(t.getTime() + 8 * 3600_000);
-      byHour[twTime.getUTCHours()].orders++;
-      byHour[twTime.getUTCHours()].sales += o.total ?? 0;
-      byWeekday[twTime.getUTCDay()].orders++;
-      byWeekday[twTime.getUTCDay()].sales += o.total ?? 0;
+      const h = twTime.getUTCHours();
+      const wd = twTime.getUTCDay();
+      byHour[h].orders++;
+      byHour[h].sales += o.total ?? 0;
+      byHour[h].items += o.itemCount ?? 0;
+      byHour[h].guests += o.guests ?? 0;
+      byWeekday[wd].orders++;
+      byWeekday[wd].sales += o.total ?? 0;
+      byWeekday[wd].items += o.itemCount ?? 0;
+      byWeekday[wd].guests += o.guests ?? 0;
+      weekHour[wd][h]++;
     }
     let changeLeft = o.change ?? 0;
     for (const p of o.payments ?? []) {
@@ -234,6 +243,10 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
           const dr = dayRow(date);
           dr.onlineOrders++;
           dr.onlineSales += o.totalPrice;
+          const ot = new Date(new Date(o.createdAt).getTime() + 8 * 3600_000);
+          byWeekday[ot.getUTCDay()].onlineOrders++;
+          byWeekday[ot.getUTCDay()].onlineSales += o.totalPrice;
+          byHour[ot.getUTCHours()].onlineOrders++;
           for (const li of o.lineItems ?? []) {
             onlineItems += li.quantity;
             const c = li.variant?.id ? cost.get(li.variant.id) : undefined;
@@ -323,8 +336,9 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
       perGuest: sum.guests ? round(net / sum.guests) : null,
     },
     daily: [...daily.values()].sort((a, b) => a.date.localeCompare(b.date)),
-    byHour: byHour.filter((h) => h.orders),
+    byHour: byHour.filter((h) => h.orders || h.onlineOrders),
     byWeekday,
+    weekHour,
     payments: [...pay].map(([method, r]) => ({ method, ...r, net: r.sales - r.refunds })).sort((a, b) => b.net - a.net),
     products: [...prod.values()]
       .map((p) => ({ productId: p.productId, title: p.title, store: p.qty, online: p.online, total: p.qty + p.online, sales: round(p.sales), ...(withCost ? { cogs: round(p.cogs), margin: round(p.sales - p.cogs) } : {}) }))

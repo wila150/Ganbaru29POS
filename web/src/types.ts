@@ -122,6 +122,8 @@ export interface ShopSettings {
   onlineFeePct?: number;
   /** 開支分類中算「人事薪資與老闆提款」的；沒設定時依名稱判斷（薪、人事、獎金、提款…） */
   payrollCategories?: string[];
+  /** 營業時間（報表時段用），小時 0–24，預設 15～22 */
+  openHours?: { from: number; to: number };
   /** 每日 LINE 提醒要送哪些項目 */
   alerts?: AlertPrefs;
   /** 側邊選單：順序（主項目路徑）與隱藏的項目 */

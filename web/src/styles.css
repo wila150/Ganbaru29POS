@@ -793,3 +793,6 @@ span.tier-switch { cursor: default; }
 .turn-caret { display: inline-block; width: 14px; color: var(--muted); }
 .more-btn { margin-top: 8px; } .more-sec { margin: 12px 0; } .more-sec > summary { cursor: pointer; padding: 10px 0; font-weight: 600; color: var(--muted); }
 .sub-tabs { margin: 4px 0 16px; } .sub-tabs button { padding: 10px 6px; }
+.row-best td { background: #fffbeb; }
+.bar-cell { width: 30%; }
+.hbar { display: block; height: 10px; background: #2563eb; border-radius: 5px; min-width: 2px; }

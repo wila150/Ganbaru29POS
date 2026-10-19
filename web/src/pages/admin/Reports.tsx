@@ -30,8 +30,9 @@ interface Report {
     perGuest: number | null;
   };
   daily: { date: string; orders: number; sales: number; refunds: number; items: number; guests: number; onlineOrders: number; onlineSales: number }[];
-  byHour: { hour: number; orders: number; sales: number }[];
-  byWeekday: { weekday: number; orders: number; sales: number }[];
+  byHour: { hour: number; orders: number; sales: number; items?: number; guests?: number; onlineOrders?: number }[];
+  byWeekday: { weekday: number; orders: number; sales: number; items?: number; guests?: number; onlineOrders?: number; onlineSales?: number }[];
+  weekHour?: number[][];
   payments: { method: string; sales: number; refunds: number; net: number; count: number }[];
   products: { productId: string; title: string; store: number; online: number; total: number; sales: number; cogs?: number; margin?: number }[];
   sizes: { value: string; qty: number; sales: number; online: number }[];
@@ -343,36 +344,7 @@ function RevenueTab({ r }: { r: Report }) {
           </div>
         )}
       </Section>
-      <div className="two-col">
-        <Section title="時段（幾點最多人）">
-          <table className="table table-compact">
-            <tbody>
-              {r.byHour.map((h) => (
-                <tr key={h.hour}>
-                  <td>
-                    {String(h.hour).padStart(2, "0")}:00
-                  </td>
-                  <td className="num">{h.orders} 筆</td>
-                  <td className="num">{money(h.sales)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Section>
-        <Section title="星期">
-          <table className="table table-compact">
-            <tbody>
-              {r.byWeekday.map((w) => (
-                <tr key={w.weekday}>
-                  <td>星期{WEEKDAY[w.weekday]}</td>
-                  <td className="num">{w.orders} 筆</td>
-                  <td className="num">{money(w.sales)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Section>
-      </div>
+      <WeekdayStats r={r} />
     </>
   );
 }
@@ -553,6 +525,168 @@ function StyleReport({ r, initial = "all" }: { r: Report; initial?: StyleFilter 
         </p>
       </Section>
     </>
+  );
+}
+
+/**
+ * 星期平均與時段：這段期間每個星期幾有幾天，算出「平均一天」的來客數、人數、件數、營收、客單價；
+ * 時段只看營業時間（設定 → 商店設定，預設 15:00～22:00），營業時間外的合成一列。
+ */
+function WeekdayStats({ r }: { r: Report }) {
+  const { settings } = useData();
+  const open = settings.openHours?.from ?? 15;
+  const close = settings.openHours?.to ?? 22;
+  // 期間內每個星期幾各有幾天
+  const days = useMemo(() => {
+    const c = new Array(7).fill(0);
+    for (let t = new Date(`${r.from}T00:00:00Z`).getTime(), end = new Date(`${r.to}T00:00:00Z`).getTime(); t <= end; t += 86400_000) c[new Date(t).getUTCDay()]++;
+    return c as number[];
+  }, [r.from, r.to]);
+  const avg = (n: number, d: number) => (d ? n / d : 0);
+  const one = (n: number) => (Math.round(n * 10) / 10).toLocaleString("zh-TW");
+  const order = [1, 2, 3, 4, 5, 6, 0]; // 週一到週日
+  const wk = order.map((w) => r.byWeekday.find((x) => x.weekday === w) ?? { weekday: w, orders: 0, sales: 0 });
+  const bestDay = [...wk].sort((a, b) => avg(b.orders, days[b.weekday]) - avg(a.orders, days[a.weekday]))[0];
+  const hours = Array.from({ length: Math.max(0, close - open) }, (_, i) => open + i);
+  const hourRow = (h: number) => r.byHour.find((x) => x.hour === h) ?? { hour: h, orders: 0, sales: 0, items: 0, onlineOrders: 0 };
+  const outside = r.byHour.filter((x) => x.hour < open || x.hour >= close).reduce((a, x) => ({ orders: a.orders + x.orders, sales: a.sales + x.sales, items: a.items + (x.items ?? 0) }), { orders: 0, sales: 0, items: 0 });
+  const totalDays = days.reduce((a, b) => a + b, 0);
+  const maxHourOrders = Math.max(1, ...hours.map((h) => hourRow(h).orders));
+  const wh = r.weekHour ?? [];
+  const maxCell = Math.max(1, ...order.flatMap((w) => hours.map((h) => wh[w]?.[h] ?? 0)));
+  const [view, setView] = useState<"week" | "hour" | "heat">("week");
+  return (
+    <Section title="星期與時段（門市來客）">
+      <div className="segmented sub-tabs">
+        <button className={view === "week" ? "active" : ""} onClick={() => setView("week")}>
+          星期平均<small>週一～週日平均一天</small>
+        </button>
+        <button className={view === "hour" ? "active" : ""} onClick={() => setView("hour")}>
+          時段<small>{`${open}:00～${close}:00 每小時`}</small>
+        </button>
+        <button className={view === "heat" ? "active" : ""} onClick={() => setView("heat")}>
+          星期 × 時段<small>哪天幾點最多人</small>
+        </button>
+      </div>
+      {view === "week" && (
+        <>
+          <div className="table-wrap">
+            <table className="table table-compact">
+              <thead>
+                <tr>
+                  <th>星期</th>
+                  <th className="num">天數</th>
+                  <th className="num">平均來客（筆／天）</th>
+                  <th className="num">平均人數</th>
+                  <th className="num">平均件數</th>
+                  <th className="num">平均營收／天</th>
+                  <th className="num">客單價</th>
+                  <th className="num">網店訂單／天</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wk.map((w) => {
+                  const d = days[w.weekday];
+                  return (
+                    <tr key={w.weekday} className={w === bestDay && w.orders ? "row-best" : ""}>
+                      <td>
+                        星期{WEEKDAY[w.weekday]}
+                        {w === bestDay && w.orders > 0 && " 🔥"}
+                      </td>
+                      <td className="num muted">{d}</td>
+                      <td className="num strong">{one(avg(w.orders, d))}</td>
+                      <td className="num">{one(avg(w.guests ?? 0, d))}</td>
+                      <td className="num">{one(avg(w.items ?? 0, d))}</td>
+                      <td className="num">{money(Math.round(avg(w.sales, d)))}</td>
+                      <td className="num">{w.orders ? money(Math.round(w.sales / w.orders)) : "—"}</td>
+                      <td className="num">{one(avg(w.onlineOrders ?? 0, d))}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted small">
+            平均＝這段期間該星期的總數 ÷ 那個星期幾有幾天（{r.from} ～ {r.to} 共 {totalDays} 天）。「人數」是結帳時填的來客人數。
+          </p>
+        </>
+      )}
+      {view === "hour" && (
+        <div className="table-wrap">
+          <table className="table table-compact">
+            <thead>
+              <tr>
+                <th>時段</th>
+                <th className="num">來客（筆）</th>
+                <th className="num">平均／天</th>
+                <th className="num">件數</th>
+                <th className="num">營收</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {hours.map((h) => {
+                const x = hourRow(h);
+                return (
+                  <tr key={h}>
+                    <td>
+                      {String(h).padStart(2, "0")}:00～{String(h + 1).padStart(2, "0")}:00
+                    </td>
+                    <td className="num strong">{x.orders}</td>
+                    <td className="num">{one(avg(x.orders, totalDays))}</td>
+                    <td className="num">{x.items ?? 0}</td>
+                    <td className="num">{money(x.sales)}</td>
+                    <td className="bar-cell">
+                      <span className="hbar" style={{ width: `${(x.orders / maxHourOrders) * 100}%` }} />
+                    </td>
+                  </tr>
+                );
+              })}
+              {outside.orders > 0 && (
+                <tr className="muted">
+                  <td>營業時間外</td>
+                  <td className="num">{outside.orders}</td>
+                  <td className="num">{one(avg(outside.orders, totalDays))}</td>
+                  <td className="num">{outside.items}</td>
+                  <td className="num">{money(outside.sales)}</td>
+                  <td />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {view === "heat" && (
+        <div className="matrix-wrap">
+          <table className="matrix heat">
+            <thead>
+              <tr>
+                <th />
+                {hours.map((h) => (
+                  <th key={h}>{h}點</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {order.map((w) => (
+                <tr key={w}>
+                  <th>週{WEEKDAY[w]}</th>
+                  {hours.map((h) => {
+                    const q = wh[w]?.[h] ?? 0;
+                    return (
+                      <td key={h} title={`週${WEEKDAY[w]} ${h}點：${q} 筆（平均 ${one(avg(q, days[w]))}／天）`} style={{ background: q ? `rgba(37, 99, 235, ${0.08 + (q / maxCell) * 0.6})` : undefined }}>
+                        {q || ""}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="muted small">數字是這段期間的總來客筆數，顏色越深越多人；滑過去看平均一天幾筆。</p>
+        </div>
+      )}
+    </Section>
   );
 }
 
