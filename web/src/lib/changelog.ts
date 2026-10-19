@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-19-k",
+    date: "2026-10-19",
+    title: "損益表含網店",
+    items: [
+      "報表中心的損益表加入網店：門市淨營收＋網店營收＝賣出淨收，扣門市、網店的銷貨成本算出毛利、淨利",
+      "沒有成本的商品件數會提醒（例：用「新品」結帳的）",
+    ],
+  },
+  {
     id: "2026-10-19-j",
     date: "2026-10-19",
     title: "成本匯入",

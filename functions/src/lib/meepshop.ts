@@ -156,6 +156,7 @@ export interface MOrder {
   paymentStatus: string;
   shipmentStatus: string;
   totalPrice: number;
+  shippingFee?: number | null;
   /** 這張單用掉的購物金 */
   rewardPointUsed?: number | null;
   createdAt: string;
@@ -251,7 +252,7 @@ export async function getVariant(id: string) {
 
 // ---------- Orders ----------
 
-const ORDER_FIELDS = `id orderNumber status paymentStatus shipmentStatus totalPrice rewardPointUsed createdAt
+const ORDER_FIELDS = `id orderNumber status paymentStatus shipmentStatus totalPrice shippingFee rewardPointUsed createdAt
   shopper { id name email }
   shipmentDetail { name phone receiverName carrier note shippingAddress trackingCode convenienceStore { name address storeCode } }
   paymentDetail { name }

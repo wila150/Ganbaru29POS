@@ -55,7 +55,22 @@ interface Report {
     top: { id: string; name: string; orders: number; sales: number; favSize: string | null }[];
   };
   invoices: { issued: number; amount: number; voided: number; failed: number; needAllowance: number; byType: Record<string, number> };
-  profit?: { net: number; cogs: number; grossProfit: number; grossMargin: number | null; expenses: { category: string; amount: number }[]; expenseTotal: number; netProfit: number };
+  profit?: {
+    net: number;
+    cogs: number;
+    grossProfit: number;
+    grossMargin: number | null;
+    expenses: { category: string; amount: number }[];
+    expenseTotal: number;
+    netProfit: number;
+    storeNet?: number;
+    storeCogs?: number;
+    onlineSales?: number;
+    onlineShipping?: number;
+    onlineCogs?: number;
+    onlineIncluded?: boolean;
+    noCostItems?: number;
+  };
 }
 
 type Tab = "revenue" | "products" | "stock" | "members" | "payments" | "staff" | "profit" | "audit";
@@ -746,29 +761,61 @@ function ProfitTab({ r }: { r: Report }) {
   return (
     <>
       <div className="kpis">
-        <Kpi label="淨營收" value={money(p.net)} />
-        <Kpi label="銷貨成本" value={money(p.cogs)} hint="依平均進貨成本" />
+        <Kpi label="賣出淨收" value={money(p.net)} hint={p.onlineIncluded ? `門市 ${money(p.storeNet ?? 0)}＋網店 ${money(p.onlineSales ?? 0)}` : "只含門市"} />
+        <Kpi label="銷貨成本" value={money(p.cogs)} hint="依商品成本" />
         <Kpi label="毛利" value={money(p.grossProfit)} hint={`毛利率 ${pct(p.grossMargin)}`} />
         <Kpi label="開支" value={money(p.expenseTotal)} />
         <Kpi label="淨利" value={money(p.netProfit)} tone={p.netProfit < 0 ? "bad" : "ok"} />
       </div>
       <Section
-        title="損益表（門市）"
-        onExport={() => downloadCsv(`損益表_${r.from}_${r.to}.csv`, [["項目", "金額"], ["淨營收", p.net], ["銷貨成本", -p.cogs], ["毛利", p.grossProfit], ...p.expenses.map((e) => [`開支：${e.category}`, -e.amount]), ["淨利", p.netProfit]])}
+        title={p.onlineIncluded ? "損益表（門市＋網店）" : "損益表（門市）"}
+        onExport={() =>
+          downloadCsv(`損益表_${r.from}_${r.to}.csv`, [
+            ["項目", "金額"],
+            ["門市淨營收（扣退貨）", p.storeNet ?? p.net],
+            ...(p.onlineIncluded ? [["網店營收（不含取消、退貨）", p.onlineSales ?? 0]] : []),
+            ["賣出淨收", p.net],
+            ["銷貨成本（門市）", -(p.storeCogs ?? p.cogs)],
+            ...(p.onlineIncluded ? [["銷貨成本（網店）", -(p.onlineCogs ?? 0)]] : []),
+            ["毛利", p.grossProfit],
+            ...p.expenses.map((e) => [`開支：${e.category}`, -e.amount]),
+            ["淨利", p.netProfit],
+          ])
+        }
       >
         <table className="table table-compact pl">
           <tbody>
             <tr>
-              <td>淨營收</td>
+              <td>門市淨營收（扣退貨）</td>
+              <td className="num">{money(p.storeNet ?? p.net)}</td>
+            </tr>
+            {p.onlineIncluded && (
+              <tr>
+                <td>
+                  網店營收<span className="muted small">（不含取消、退貨；含運費 {money(p.onlineShipping ?? 0)}）</span>
+                </td>
+                <td className="num">{money(p.onlineSales ?? 0)}</td>
+              </tr>
+            )}
+            <tr className="strong">
+              <td>賣出淨收</td>
               <td className="num">{money(p.net)}</td>
             </tr>
             <tr>
-              <td>　減：銷貨成本</td>
-              <td className="num">-{money(p.cogs)}</td>
+              <td>　減：銷貨成本（門市）</td>
+              <td className="num">-{money(p.storeCogs ?? p.cogs)}</td>
             </tr>
+            {p.onlineIncluded && (
+              <tr>
+                <td>　減：銷貨成本（網店）</td>
+                <td className="num">-{money(p.onlineCogs ?? 0)}</td>
+              </tr>
+            )}
             <tr className="strong">
               <td>毛利</td>
-              <td className="num">{money(p.grossProfit)}</td>
+              <td className="num">
+                {money(p.grossProfit)} <span className="muted small">（{pct(p.grossMargin)}）</span>
+              </td>
             </tr>
             {p.expenses.map((e) => (
               <tr key={e.category}>
@@ -782,7 +829,10 @@ function ProfitTab({ r }: { r: Report }) {
             </tr>
           </tbody>
         </table>
-        <p className="muted small">只含門市營收（網店營收在 meepShop）。成本來自進貨時填的單價；沒填單價的商品成本以 0 計，毛利會偏高。開支請到「開支」頁登記。</p>
+        <p className="muted small">
+          成本來自「商品 → 商品成本」。{p.noCostItems ? `有 ${p.noCostItems} 件商品沒有成本（例：用「新品」結帳的），以 0 計，毛利會偏高；可以到交易瀏覽把「新品」換成正式商品。` : ""}
+          網店的金流、物流手續費不在這裡，開支請到「開支」頁登記。
+        </p>
       </Section>
     </>
   );

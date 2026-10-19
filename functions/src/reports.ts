@@ -52,6 +52,8 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
   const variants = new Map(variantsSnap.docs.map((v) => [v.id, v.data()]));
   const cost = new Map<string, number>();
   costsSnap?.forEach((c) => c.data().avgCost != null && cost.set(c.id, c.data().avgCost));
+  /** 沒有成本的件數（成本以 0 計，毛利會偏高） */
+  let noCostItems = 0;
   const userName = new Map(usersSnap.docs.map((u) => [u.id, u.data().name || u.data().email]));
 
   const orders = ordersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as FirebaseFirestore.DocumentData).filter((o) => !["pending", "canceled"].includes(o.status) && (!loc || o.locationId === loc));
@@ -154,6 +156,7 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
     for (const l of o.lines as Line[]) {
       addItem(l.variantId, l.qty, l.total, false);
       sum.cogs += l.qty * (cost.get(l.variantId) ?? 0);
+      if (!cost.has(l.variantId)) noCostItems += l.qty;
     }
     const st = staff.get(o.cashier) ?? staff.set(o.cashier, { uid: o.cashier, name: userName.get(o.cashier) ?? o.cashierName, orders: 0, sales: 0, items: 0, refunds: 0 }).get(o.cashier)!;
     st.orders++;
@@ -203,6 +206,8 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
   let onlineSales = 0;
   let onlineItems = 0;
   let onlineReturned = 0;
+  let onlineShipping = 0;
+  let onlineCogs = 0;
   let onlineError: string | null = null;
   if (includeOnline) {
     try {
@@ -218,12 +223,16 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
           }
           onlineOrders++;
           onlineSales += o.totalPrice;
+          onlineShipping += o.shippingFee ?? 0;
           const date = new Date(new Date(o.createdAt).getTime() + 8 * 3600_000).toISOString().slice(0, 10);
           const dr = dayRow(date);
           dr.onlineOrders++;
           dr.onlineSales += o.totalPrice;
           for (const li of o.lineItems ?? []) {
             onlineItems += li.quantity;
+            const c = li.variant?.id ? cost.get(li.variant.id) : undefined;
+            if (c == null) noCostItems += li.quantity;
+            else onlineCogs += c * li.quantity;
             if (li.variant?.id) addItem(li.variant.id, li.quantity, li.totalPrice, true);
           }
         }
@@ -356,15 +365,27 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
     invoices: inv,
   };
   if (withCost) {
-    const cogs = round(sum.cogs - sum.refundCogs);
+    // 損益：門市淨營收（扣退貨）＋網店營收（不含取消、退貨；含客人付的運費），扣門市＋網店的銷貨成本、開支
+    const storeCogs = round(sum.cogs - sum.refundCogs);
+    const online = includeOnline && !onlineError ? round(onlineSales) : 0;
+    const oCogs = includeOnline && !onlineError ? round(onlineCogs) : 0;
+    const totalNet = net + online;
+    const cogs = storeCogs + oCogs;
     result.profit = {
-      net,
+      storeNet: net,
+      storeCogs,
+      onlineSales: online,
+      onlineShipping: round(onlineShipping),
+      onlineCogs: oCogs,
+      onlineIncluded: includeOnline && !onlineError,
+      net: totalNet,
       cogs,
-      grossProfit: net - cogs,
-      grossMargin: net ? (net - cogs) / net : null,
+      grossProfit: totalNet - cogs,
+      grossMargin: totalNet ? (totalNet - cogs) / totalNet : null,
       expenses: [...expenses].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount),
       expenseTotal,
-      netProfit: net - cogs - expenseTotal,
+      netProfit: totalNet - cogs - expenseTotal,
+      noCostItems,
     };
   }
   return result;
