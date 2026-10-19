@@ -136,8 +136,7 @@ export function Reports() {
 
   const tabs: [Tab, string][] = [
     ["revenue", "營收"],
-    ["products", "商品／尺寸顏色"],
-    ["stock", "庫存／斷碼／周轉"],
+    ["products", "商品／庫存"],
     ["members", "會員"],
     ["payments", "付款與發票"],
     ["staff", "員工業績"],
@@ -198,9 +197,7 @@ export function Reports() {
         ))}
       </div>
 
-      {tab === "stock" ? (
-        err ? <p className="error">{err}</p> : r && !loading ? <StockTab r={r} /> : <div className="loading">計算中{online ? "（會讀取網店訂單）" : ""}…</div>
-      ) : tab === "audit" ? (
+      {tab === "audit" ? (
         <AuditTab />
       ) : loading ? (
         <div className="loading">計算中{online ? "（會讀取網店訂單）" : ""}…</div>
@@ -380,199 +377,209 @@ function RevenueTab({ r }: { r: Report }) {
   );
 }
 
+
+/** 「機能素色襯衫 橘色 共九色」→ 款式「機能素色襯衫」＋顏色「橘色」（meepShop 一個顏色一個商品的寫法） */
+function splitStyle(title: string): { style: string; color: string | null } {
+  const m = title.match(/^(.*?)\s+(\S+?)\s*共[一二兩三四五六七八九十\d]+色\s*$/);
+  return m ? { style: m[1].trim(), color: m[2] } : { style: title.trim(), color: null };
+}
+
+type StyleFilter = "all" | "hot" | "restock" | "slow";
+
 /**
- * 單品規格排行：每個商品裡，哪個尺寸／顏色賣最好（或最差）。
- * 沒賣出的規格也列出來（0 件），從低到高時就看得到哪個顏色完全沒動。
+ * 款式表現：同品相（同一款不同顏色）合成一列，看期間門市、網店各賣多少、庫存剩多少；
+ * 點開比較各顏色／尺寸賣得好壞，並標出要補貨的。
+ * 補貨建議：期間有賣出、而且庫存撐不過下一段同樣長的期間 → 建議補到「期間銷量」那麼多。
  */
-function VariantRank({ r }: { r: Report }) {
+function StyleReport({ r, initial = "all" }: { r: Report; initial?: StyleFilter }) {
   const { variants } = useData();
+  const [filter, setFilter] = useState<StyleFilter>(initial);
   const [desc, setDesc] = useState(true);
-  const [by, setBy] = useState<"qty" | "sales">("qty");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
-  const groups = useMemo(() => {
+  const [limit, setLimit] = useState(15);
+  const data = useMemo(() => {
     const sold = new Map((r.variantSales ?? []).map((x) => [x.variantId, x]));
-    const m = new Map<string, { productId: string; title: string; total: number; amount: number; rows: { id: string; label: string; qty: number; store: number; online: number; amount: number; stock: number }[] }>();
+    type Row = { id: string; label: string; store: number; online: number; total: number; stock: number; restock: number };
+    const m = new Map<string, { style: string; store: number; online: number; total: number; stock: number; restock: number; rows: Row[] }>();
     for (const v of variants) {
+      const { style, color } = splitStyle(v.productTitle);
       const x = sold.get(v.id);
-      const g = m.get(v.productId) ?? m.set(v.productId, { productId: v.productId, title: v.productTitle, total: 0, amount: 0, rows: [] }).get(v.productId)!;
-      const qty = (x?.store ?? 0) + (x?.online ?? 0);
-      g.rows.push({ id: v.id, label: v.options || "單一規格", qty, store: x?.store ?? 0, online: x?.online ?? 0, amount: x?.sales ?? 0, stock: v.shopStock ?? 0 });
-      g.total += qty;
-      g.amount += x?.sales ?? 0;
+      const store = x?.store ?? 0;
+      const online = x?.online ?? 0;
+      const total = store + online;
+      const stock = Math.max(0, v.shopStock ?? 0);
+      const restock = total > 0 && stock < total ? total - stock : 0;
+      const label = [color, v.options].filter(Boolean).join(" / ") || "單一規格";
+      const g = m.get(style) ?? m.set(style, { style, store: 0, online: 0, total: 0, stock: 0, restock: 0, rows: [] }).get(style)!;
+      g.rows.push({ id: v.id, label, store, online, total, stock, restock });
+      g.store += store;
+      g.online += online;
+      g.total += total;
+      g.stock += stock;
+      g.restock += restock;
     }
-    const key = (a: { qty: number; amount: number }) => (by === "qty" ? a.qty : a.amount);
-    const dir = desc ? -1 : 1;
+    const groups = [...m.values()].map((g) => ({ ...g, rows: g.rows.sort((a, b) => b.total - a.total || b.stock - a.stock) }));
+    const hotMin = Math.max(2, Math.ceil(Math.max(0, ...groups.map((g) => g.total)) * 0.3));
+    return { groups, hotMin };
+  }, [r, variants]);
+  const list = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return [...m.values()]
-      .filter((g) => g.rows.length > 1 && (!t || g.title.toLowerCase().includes(t)))
-      .map((g) => ({ ...g, rows: [...g.rows].sort((a, b) => dir * (key(a) - key(b)) || a.label.localeCompare(b.label, "zh-Hant")) }))
-      .sort((a, b) => dir * ((by === "qty" ? a.total - b.total : a.amount - b.amount)) || a.title.localeCompare(b.title, "zh-Hant"));
-  }, [r, variants, desc, by, q]);
-  const toggle = (id: string) =>
-    setOpen((s) => {
-      const n = new Set(s);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
+    return data.groups
+      .filter((g) => !t || g.style.toLowerCase().includes(t))
+      .filter((g) => (filter === "hot" ? g.total >= data.hotMin : filter === "restock" ? g.restock > 0 : filter === "slow" ? g.total === 0 && g.stock > 0 : g.total > 0 || g.stock > 0))
+      .sort((a, b) => (desc ? b.total - a.total || b.stock - a.stock : a.total - b.total || b.stock - a.stock));
+  }, [data, filter, desc, q]);
+  const sum = data.groups.reduce((a, g) => ({ store: a.store + g.store, online: a.online + g.online }), { store: 0, online: 0 });
+  const count = (f: StyleFilter) => data.groups.filter((g) => (f === "hot" ? g.total >= data.hotMin : f === "restock" ? g.restock > 0 : f === "slow" ? g.total === 0 && g.stock > 0 : g.total > 0 || g.stock > 0)).length;
+  const toggle = (k: string) =>
+    setOpen((x) => {
+      const n = new Set(x);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
       return n;
     });
   return (
-    <Section
-      title="單品規格排行（每個商品哪個尺寸／顏色最好賣）"
-      onExport={() =>
-        downloadCsv(`單品規格排行_${r.from}_${r.to}.csv`, [
-          ["商品", "規格", "名次", "門市件數", "網店件數", "合計件數", "金額", "目前庫存"],
-          ...groups.flatMap((g) => g.rows.map((x, i) => [g.title, x.label, i + 1, x.store, x.online, x.qty, x.amount, x.stock])),
-        ])
-      }
-    >
-      <div className="filters">
-        <input placeholder="搜尋商品" value={q} onChange={(e) => setQ(e.target.value)} />
-        <div className="chips">
-          <button className={`chip ${desc ? "active" : ""}`} onClick={() => setDesc(true)}>
-            從高到低
-          </button>
-          <button className={`chip ${!desc ? "active" : ""}`} onClick={() => setDesc(false)}>
-            從低到高
-          </button>
-          <span className="muted small">　依</span>
-          <button className={`chip ${by === "qty" ? "active" : ""}`} onClick={() => setBy("qty")}>
-            件數
-          </button>
-          <button className={`chip ${by === "sales" ? "active" : ""}`} onClick={() => setBy("sales")}>
-            金額
-          </button>
-        </div>
+    <>
+      <div className="kpis">
+        <Kpi label="期間賣出" value={`${num(sum.store + sum.online)} 件`} hint={`門市 ${num(sum.store)}　網店 ${num(sum.online)}`} />
+        <Kpi label="熱賣款式" value={`${count("hot")} 款`} hint={`期間賣 ${data.hotMin} 件以上`} />
+        <Kpi label="需要補貨" value={`${count("restock")} 款`} hint="庫存撐不過下一段同樣長的期間" tone={count("restock") ? "bad" : undefined} />
+        <Kpi label="期間沒賣出" value={`${count("slow")} 款`} hint="有庫存但這段期間 0 件" />
       </div>
-      {groups.length === 0 ? (
-        <Empty>沒有多規格的商品</Empty>
-      ) : (
-        <div className="vrank">
-          {groups.slice(0, 150).map((g) => {
-            const max = Math.max(1, ...g.rows.map((x) => (by === "qty" ? x.qty : x.amount)));
-            const expanded = open.has(g.productId);
-            const shown = expanded ? g.rows : g.rows.slice(0, 3);
-            return (
-              <div key={g.productId} className="vrank-item">
-                <div className="row-between">
-                  <strong>{g.title}</strong>
-                  <span className="muted small">
-                    共 {g.total} 件　{money(g.amount)}
-                  </span>
-                </div>
-                {shown.map((x, i) => {
-                  const v = by === "qty" ? x.qty : x.amount;
+      <Section
+        title={`款式表現（${r.from} ～ ${r.to}，同款不同顏色合在一起）`}
+        onExport={() =>
+          downloadCsv(`款式表現_${r.from}_${r.to}.csv`, [
+            ["款式", "顏色／尺寸", "門市", "網店", "合計", "目前庫存", "建議補貨"],
+            ...list.flatMap((g) => [[g.style, "（合計）", g.store, g.online, g.total, g.stock, g.restock], ...g.rows.map((x) => [g.style, x.label, x.store, x.online, x.total, x.stock, x.restock])]),
+          ])
+        }
+      >
+        <div className="filters">
+          <input placeholder="搜尋款式" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="chips">
+            {(
+              [
+                ["all", "全部"],
+                ["hot", "🔥 熱賣"],
+                ["restock", "⚠️ 需要補貨"],
+                ["slow", "沒賣出"],
+              ] as const
+            ).map(([k, l]) => (
+              <button key={k} className={`chip ${filter === k ? "active" : ""}`} onClick={() => setFilter(k)}>
+                {l} <span className="chip-count">{count(k)}</span>
+              </button>
+            ))}
+            <span className="muted small">　排序</span>
+            <button className={`chip ${desc ? "active" : ""}`} onClick={() => setDesc(true)}>
+              賣最多
+            </button>
+            <button className={`chip ${!desc ? "active" : ""}`} onClick={() => setDesc(false)}>
+              賣最少
+            </button>
+          </div>
+        </div>
+        {list.length === 0 ? (
+          <Empty>沒有符合的款式</Empty>
+        ) : (
+          <div className="table-wrap">
+            <table className="table table-compact turnover">
+              <thead>
+                <tr>
+                  <th>款式（點開看顏色／尺寸）</th>
+                  <th className="num">門市</th>
+                  <th className="num">網店</th>
+                  <th className="num">合計</th>
+                  <th className="num">庫存</th>
+                  <th>狀態</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.slice(0, limit).map((g) => {
+                  const isOpen = open.has(g.style);
                   return (
-                    <div key={x.id} className="vrank-row">
-                      <span className="vrank-no">{desc && v > 0 && i < 3 ? ["🥇", "🥈", "🥉"][i] : i + 1}</span>
-                      <span className="vrank-label">{x.label}</span>
-                      <span className="vrank-bar">
-                        <span style={{ width: `${(v / max) * 100}%` }} />
-                      </span>
-                      <span className="num vrank-val">{by === "qty" ? `${x.qty} 件` : money(x.amount)}</span>
-                      <span className="muted small vrank-stock">庫存 {x.stock}</span>
-                    </div>
+                    <Fragment key={g.style}>
+                      <tr className="turn-head" onClick={() => toggle(g.style)}>
+                        <td>
+                          <span className="turn-caret">{isOpen ? "▾" : "▸"}</span> <strong>{g.style}</strong> <span className="muted small">{g.rows.length} 個顏色／尺寸</span>
+                        </td>
+                        <td className="num">{g.store}</td>
+                        <td className="num">{g.online}</td>
+                        <td className="num strong">{g.total}</td>
+                        <td className="num">{g.stock}</td>
+                        <td>
+                          {g.total >= data.hotMin && <Badge tone="bad">🔥 熱賣</Badge>}
+                          {g.restock > 0 && <Badge tone="warn">補 {g.restock} 件</Badge>}
+                          {g.total === 0 && g.stock > 0 && <Badge>沒賣出</Badge>}
+                        </td>
+                      </tr>
+                      {isOpen &&
+                        g.rows.map((x, i) => (
+                          <tr key={x.id} className="turn-sub">
+                            <td>
+                              　{i === 0 && x.total > 0 && g.rows.length > 1 ? "🥇 " : ""}
+                              {x.label}
+                            </td>
+                            <td className="num">{x.store}</td>
+                            <td className="num">{x.online}</td>
+                            <td className="num">{x.total}</td>
+                            <td className="num">{x.stock}</td>
+                            <td>
+                              {x.stock === 0 && x.total > 0 ? (
+                                <Badge tone="bad">缺貨要補 {x.restock}</Badge>
+                              ) : x.restock > 0 ? (
+                                <Badge tone="warn">快賣完，補 {x.restock}</Badge>
+                              ) : x.total === 0 && x.stock > 0 ? (
+                                <span className="muted small">沒賣</span>
+                              ) : null}
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
                   );
                 })}
-                {g.rows.length > 3 && (
-                  <button className="link-btn small" onClick={() => toggle(g.productId)}>
-                    {expanded ? "收起" : `看全部 ${g.rows.length} 個規格`}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <p className="muted small">件數＝門市＋網店；只列有 2 個以上規格的商品。從低到高可以看出哪個顏色、尺寸賣不動。</p>
-    </Section>
+              </tbody>
+            </table>
+          </div>
+        )}
+        {list.length > limit && (
+          <button className="btn btn-block more-btn" onClick={() => setLimit((n) => n + 30)}>
+            看更多（還有 {list.length - limit} 款）
+          </button>
+        )}
+        <p className="muted small">
+          門市＝POS 結帳（扣退貨）；網店＝meepShop 訂單（{r.online.included ? `${r.online.orders} 筆` : "沒勾「含網店銷量」"}）。同款不同顏色會合在一起（依商品名稱「XX 色 共 N 色」判斷）。建議補貨＝這段期間賣出的件數 − 目前庫存（補到能再賣一段同樣長的時間）。
+        </p>
+      </Section>
+    </>
   );
 }
 
 function ProductsTab({ r }: { r: Report }) {
-  const showCost = r.products.some((p) => p.cogs !== undefined);
-  const sizes = useMemo(() => [...new Set(r.sizeColor.map((x) => x.size))], [r]);
-  const colors = useMemo(() => [...new Set(r.sizeColor.map((x) => x.color))], [r]);
-  const cell = (c: string, s: string) => r.sizeColor.find((x) => x.color === c && x.size === s)?.qty ?? 0;
-  const maxCell = Math.max(1, ...r.sizeColor.map((x) => x.qty));
+  const [view, setView] = useState<"sold" | "restock" | "slow" | "broken">("sold");
   return (
     <>
-      <p className="muted small">門市銷量為淨額（扣退貨）；網店銷量來自 meepShop 訂單（{r.online.included ? `${r.online.orders} 筆` : "未包含"}）。</p>
-      <div className="two-col">
-        <Section title="尺寸銷售" onExport={() => downloadCsv(`尺寸銷售_${r.from}_${r.to}.csv`, [["尺寸", "門市件數", "網店件數", "門市金額"], ...r.sizes.map((x) => [x.value, x.qty, x.online, x.sales])])}>
-          <OptionTable rows={r.sizes} label="尺寸" />
-        </Section>
-        <Section title="顏色銷售" onExport={() => downloadCsv(`顏色銷售_${r.from}_${r.to}.csv`, [["顏色", "門市件數", "網店件數", "門市金額"], ...r.colors.map((x) => [x.value, x.qty, x.online, x.sales])])}>
-          <OptionTable rows={r.colors} label="顏色" />
-        </Section>
+      <div className="segmented sub-tabs">
+        {(
+          [
+            ["sold", "賣出明細", "這段期間賣了什麼"],
+            ["restock", "要補的貨", "快賣完、缺貨的"],
+            ["slow", "滯留最久", "庫存最賣不動的"],
+            ["broken", `斷碼${r.brokenSizes.length ? `（${r.brokenSizes.length}）` : ""}`, "部分顏色尺寸缺貨"],
+          ] as const
+        ).map(([k, l, d]) => (
+          <button key={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>
+            {l}
+            <small>{d}</small>
+          </button>
+        ))}
       </div>
-      {sizes.length > 0 && colors.length > 0 && (
-        <Section title="顏色 × 尺寸（件數，門市＋網店）">
-          <div className="matrix-wrap">
-            <table className="matrix heat">
-              <thead>
-                <tr>
-                  <th />
-                  {sizes.map((s) => (
-                    <th key={s}>{s}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {colors.map((c) => (
-                  <tr key={c}>
-                    <th>{c}</th>
-                    {sizes.map((s) => {
-                      const q = cell(c, s);
-                      return (
-                        <td key={s} style={{ background: q ? `rgba(37, 99, 235, ${0.08 + (q / maxCell) * 0.6})` : undefined }}>
-                          {q || ""}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Section>
-      )}
-      <VariantRank r={r} />
-      <Section
-        title="商品銷售排行"
-        onExport={() =>
-          downloadCsv(`商品排行_${r.from}_${r.to}.csv`, [["商品", "門市件數", "網店件數", "合計", "門市金額", ...(showCost ? ["成本", "毛利"] : [])], ...r.products.map((p) => [p.title, p.store, p.online, p.total, p.sales, ...(showCost ? [p.cogs, p.margin] : [])])])
-        }
-      >
-        <div className="table-wrap">
-          <table className="table table-compact">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>商品</th>
-                <th className="num">門市</th>
-                <th className="num">網店</th>
-                <th className="num">合計</th>
-                <th className="num">門市金額</th>
-                {showCost && <th className="num">毛利</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {r.products.map((p, i) => (
-                <tr key={p.productId}>
-                  <td>{i + 1}</td>
-                  <td>{p.title}</td>
-                  <td className="num">{p.store}</td>
-                  <td className="num">{p.online}</td>
-                  <td className="num strong">{p.total}</td>
-                  <td className="num">{money(p.sales)}</td>
-                  {showCost && <td className="num">{money(p.margin)}</td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Section>
+      {view === "sold" && <StyleReport key="sold" r={r} initial="all" />}
+      {view === "restock" && <StyleReport key="restock" r={r} initial="restock" />}
+      {view === "slow" && <StockTab r={r} only="slow" />}
+      {view === "broken" && (
+        <>
       <Section title="斷碼（同款部分規格缺貨，依目前庫存）" onExport={() => downloadCsv(`斷碼_${todayStr()}.csv`, [["商品", "缺貨規格", "有貨規格數", "總規格數", "期間門市銷量"], ...r.brokenSizes.map((b) => [b.title, b.out.join("、"), b.inStock, b.total, b.sold])])}>
         {r.brokenSizes.length === 0 ? (
           <Empty>沒有斷碼的商品</Empty>
@@ -609,41 +616,15 @@ function ProductsTab({ r }: { r: Report }) {
           </div>
         )}
       </Section>
+        </>
+      )}
     </>
   );
 }
 
-function OptionTable({ rows, label }: { rows: { value: string; qty: number; sales: number; online: number }[]; label: string }) {
-  const max = Math.max(1, ...rows.map((x) => x.qty + x.online));
-  if (!rows.length) return <Empty>沒有{label}資料（商品規格名稱需含「{label}」）</Empty>;
-  return (
-    <table className="table table-compact">
-      <thead>
-        <tr>
-          <th>{label}</th>
-          <th className="num">門市</th>
-          <th className="num">網店</th>
-          <th className="bar-col" />
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((x) => (
-          <tr key={x.value}>
-            <td>{x.value}</td>
-            <td className="num">{x.qty}</td>
-            <td className="num">{x.online}</td>
-            <td className="bar-col">
-              <span className="bar" style={{ width: `${((x.qty + x.online) / max) * 100}%` }} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
 
 /** 庫存面（不受日期影響）：周轉天數、補貨、即將到期 — 用即時資料在前端算。 */
-function StockTab({ r }: { r: Report }) {
+function StockTab({ r, only }: { r: Report; only: "slow" | "reorder" }) {
   const { variants, settings } = useData();
   // 銷量跟著上方選的期間（本月、本週、自訂）；可賣天數 = 庫存 ÷（期間銷量 ÷ 期間天數）
   const periodDays = Math.max(1, Math.round((new Date(`${r.to}T00:00:00Z`).getTime() - new Date(`${r.from}T00:00:00Z`).getTime()) / 86400_000) + 1);
@@ -663,6 +644,7 @@ function StockTab({ r }: { r: Report }) {
   );
   // 同一款商品的各顏色尺寸合在一起
   const [openP, setOpenP] = useState<Set<string>>(new Set());
+  const [slowLimit, setSlowLimit] = useState(15);
   const toggleP = (id: string) =>
     setOpenP((x) => {
       const n = new Set(x);
@@ -670,21 +652,6 @@ function StockTab({ r }: { r: Report }) {
       else n.add(id);
       return n;
     });
-  // 這段期間賣出什麼（同款合併，點開看顏色尺寸），含已經賣完沒庫存的
-  const soldGroups = useMemo(() => {
-    const byId = new Map(variants.map((v) => [v.id, v]));
-    const m = new Map<string, { productId: string; title: string; store: number; online: number; rows: { id: string; label: string; store: number; online: number; stock: number }[] }>();
-    for (const x of r.variantSales ?? []) {
-      if (!x.store && !x.online) continue;
-      const v = byId.get(x.variantId);
-      const g = m.get(x.productId) ?? m.set(x.productId, { productId: x.productId, title: v?.productTitle ?? "（已刪除的商品）", store: 0, online: 0, rows: [] }).get(x.productId)!;
-      g.store += x.store;
-      g.online += x.online;
-      g.rows.push({ id: x.variantId, label: v?.options || "單一規格", store: x.store, online: x.online, stock: v?.shopStock ?? 0 });
-    }
-    return [...m.values()].map((g) => ({ ...g, rows: g.rows.sort((a, b) => b.store + b.online - (a.store + a.online)) })).sort((a, b) => b.store + b.online - (a.store + a.online));
-  }, [r, variants]);
-  const soldTotal = soldGroups.reduce((a, g) => ({ store: a.store + g.store, online: a.online + g.online }), { store: 0, online: 0 });
   const slowGroups = useMemo(() => {
     const m = new Map<string, { productId: string; title: string; stock: number; store: number; online: number; rows: typeof rows; lastSold: number | null }>();
     for (const x of rows) {
@@ -706,74 +673,11 @@ function StockTab({ r }: { r: Report }) {
   const reorder = variants.filter((v) => (v.reorderQty ?? 0) > 0).sort((a, b) => (b.reorderQty ?? 0) - (a.reorderQty ?? 0));
   const limit = todayStr(new Date(Date.now() + (settings.expiryDays ?? 30) * 86400_000));
   const expiring = variants.flatMap((v) => (v.batches ?? []).filter((b) => b.exp && b.exp <= limit).map((b) => ({ v, b }))).sort((a, b) => a.b.exp!.localeCompare(b.b.exp!));
-  const withSales = rows.filter((x) => x.daysOfStock != null);
-  const avgDays = withSales.length ? Math.round(withSales.reduce((s, x) => s + x.daysOfStock!, 0) / withSales.length) : null;
   return (
     <>
-      <div className="kpis">
-        <Kpi label="期間賣出" value={`${num(soldTotal.store + soldTotal.online)} 件`} hint={`門市 ${num(soldTotal.store)}　網店 ${num(soldTotal.online)}`} />
-        <Kpi label="有庫存商品" value={num(new Set(rows.map((x) => x.v.productId)).size)} hint={`${num(rows.length)} 個顏色尺寸`} />
-        <Kpi label="平均可賣天數" value={avgDays == null ? "—" : `${avgDays} 天`} hint={`目前庫存 ÷ 期間日均銷量（${periodDays} 天，門市＋網店）`} />
-        <Kpi label="期間沒賣出" value={num(rows.filter((x) => x.perDay === 0).length)} hint="有庫存但這段期間零銷量（顏色尺寸數）" tone="bad" />
-        <Kpi label="建議補貨" value={`${reorder.length} 款`} />
-      </div>
+      {only === "slow" && (
       <Section
-        title={`期間賣出明細（${r.from} ～ ${r.to}，共 ${num(soldTotal.store + soldTotal.online)} 件）`}
-        onExport={() =>
-          downloadCsv(`賣出明細_${r.from}_${r.to}.csv`, [
-            ["商品", "規格", "門市", "網店", "合計", "目前庫存"],
-            ...soldGroups.flatMap((g) => g.rows.map((x) => [g.title, x.label, x.store, x.online, x.store + x.online, x.stock])),
-          ])
-        }
-      >
-        {soldGroups.length === 0 ? (
-          <Empty>這段期間沒有賣出</Empty>
-        ) : (
-          <div className="table-wrap">
-            <table className="table table-compact turnover">
-              <thead>
-                <tr>
-                  <th>商品／規格</th>
-                  <th className="num">門市</th>
-                  <th className="num">網店</th>
-                  <th className="num">合計</th>
-                  <th className="num">目前庫存</th>
-                </tr>
-              </thead>
-              <tbody>
-                {soldGroups.map((g) => {
-                  const isOpen = openP.has(`s_${g.productId}`);
-                  return (
-                    <Fragment key={g.productId}>
-                      <tr className="turn-head" onClick={() => toggleP(`s_${g.productId}`)}>
-                        <td>
-                          <span className="turn-caret">{isOpen ? "▾" : "▸"}</span> <strong>{g.title}</strong> <span className="muted small">{g.rows.length} 個規格</span>
-                        </td>
-                        <td className="num">{g.store}</td>
-                        <td className="num">{g.online}</td>
-                        <td className="num strong">{g.store + g.online}</td>
-                        <td className="num">{g.rows.reduce((a, x) => a + x.stock, 0)}</td>
-                      </tr>
-                      {isOpen &&
-                        g.rows.map((x) => (
-                          <tr key={x.id} className="turn-sub">
-                            <td>　{x.label}</td>
-                            <td className="num">{x.store}</td>
-                            <td className="num">{x.online}</td>
-                            <td className="num">{x.store + x.online}</td>
-                            <td className="num">{x.stock}</td>
-                          </tr>
-                        ))}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
-      <Section
-        title="周轉最慢（庫存要賣最久，同款各顏色尺寸合在一起）"
+        title="滯留最久（庫存最賣不動，同款各顏色尺寸合在一起）"
         onExport={() =>
           downloadCsv(`周轉天數_${todayStr()}.csv`, [
             ["商品", "規格", "庫存", `門市（${r.from}~${r.to}）`, "網店（期間）", "合計", "可賣天數", "最後賣出(天前)"],
@@ -797,7 +701,7 @@ function StockTab({ r }: { r: Report }) {
               </tr>
             </thead>
             <tbody>
-              {slowGroups.map((g) => {
+              {slowGroups.slice(0, slowLimit).map((g) => {
                 const isOpen = openP.has(g.productId);
                 return (
                   <Fragment key={g.productId}>
@@ -828,17 +732,24 @@ function StockTab({ r }: { r: Report }) {
             </tbody>
           </table>
         </div>
+        {slowGroups.length > slowLimit && (
+          <button className="btn btn-block more-btn" onClick={() => setSlowLimit((n) => n + 30)}>
+            看更多（還有 {slowGroups.length - slowLimit} 款）
+          </button>
+        )}
         <p className="muted small">
           點商品展開各顏色尺寸。門市、網店銷量是上方選的期間（{r.from} ～ {r.to}，{periodDays} 天）；可賣天數＝庫存 ÷ 期間日均銷量（門市＋網店）。{!r.online.included && "（沒勾「含網店銷量」，網店欄會是 0）"}
         </p>
       </Section>
+      )}
+      {only === "reorder" && (
       <Section title="建議補貨" onExport={() => downloadCsv(`建議補貨_${todayStr()}.csv`, [["商品", "儲位", "庫存", "安全庫存", "建議補貨"], ...reorder.map((v) => [variantName(v), v.location, v.shopStock, v.safety, v.reorderQty])])}>
         {reorder.length === 0 ? (
           <Empty>目前不需要補貨</Empty>
         ) : (
           <table className="table table-compact">
             <tbody>
-              {reorder.slice(0, 100).map((v) => (
+              {reorder.slice(0, 50).map((v) => (
                 <tr key={v.id}>
                   <td>{variantName(v)}</td>
                   <td>{v.location || "—"}</td>
@@ -850,7 +761,8 @@ function StockTab({ r }: { r: Report }) {
           </table>
         )}
       </Section>
-      {expiring.length > 0 && (
+      )}
+      {only === "reorder" && expiring.length > 0 && (
         <Section title={`即將到期批次（${settings.expiryDays ?? 30} 天內）`}>
           <table className="table table-compact">
             <tbody>

@@ -791,3 +791,5 @@ span.tier-switch { cursor: default; }
 .turnover .turn-head:hover td { background: var(--surface-2); }
 .turnover .turn-sub td { background: var(--surface-2); font-size: 14px; color: var(--muted); }
 .turn-caret { display: inline-block; width: 14px; color: var(--muted); }
+.more-btn { margin-top: 8px; } .more-sec { margin: 12px 0; } .more-sec > summary { cursor: pointer; padding: 10px 0; font-weight: 600; color: var(--muted); }
+.sub-tabs { margin: 4px 0 16px; } .sub-tabs button { padding: 10px 6px; }
