@@ -6,6 +6,7 @@ import { downloadCsv, money, todayStr } from "../lib/util";
 import type { Shopper } from "../types";
 import { Badge, Empty, useAction } from "./ui";
 import { useAuth } from "../auth";
+import { TagChips, useMemberTags } from "./MemberTags";
 import { call } from "../firebase";
 import { atLeast } from "../lib/util";
 
@@ -20,6 +21,7 @@ interface Row extends Shopper {
   lastOrderMs?: number;
   pinned?: boolean;
   pinnedMs?: number;
+  tags?: string[];
   ordersTotal?: number;
   orders12m?: number;
   orders6m?: number;
@@ -82,6 +84,8 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
   const [tier, setTier] = useState("");
+  const [tag, setTag] = useState("");
+  const allTags = useMemberTags();
   const [sort, setSort] = useState<Sort>(() => {
     try {
       return (localStorage.getItem("g29.memberSort") as Sort) || "newest";
@@ -108,7 +112,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
         setRows(
           s.docs.map((d) => {
             const x = d.data();
-            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0, pointsUsed: x.pointsUsed ?? 0, pointsUsedStore: x.pointsUsedStore ?? 0, pointsUsedOnline: x.pointsUsedOnline ?? 0, joinedAt: x.joinedAt ?? null, lastOrderMs: x.lastOrderAt?.toMillis?.() ?? 0, pinned: !!x.pinned, pinnedMs: x.pinnedAt?.toMillis?.() ?? 0, ordersTotal: x.ordersTotal ?? 0, orders12m: x.orders12m ?? 0, orders6m: x.orders6m ?? 0, orders3m: x.orders3m ?? 0, orders1m: x.orders1m ?? 0, spendTotal: x.spendTotal ?? 0, spend6m: x.spend6m ?? 0, spend3m: x.spend3m ?? 0, spend1m: x.spend1m ?? 0 };
+            return { id: d.id, name: x.name ?? "", email: x.email ?? "", mobile: x.mobile ?? "", points: x.points ?? 0, tier: x.tier ?? null, group: x.memberGroup ?? null, birthMonth: x.birthMonth ?? null, birthDate: x.birthDate ?? null, spend12m: x.spend12m ?? 0, spendStore12m: x.spendStore12m ?? 0, spendOnline12m: x.spendOnline12m ?? 0, pointsUsed: x.pointsUsed ?? 0, pointsUsedStore: x.pointsUsedStore ?? 0, pointsUsedOnline: x.pointsUsedOnline ?? 0, joinedAt: x.joinedAt ?? null, lastOrderMs: x.lastOrderAt?.toMillis?.() ?? 0, pinned: !!x.pinned, pinnedMs: x.pinnedAt?.toMillis?.() ?? 0, tags: x.tags ?? [], ordersTotal: x.ordersTotal ?? 0, orders12m: x.orders12m ?? 0, orders6m: x.orders6m ?? 0, orders3m: x.orders3m ?? 0, orders1m: x.orders1m ?? 0, spendTotal: x.spendTotal ?? 0, spend6m: x.spend6m ?? 0, spend3m: x.spend3m ?? 0, spend1m: x.spend1m ?? 0 };
           })
         )
       ),
@@ -124,6 +128,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
       .filter((r) => !t || `${r.name} ${r.email}`.toLowerCase().includes(t) || (digits.length >= 3 && r.mobile.replace(/\D/g, "").includes(digits)))
       .filter((r) => !group || r.group === group)
       .filter((r) => !tier || r.tier === tier)
+      .filter((r) => !tag || (r.tags ?? []).includes(tag))
       .filter((r) => !birthdayOnly || r.birthMonth === month)
       .filter((r) =>
         conds.every((c) => {
@@ -155,7 +160,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
             return a.name.localeCompare(b.name, "zh-Hant");
         }
       });
-  }, [rows, q, group, tier, sort, birthdayOnly, month, conds]);
+  }, [rows, q, group, tier, tag, sort, birthdayOnly, month, conds]);
 
   return (
     <section>
@@ -166,8 +171,8 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
           disabled={!list.length}
           onClick={() =>
             downloadCsv(`顧客名單_${todayStr()}.csv`, [
-              ["姓名", "手機", "Email", "加入日期", "meepShop 群組", "本系統等級", "購物金", "已使用購物金", "門市已使用", "網店已使用", "近12個月消費", "門市", "網店", "生日"],
-              ...list.map((r) => [r.name, r.mobile, r.email, r.joinedAt?.slice(0, 10) ?? "", r.group, r.tier, r.points, r.pointsUsed, r.pointsUsedStore, r.pointsUsedOnline, r.spend12m, r.spendStore12m, r.spendOnline12m, r.birthDate]),
+              ["姓名", "手機", "Email", "加入日期", "meepShop 群組", "標籤", "本系統等級", "購物金", "已使用購物金", "門市已使用", "網店已使用", "近12個月消費", "門市", "網店", "生日"],
+              ...list.map((r) => [r.name, r.mobile, r.email, r.joinedAt?.slice(0, 10) ?? "", r.group, (r.tags ?? []).join("、"), r.tier, r.points, r.pointsUsed, r.pointsUsedStore, r.pointsUsedOnline, r.spend12m, r.spendStore12m, r.spendOnline12m, r.birthDate]),
             ])
           }
         >
@@ -187,6 +192,14 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
             <option value="">全部等級</option>
             {tiers.map((g) => (
               <option key={g}>{g}</option>
+            ))}
+          </select>
+        )}
+        {allTags.length > 0 && (
+          <select value={tag} onChange={(e) => setTag(e.target.value)}>
+            <option value="">全部標籤</option>
+            {allTags.map((t) => (
+              <option key={t}>{t}</option>
             ))}
           </select>
         )}
@@ -297,6 +310,7 @@ export function MemberList({ onPick }: { onPick: (s: Shopper) => void }) {
                   <td>{r.mobile || "—"}</td>
                   <td>
                     {r.group && <Badge tone="info">{r.group}</Badge>}
+                    <TagChips tags={r.tags ?? []} />
                     {r.tier && <Badge>{r.tier}</Badge>}
                   </td>
                   <td className="num">{r.points}</td>

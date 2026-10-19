@@ -13,6 +13,7 @@ import { InvoiceInfo } from "./Checkout";
 import { getDeviceLocationId } from "../../lib/location";
 import { MemberCardDialog } from "../../components/MemberCardDialog";
 import { MemberList } from "../../components/MemberList";
+import { MemberTagEditor, TagChips, useShopperPrefs } from "../../components/MemberTags";
 import { MemberPicker } from "./Register";
 
 interface OnlineOrder {
@@ -357,10 +358,21 @@ function RefundDialog({ order: o, onClose }: { order: PosOrder; onClose: () => v
 
 // ---------- 會員：用手機查 meepShop 會員、現場新增、看消費紀錄 ----------
 
+function ShopperTagLine({ id }: { id: string }) {
+  const { tags, pref } = useShopperPrefs(id);
+  return (
+    <>
+      {tags.length ? <TagChips tags={tags} /> : <span className="muted">沒有標籤</span>}
+      {pref && <div className="member-pref">💬 喜好：{pref}</div>}
+    </>
+  );
+}
+
 export function Members() {
   const [shopper, setShopper] = useState<Shopper | null>(null);
   const [picking, setPicking] = useState(false);
   const [showCard, setShowCard] = useState(false);
+  const [tagEdit, setTagEdit] = useState(false);
   const [orders, setOrders] = useState<PosOrder[]>([]);
   const [online, setOnline] = useState<OnlineOrder[] | null>(null);
   const [onlineErr, setOnlineErr] = useState<string | null>(null);
@@ -420,6 +432,9 @@ export function Members() {
                 <div className="muted">
                   {shopper.mobile} · {shopper.email}
                 </div>
+                <div className="small">
+                  群組 <b>{shopper.group ?? "未加入群組"}</b>　<ShopperTagLine id={shopper.id} />
+                </div>
                 <div className="small">近 12 個月消費 {money(shopper.spend12m ?? 0)}（門市＋網店「已結案」訂單；網店處理中的訂單結案後才計入）</div>
               </div>
               <div className="center">
@@ -436,6 +451,9 @@ export function Members() {
               </button>
               <button className="btn" onClick={() => setShowCard(true)}>
                 會員卡／會員條碼
+              </button>
+              <button className="btn" onClick={() => setTagEdit(true)}>
+                標籤／喜好
               </button>
             </div>
           </div>
@@ -529,6 +547,7 @@ export function Members() {
           })()}
         </>
       )}
+      {tagEdit && shopper && <MemberTagEditor shopperId={shopper.id} name={shopper.name || shopper.mobile} onClose={() => setTagEdit(false)} />}
       {showCard && shopper && <MemberCardDialog shopperId={shopper.id} name={shopper.name || shopper.mobile} onClose={() => setShowCard(false)} />}
       {picking && <MemberPicker current={null} onClose={() => setPicking(false)} onPick={setShopper} />}
     </div>

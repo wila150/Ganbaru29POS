@@ -1065,6 +1065,32 @@ export const shopperOnlineOrders = onCall({ ...opts, timeoutSeconds: 60 }, async
   return { orders, more: page.pageInfo.hasNextPage };
 });
 
+/**
+ * 會員標籤（本系統自己的，例：忠實顧客、關注新品、很在乎優惠）。meepShop 沒有標籤也不能改群組，所以存在 shoppers/{id}.tags；
+ * 用過的標籤記在 meta/memberTags，給其他會員勾選。
+ */
+export const setShopperTags = onCall(opts, async (req) => {
+  const actor = await requireRole(req, "staff");
+  const id = str(req.data?.id, "會員", { max: 64 });
+  const tags = [...new Set(((Array.isArray(req.data?.tags) ? req.data.tags : []) as unknown[]).map((t) => String(t ?? "").trim()).filter(Boolean))];
+  assert(tags.length <= 15, "標籤最多 15 個");
+  assert(tags.every((t) => [...t].length <= 12), "每個標籤最多 12 個字");
+  const ref = db.doc(`shoppers/${id}`);
+  assert((await ref.get()).exists, "找不到這位會員", "not-found");
+  const prefNote = req.data?.prefNote === undefined ? undefined : str(req.data.prefNote, "喜好備註", { optional: true, max: 300 }) || "";
+  await ref.update({ tags, ...(prefNote !== undefined ? { prefNote } : {}), tagsAt: FieldValue.serverTimestamp(), tagsBy: actor.name });
+  if (tags.length) await db.doc("meta/memberTags").set({ tags: FieldValue.arrayUnion(...tags) }, { merge: true });
+  return { tags };
+});
+
+/** 從標籤清單移除（店長以上；已經貼在會員身上的不會被拿掉） */
+export const removeMemberTag = onCall(opts, async (req) => {
+  await requireRole(req, "manager");
+  const tag = str(req.data?.tag, "標籤", { max: 12 });
+  await db.doc("meta/memberTags").set({ tags: FieldValue.arrayRemove(tag) }, { merge: true });
+  return { ok: true };
+});
+
 /** 顧客名單：把會員釘選在最上面（店長以上） */
 export const setShopperPin = onCall(opts, async (req) => {
   await requireRole(req, "manager");

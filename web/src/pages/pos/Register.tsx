@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth";
@@ -13,6 +13,7 @@ import { cartPromos, lineTotal, totals, type CartDiscounts, type CartLine } from
 import { resolveCode, searchVariants } from "../../lib/lookup";
 import { playCheckoutSound, unlockAudio } from "../../lib/sound";
 import { ProductInfo } from "../../components/ProductInfo";
+import { MemberTagEditor, TagChips, useShopperPrefs } from "../../components/MemberTags";
 import { beep, deviceId, money, newId, PAY_LABEL, pctToZhe, todayStr, zheToPct } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useDeviceLocation } from "../../lib/location";
@@ -717,6 +718,37 @@ function LineEditor({ line, title, onClose, onSave, onDelete }: { line: CartLine
   );
 }
 
+/** 會員視窗上方：群組（meepShop，唯讀）＋本系統標籤（可編輯） */
+function CurrentMemberTags({ current }: { current: Shopper }) {
+  const { tags, pref } = useShopperPrefs(current.id);
+  const [editing, setEditing] = useState(false);
+  // 最近在門市買過的東西（最近 5 張單）
+  const [bought, setBought] = useState<string[] | null>(null);
+  useEffect(() => {
+    getDocs(query(collection(db, "posOrders"), where("shopper.id", "==", current.id), orderBy("createdAt", "desc"), limit(5)))
+      .then((r) => {
+        const items = r.docs.flatMap((d) => ((d.data().lines ?? []) as { productTitle: string; options: string }[]).map((l) => `${l.productTitle}${l.options ? `（${l.options}）` : ""}`));
+        setBought([...new Set(items)].slice(0, 8));
+      })
+      .catch(() => setBought([]));
+  }, [current.id]);
+  return (
+    <div className="member-meta">
+      <span className="muted small">群組</span>
+      <span className="member-group" title="會員群組在 meepShop 後台設定（meepShop 不開放修改）">{current.group ?? "未加入群組"}</span>
+      {current.tier && <span className="muted small">等級 {current.tier}</span>}
+      <span className="muted small">　標籤</span>
+      {tags.length ? <TagChips tags={tags} /> : <span className="muted small">無</span>}
+      <button className="link-btn small" onClick={() => setEditing(true)}>
+        編輯標籤／喜好
+      </button>
+      {pref && <div className="member-pref">💬 {pref}</div>}
+      {bought && bought.length > 0 && <div className="member-pref bought">🛍 最近在門市買過：{bought.join("、")}</div>}
+      {editing && <MemberTagEditor shopperId={current.id} name={current.name || current.mobile} onClose={() => setEditing(false)} />}
+    </div>
+  );
+}
+
 export function MemberPicker({ current, onClose, onPick }: { current: Shopper | null; onClose: () => void; onPick: (s: Shopper | null, created?: boolean) => void }) {
   const [q, setQ] = useState("");
   const [list, setList] = useState<(Shopper & { live?: boolean })[] | null>(null);
@@ -739,6 +771,7 @@ export function MemberPicker({ current, onClose, onPick }: { current: Shopper | 
   };
   return (
     <Modal title="會員" onClose={onClose}>
+      {current && <CurrentMemberTags current={current} />}
       {current && (
         <div className="notice row-between">
           目前：{current.name || current.mobile}（購物金 {current.points}）

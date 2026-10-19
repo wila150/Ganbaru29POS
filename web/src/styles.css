@@ -796,3 +796,13 @@ span.tier-switch { cursor: default; }
 .row-best td { background: #fffbeb; }
 .bar-cell { width: 30%; }
 .hbar { display: block; height: 10px; background: #2563eb; border-radius: 5px; min-width: 2px; }
+.member-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.member-group { background: #e0f2fe; color: #075985; border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+.tag-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.member-tag { background: #fef3c7; color: #92400e; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+.tag-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 12px; }
+.tag-opt { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin: 0; }
+.tag-opt.on { border-color: #f59e0b; background: #fffbeb; }
+.tag-opt .btn-icon { margin-left: auto; }
+.member-pref { flex-basis: 100%; background: #f0f9ff; border-radius: 8px; padding: 6px 10px; font-size: 13px; white-space: pre-wrap; margin-top: 4px; }
+.member-pref.bought { background: #f5f3ff; }

@@ -34,6 +34,7 @@ service cloud.firestore {
     match /syncLogs/{id} { allow read: if isManager(); }
 
     match /shoppers/{id} { allow read: if active(); }
+    match /meta/{id} { allow read: if active(); }
     match /posOrders/{id} { allow read: if active(); }
     match /posPayments/{id} { allow read: if active(); }
     match /locationStock/{id} { allow read: if active(); }
