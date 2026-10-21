@@ -397,9 +397,9 @@ button.matrix-cell:hover { border-color: #6b7280; }
 .tag { background: #fff; color: #000; border: 1px dashed #d1d5db; padding: 2.5mm; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1mm; overflow: hidden; break-inside: avoid; font-size: 7.5pt; line-height: 1.25; }
 .tag-shop { font-weight: 800; letter-spacing: 0.08em; font-size: 1.2em; }
 .tag-title { font-weight: 700; font-size: 1.13em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.tag-opts { display: flex; flex-direction: column; }
+.tag-opts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .tag-price { font-size: 1.6em; font-weight: 800; }
-.tag-code { width: 100%; display: flex; justify-content: center; }
+.tag-code { width: 100%; display: flex; justify-content: center; align-items: center; flex: 1 1 auto; min-height: 0; }
 .tag-barcode { max-width: 100%; height: auto; }
 .tag-sku { font-size: 0.87em; color: #333; }
 .tag-care { font-size: 0.8em; color: #333; border-top: 0.2mm solid #999; padding-top: 1mm; width: 100%; text-align: left; }
@@ -956,3 +956,8 @@ span.tier-switch { cursor: default; }
 @media (orientation: portrait) { .cd-scan-left { flex-direction: column; text-align: center; } .cd-arrow { display: none; } }
 .tag-qr { width: 100% !important; height: 100% !important; image-rendering: pixelated; }
 .size-presets, .tag-fields { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* 吊牌：文字固定高度不被擠，QR 用剩下的空間（正方形、不超出標籤） */
+.tag > :not(.tag-code) { flex-shrink: 0; }
+.tag-title { -webkit-line-clamp: 1 !important; max-width: 100%; }
+.tag-qr-box { height: 100%; max-width: 100%; aspect-ratio: 1 / 1; display: flex; }
+.tag-qr { width: 100% !important; height: 100% !important; object-fit: contain; }

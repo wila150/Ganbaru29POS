@@ -90,8 +90,6 @@ export function Labels() {
   const h = p.mode === "qr" ? 30 : p.h;
   // 字和 QR 跟著標籤大小縮放（以 40×40 為基準）；QR 佔標籤較短邊約一半，其他內容越少 QR 越大
   const scale = Math.max(0.6, Math.min(1.6, Math.min(w / 40, h / 40)));
-  const extra = [p.shop !== false, p.title !== false, p.opts !== false, p.price, p.care].filter(Boolean).length;
-  const qrMm = Math.round(Math.min(w - 6, h * (extra >= 4 ? 0.42 : extra >= 2 ? 0.55 : 0.75)));
   const list = ids.flatMap((id) => Array.from({ length: perCopies[id] ?? p.copies }, () => byId.get(id)!));
   const toggle = (id: string) =>
     setUnchecked((s) => {
@@ -287,19 +285,15 @@ export function Labels() {
             <div key={`${v.id}-${i}`} className="tag" style={{ width: `${w}mm`, height: `${h}mm`, fontSize: `${(7.5 * scale).toFixed(2)}pt` }}>
               {p.shop !== false && <div className="tag-shop">{settings.shopName || "ganbaru29"}</div>}
               {p.title !== false && <div className="tag-title">{v.productTitle}</div>}
-              {p.opts !== false && <div className="tag-opts">
-                {(v.optionList ?? []).map((o) => (
-                  <span key={o.name}>
-                    {o.name}：{o.value}
-                  </span>
-                ))}
-              </div>}
+              {p.opts !== false && (v.optionList?.length || v.options) && (
+                <div className="tag-opts">{(v.optionList ?? []).length ? (v.optionList ?? []).map((o) => o.value).join(" / ") : v.options}</div>
+              )}
               {p.price && <div className="tag-price">{money(v.price)}</div>}
               <div className="tag-code">
                 {(p.code ?? "qr") === "barcode" && tagCode(v) ? (
                   <Barcode value={tagCode(v)} height={Math.max(20, Math.min(40, h * 0.5))} />
                 ) : (
-                  <div style={{ width: `${qrMm}mm`, height: `${qrMm}mm` }}>
+                  <div className="tag-qr-box">
                     <QrImg value={tagCode(v) || v.id} size={160} className="tag-qr" />
                   </div>
                 )}
