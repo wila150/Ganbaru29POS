@@ -39,8 +39,10 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow, customer
   const [inv, setInv] = useState<InvoiceInput>({ type: "print" });
   const [online, setOnline] = useState<{ id: string; url: string } | null>(null);
   // 信用卡：有設定藍新／綠界時預設「傳付款連結」，也可以改用刷卡機
-  const [cardMode, setCardMode] = useState<"link" | "terminal">(provider ? "link" : "terminal");
-  const cardLink = method === "card" && !!provider && cardMode === "link" && total > 0;
+  // 信用卡：顯示 QR（客人掃平板）／傳連結（寄 Email）／刷卡機；有設定藍新時預設 QR
+  const [cardMode, setCardMode] = useState<"qr" | "link" | "terminal">(provider ? "qr" : "terminal");
+  const cardOnline = method === "card" && !!provider && cardMode !== "terminal" && total > 0;
+  const cardLink = cardOnline && cardMode === "link";
   const { busy, run } = useAction();
 
   const cashIn = cash === "" ? total : Number(cash);
@@ -67,18 +69,18 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow, customer
   const mixShow = [...mixed].reverse().find((p) => p.method !== "cash");
   const lpScanShow = scanLinePay ? { method: "linepay", amount: total, scan: true } : restScan ? { method: "linepay", amount: rest, scan: true, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: "linepay", amount: rest }] } : null;
   const showPay = lpScanShow ??
-    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : cardLink ? null : { method, amount: total };
+    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" || (cardOnline && !cardLink) ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : cardLink ? null : { method, amount: total };
   const showKey = JSON.stringify(showPay);
   useEffect(() => {
     onPayShow?.(showPay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showKey]);
   useEffect(() => () => onPayShow?.(null), [onPayShow]);
-  const ok = method !== "online" && !cardLink && !scanLinePay && !restScan && paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
+  const ok = method !== "online" && !cardOnline && !scanLinePay && !restScan && paid >= total && payments.filter((p) => p.method !== "cash").reduce((s, p) => s + p.amount, 0) <= total;
   const invoiceOk = !invoiceOn || inv.type === "print" || (inv.type === "mobile" && /^\/[0-9A-Z+\-.]{7}$/.test(inv.mobileBarcode ?? "")) || (inv.type === "taxId" && /^\d{8}$/.test(inv.taxId ?? "")) || (inv.type === "donate" && /^\d{3,7}$/.test(inv.loveCode ?? ""));
   const invoicePayload = invoiceOn ? inv : null;
 
-  const methods: [string, string][] = [...Object.entries(PAY_LABEL), ...(provider && total > 0 ? [["online", `線上刷卡（${PROVIDER_LABEL[provider]}）`] as [string, string]] : []), ["mixed", "混合付款"]];
+  const methods: [string, string][] = [...Object.entries(PAY_LABEL), ["mixed", "混合付款"]];
 
   return (
     <Modal
@@ -86,7 +88,7 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow, customer
       onClose={() => !busy && !online && onClose()}
       wide
       footer={
-        method === "online" || cardLink || scanLinePay || restScan ? null : (
+        method === "online" || cardOnline || scanLinePay || restScan ? null : (
           <button className="btn btn-pay btn-lg block" disabled={!ok || !invoiceOk || busy} onClick={() => run(() => submit(payments, invoicePayload))}>
             {busy ? "結帳中…" : change > 0 ? `完成結帳（找零 ${money(change)}）` : "完成結帳"}
           </button>
@@ -161,6 +163,9 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow, customer
       )}
       {method === "card" && provider && total > 0 && (
         <div className="seg center-seg">
+          <button className={cardMode === "qr" ? "on" : ""} disabled={!!online} onClick={() => setCardMode("qr")}>
+            📱 產生 QR
+          </button>
           <button className={cardMode === "link" ? "on" : ""} disabled={!!online} onClick={() => setCardMode("link")}>
             📧 傳付款連結
           </button>
@@ -169,8 +174,8 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow, customer
           </button>
         </div>
       )}
-      {PAY_LABEL[method] && method !== "cash" && !scanLinePay && !cardLink && <p className="center big">請以 {PAY_LABEL[method]} 收款 {money(total)}{method === "card" ? "（刷卡機另外操作）" : ""}</p>}
-      {(method === "online" || cardLink) && provider && (
+      {PAY_LABEL[method] && method !== "cash" && !scanLinePay && !cardOnline && <p className="center big">請以 {PAY_LABEL[method]} 收款 {money(total)}{method === "card" ? "（刷卡機另外操作）" : ""}</p>}
+      {(method === "online" || cardOnline) && provider && (
         <OnlinePay
           provider={provider}
           amount={total}
@@ -476,7 +481,6 @@ function OnlinePay({
               <input type="checkbox" checked={extra.includes(k)} onChange={(e) => setExtra(e.target.checked ? [...extra, k] : extra.filter((x) => x !== k))} /> {EXTRA_LABEL[k] ?? k}
             </label>
           ))}
-          {!enabledExtra.length && <span className="muted small">（Apple Pay 要先向藍新開通，再到金流設定勾選）</span>}
         </div>
         <div className="inline-form">
           <input type="email" inputMode="email" placeholder="客人 Email" value={email} onChange={(e) => setEmail(e.target.value.trim())} />
@@ -501,13 +505,13 @@ function OnlinePay({
   if (!session)
     return (
       <div className="center">
-        <p>產生付款連結：顧客螢幕會顯示 QR code，也可以用 Email 寄給客人。客人用手機刷卡（也可 Apple Pay、LINE Pay、台灣 Pay），付款完成這裡自動結帳。</p>
+        <p>產生付款 QR：顧客螢幕會顯示 QR code，客人用手機相機掃描後輸入卡號付款，付款完成這裡自動結帳。</p>
         <button
           className="btn btn-primary btn-lg"
           disabled={busy || !invoiceOk}
           onClick={() => run(async () => setSession(await call<{ id: string; url: string }>("createOnlinePayment", { amount, itemName, orderId: "pos" })))}
         >
-          產生付款連結（{money(amount)}）
+          📱 產生付款 QR（{money(amount)}）
         </button>
         {!invoiceOk && <p className="error small">請先填好發票資料</p>}
       </div>

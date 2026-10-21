@@ -11,6 +11,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-21-b",
+    date: "2026-10-21",
+    title: "信用卡整合：產生 QR／傳連結／刷卡機",
+    items: [
+      "「信用卡」和「線上刷卡（藍新）」合併成一個「信用卡」",
+      "選信用卡後有三種：📱 產生 QR（顧客螢幕顯示，客人用手機掃了刷卡）、📧 傳付款連結（寄到客人 Email）、刷卡機",
+      "QR 和連結都是付完自動完成結帳",
+    ],
+  },
+  {
     id: "2026-10-21-a",
     date: "2026-10-21",
     title: "顧客螢幕可以直接掃客人的 LINE Pay",
