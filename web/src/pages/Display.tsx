@@ -64,11 +64,18 @@ function Screen() {
           <b>{shop}</b>
           <span>本次消費 {money(s.total ?? 0)}</span>
         </header>
-        <div className="cd-scan">
-          <div className="cd-pay-m">LINE Pay</div>
-          <div className="cd-amount">{money(s.pay.amount)}</div>
-          <FrontScanner key={`${s.pay.amount}`} onCode={(c) => sendScannedCode(displayChannel(loc), c)} />
-          <div className="cd-sub">請打開 LINE →「錢包」→「付款」，把付款碼對準上方鏡頭</div>
+        {/* 平板橫放時前鏡頭在左側：畫面放左邊、靠近鏡頭 */}
+        <div className="cd-scan cd-scan-left">
+          <div className="cd-scan-cam">
+            <div className="cd-arrow">⬅ 鏡頭在這一側</div>
+            <FrontScanner key={`${s.pay.amount}`} onCode={(c) => sendScannedCode(displayChannel(loc), c)} />
+          </div>
+          <div className="cd-scan-info">
+            <div className="cd-pay-m">LINE Pay</div>
+            <div className="cd-amount">{money(s.pay.amount)}</div>
+            <div className="cd-sub">請打開 LINE →「錢包」→「付款」</div>
+            <div className="cd-sub">把付款碼對準<b>螢幕左側的鏡頭</b></div>
+          </div>
         </div>
       </div>
     );

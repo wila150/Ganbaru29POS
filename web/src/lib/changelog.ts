@@ -11,6 +11,12 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-21-e",
+    date: "2026-10-21",
+    title: "LINE Pay 掃碼畫面改到左側",
+    items: ["顧客螢幕的 LINE Pay 相機畫面移到左側（靠近平板鏡頭），提示改成「把付款碼對準螢幕左側的鏡頭」"],
+  },
+  {
     id: "2026-10-21-d",
     date: "2026-10-21",
     title: "顧客螢幕會自己更新、相機開不起來可以重開",

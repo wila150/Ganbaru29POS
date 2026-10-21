@@ -948,3 +948,9 @@ span.tier-switch { cursor: default; }
 .cd-cam-view { width: 100%; border-radius: 16px; overflow: hidden; background: #000; border: 4px solid var(--pay); }
 .cd-cam-view video { transform: scaleX(-1); }
 .cd-cam-view.hide { display: none; }
+.cd-scan-left { flex-direction: row; justify-content: flex-start; align-items: center; gap: 32px; padding-left: 8px; text-align: left; }
+.cd-scan-cam { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.cd-scan-left .cd-cam { width: min(46vw, 70vh); }
+.cd-arrow { font-size: 22px; font-weight: 700; color: var(--pay); }
+.cd-scan-info { display: flex; flex-direction: column; gap: 10px; }
+@media (orientation: portrait) { .cd-scan-left { flex-direction: column; text-align: center; } .cd-arrow { display: none; } }
