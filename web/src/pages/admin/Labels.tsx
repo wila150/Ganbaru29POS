@@ -113,7 +113,19 @@ export function Labels() {
             onClick={async () => {
               const { makeXlsx, downloadBlob } = await import("../../lib/xlsx");
               // 一張標籤一列（每款印幾張就幾列）；QR 內容 = 吊牌條碼（掃描器嗶了就認得）
-              const rows = [["QR內容", "品名", "規格", "價格"], ...list.map((v) => [tagCode(v) || v.id, v.productTitle, v.options || "", v.price != null ? `$${v.price}` : ""])];
+              // 欄位給精臣 App 綁定：要印哪幾項、怎麼排，在 App 的範本裡決定
+              const split = (o: string) => {
+                const parts = (o || "").split("/").map((x) => x.trim()).filter(Boolean);
+                const size = parts.find((x) => /^(XXS|XS|S|M|L|XL|XXL|XXXL|\d?XL|F|FREE|ONE ?SIZE|\d{2,3})$/i.test(x)) ?? "";
+                return { color: parts.filter((x) => x !== size).join(" "), size };
+              };
+              const rows = [
+                ["QR內容", "品名", "規格", "顏色", "尺寸", "價格", "價格數字", "商品編號", "材質", "洗滌"],
+                ...list.map((v) => {
+                  const o = split(v.options);
+                  return [tagCode(v) || v.id, v.productTitle, v.options || "", o.color, o.size, v.price != null ? `NT$${v.price.toLocaleString("zh-TW")}` : "", v.price ?? "", v.sku ?? "", v.material ?? "", v.careText ?? ""];
+                }),
+              ];
               downloadBlob(await makeXlsx(rows, "標籤"), `精臣標籤_${new Date().toISOString().slice(0, 10)}_${list.length}張.xlsx`);
             }}
           >
