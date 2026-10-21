@@ -961,3 +961,6 @@ span.tier-switch { cursor: default; }
 .tag-title { -webkit-line-clamp: 1 !important; max-width: 100%; }
 .tag-qr-box { height: 100%; max-width: 100%; aspect-ratio: 1 / 1; display: flex; }
 .tag-qr { width: 100% !important; height: 100% !important; object-fit: contain; }
+.cat-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 8px; -webkit-overflow-scrolling: touch; }
+.cat-tabs .chip { flex-shrink: 0; }
+.cat-tabs small { opacity: .6; }

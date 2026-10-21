@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-21-l",
+    date: "2026-10-21",
+    title: "商品與條碼：可以依分類篩選",
+    items: [
+      "後台「商品與條碼」上方多了分類頁籤（跟 POS 收銀一樣：長褲、長袖…特價專區）",
+      "點分類 → 全選 → 列印標籤，就能只印那一類的吊牌",
+    ],
+  },
+  {
     id: "2026-10-21-k",
     date: "2026-10-21",
     title: "沒有條碼的商品一次產生店內條碼",

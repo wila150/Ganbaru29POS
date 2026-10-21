@@ -23,6 +23,14 @@ export function Products() {
   const { variants, settings } = useData();
   const [q, setQ] = useState("");
   const [onlyMissing, setOnlyMissing] = useState<"" | "image" | "code" | "location" | "unprinted">("");
+  // 分類（跟 POS 收銀的頁籤一樣：meepShop 標籤，例如長褲、特價專區）
+  const [cat, setCat] = useState("全部");
+  const catsOf = (v: Variant) => [...new Set([v.posCategory, ...(v.tags ?? [])].filter(Boolean) as string[])];
+  const categories = useMemo(() => {
+    const count = new Map<string, Set<string>>();
+    for (const v of variants) for (const c of catsOf(v)) (count.get(c) ?? count.set(c, new Set()).get(c)!).add(v.productId);
+    return [["全部", new Set(variants.map((v) => v.productId)).size] as const, ...[...count.entries()].sort((a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0], "zh-Hant")).map(([c, s]) => [c, s.size] as const)];
+  }, [variants]);
   const [missingImg, setMissingImg] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [edit, setEdit] = useState<Variant | null>(null);
@@ -35,8 +43,9 @@ export function Products() {
 
   const groups = useMemo(() => {
     let list = searchVariants(variants, q);
+    if (cat !== "全部") list = list.filter((v) => catsOf(v).includes(cat));
     if (onlyMissing === "image") list = list.filter((v) => !v.imageUrl || missingImg.has(v.productId));
-    if (onlyMissing === "code") list = list.filter((v) => !v.barcode && !(v.extraCodes ?? []).length);
+    if (onlyMissing === "code") list = list.filter((v) => !v.barcode && !v.storeCode && !(v.extraCodes ?? []).length);
     if (onlyMissing === "location") list = list.filter((v) => !v.location);
     if (onlyMissing === "unprinted") list = list.filter((v) => v.labelPrinted !== true);
     const map = new Map<string, Group>();
@@ -48,7 +57,8 @@ export function Products() {
     const out = [...map.values()].sort((a, b) => a.title.localeCompare(b.title, "zh-Hant"));
     out.forEach((g) => g.variants.sort((a, b) => a.variantIndex - b.variantIndex));
     return out;
-  }, [variants, q, onlyMissing, missingImg]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variants, q, onlyMissing, missingImg, cat]);
 
   const toggle = (ids: string[], on: boolean) =>
     setSelected((s) => {
@@ -85,6 +95,13 @@ export function Products() {
       </div>
 
       <input className="search" placeholder="搜尋名稱、編號、條碼、儲位" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="cat-tabs">
+        {categories.map(([c, n]) => (
+          <button key={c} className={`chip ${cat === c ? "active" : ""}`} onClick={() => setCat(c)}>
+            {c} <small>{n}</small>
+          </button>
+        ))}
+      </div>
       <div className="chips">
         {(
           [
@@ -115,7 +132,7 @@ export function Products() {
               }}
               onChange={(e) => toggle(visibleIds, e.target.checked)}
             />
-            全選{q || onlyMissing ? "目前篩選的" : "全部"} {visibleIds.length} 款（{groups.length} 個商品）
+            全選{q || onlyMissing || cat !== "全部" ? `目前篩選的${cat !== "全部" ? `「${cat}」` : ""}` : "全部"} {visibleIds.length} 款（{groups.length} 個商品）
           </label>
         );
       })()}
