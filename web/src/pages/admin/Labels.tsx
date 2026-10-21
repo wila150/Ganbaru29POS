@@ -34,8 +34,14 @@ interface Prefs {
   copies: number;
   price: boolean;
   care: boolean;
+  /** 吊牌要印哪些內容 */
+  shop: boolean;
+  title: boolean;
+  opts: boolean;
+  /** 吊牌上的碼：qr（二維，推薦）或 barcode（一維） */
+  code: "qr" | "barcode";
 }
-const DEFAULT: Prefs = { mode: "tag", layout: "roll", w: 40, h: 60, copies: 1, price: true, care: true };
+const DEFAULT: Prefs = { mode: "tag", layout: "roll", w: 40, h: 40, copies: 1, price: true, care: false, shop: true, title: true, opts: true, code: "qr" };
 const KEY = "g29.labelPrefs";
 
 /**
@@ -80,6 +86,12 @@ export function Labels() {
     }
   }, [p]);
   const set = (patch: Partial<Prefs>) => setP((x) => ({ ...x, ...patch }));
+  const w = p.mode === "qr" ? 40 : p.w;
+  const h = p.mode === "qr" ? 30 : p.h;
+  // 字和 QR 跟著標籤大小縮放（以 40×40 為基準）；QR 佔標籤較短邊約一半，其他內容越少 QR 越大
+  const scale = Math.max(0.6, Math.min(1.6, Math.min(w / 40, h / 40)));
+  const extra = [p.shop !== false, p.title !== false, p.opts !== false, p.price, p.care].filter(Boolean).length;
+  const qrMm = Math.round(Math.min(w - 6, h * (extra >= 4 ? 0.42 : extra >= 2 ? 0.55 : 0.75)));
   const list = ids.flatMap((id) => Array.from({ length: perCopies[id] ?? p.copies }, () => byId.get(id)!));
   const toggle = (id: string) =>
     setUnchecked((s) => {
@@ -90,8 +102,6 @@ export function Labels() {
     });
   const noCode = p.mode === "tag" ? [...new Set(ids)].map((id) => byId.get(id)!).filter((v) => !tagCode(v)) : [];
 
-  const w = p.mode === "qr" ? 40 : p.w;
-  const h = p.mode === "qr" ? 30 : p.h;
   const pageCss = p.layout === "roll" ? `@page { size: ${w}mm ${h}mm; margin: 0; } .labels { gap: 0 !important; } .tag, .label { break-after: page; border: 0 !important; }` : `@page { size: A4; margin: 8mm; }`;
 
   return (
@@ -153,15 +163,42 @@ export function Labels() {
           </select>
           {p.mode === "tag" && (
             <>
+              <span className="size-presets">
+                {[
+                  [40, 40],
+                  [40, 30],
+                  [40, 60],
+                ].map(([sw, sh]) => (
+                  <button key={`${sw}x${sh}`} className={`btn btn-sm ${w === sw && h === sh ? "btn-primary" : ""}`} onClick={() => set({ w: sw, h: sh })}>
+                    {sw}×{sh}
+                  </button>
+                ))}
+              </span>
               <label className="check">
                 寬 <input type="number" min={20} max={100} value={p.w} onChange={(e) => set({ w: Number(e.target.value) || 40 })} style={{ width: 70 }} /> mm
               </label>
               <label className="check">
                 高 <input type="number" min={20} max={150} value={p.h} onChange={(e) => set({ h: Number(e.target.value) || 60 })} style={{ width: 70 }} /> mm
               </label>
-              <label className="check">
-                <input type="checkbox" checked={p.care} onChange={(e) => set({ care: e.target.checked })} /> 材質／洗滌標示
-              </label>
+              <span className="tag-fields">
+                印：
+                {(
+                  [
+                    ["shop", "店名"],
+                    ["title", "品名"],
+                    ["opts", "顏色尺寸"],
+                    ["care", "材質洗滌"],
+                  ] as const
+                ).map(([k, l]) => (
+                  <label key={k} className="check">
+                    <input type="checkbox" checked={!!p[k]} onChange={(e) => set({ [k]: e.target.checked } as Partial<Prefs>)} /> {l}
+                  </label>
+                ))}
+              </span>
+              <select value={p.code ?? "qr"} onChange={(e) => set({ code: e.target.value as Prefs["code"] })}>
+                <option value="qr">QR code（二維）</option>
+                <option value="barcode">一維條碼</option>
+              </select>
             </>
           )}
           <label className="check">
@@ -247,18 +284,26 @@ export function Labels() {
               </div>
             </div>
           ) : (
-            <div key={`${v.id}-${i}`} className="tag" style={{ width: `${w}mm`, height: `${h}mm` }}>
-              <div className="tag-shop">{settings.shopName || "ganbaru29"}</div>
-              <div className="tag-title">{v.productTitle}</div>
-              <div className="tag-opts">
+            <div key={`${v.id}-${i}`} className="tag" style={{ width: `${w}mm`, height: `${h}mm`, fontSize: `${(7.5 * scale).toFixed(2)}pt` }}>
+              {p.shop !== false && <div className="tag-shop">{settings.shopName || "ganbaru29"}</div>}
+              {p.title !== false && <div className="tag-title">{v.productTitle}</div>}
+              {p.opts !== false && <div className="tag-opts">
                 {(v.optionList ?? []).map((o) => (
                   <span key={o.name}>
                     {o.name}：{o.value}
                   </span>
                 ))}
-              </div>
+              </div>}
               {p.price && <div className="tag-price">{money(v.price)}</div>}
-              <div className="tag-code">{tagCode(v) ? <Barcode value={tagCode(v)} height={Math.max(20, Math.min(40, h * 0.5))} /> : <QrImg value={v.id} size={56} />}</div>
+              <div className="tag-code">
+                {(p.code ?? "qr") === "barcode" && tagCode(v) ? (
+                  <Barcode value={tagCode(v)} height={Math.max(20, Math.min(40, h * 0.5))} />
+                ) : (
+                  <div style={{ width: `${qrMm}mm`, height: `${qrMm}mm` }}>
+                    <QrImg value={tagCode(v) || v.id} size={160} className="tag-qr" />
+                  </div>
+                )}
+              </div>
               {tagCode(v) !== v.sku && v.sku && <div className="tag-sku">{v.sku}</div>}
               {p.care && (v.material || v.careText) && (
                 <div className="tag-care">
