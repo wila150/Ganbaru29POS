@@ -173,7 +173,7 @@ export function Register() {
     ...(t.rewardDiscount ? [{ label: `購物金折抵（${disc.rewardPoints} 點）`, amount: -t.rewardDiscount }] : []),
     ...(credit ? [{ label: "換貨抵扣", amount: -credit }] : []),
   ];
-  const [payShow, setPayShow] = useState<{ method: string; amount: number; parts?: { method: string; amount: number }[]; url?: string } | null>(null);
+  const [payShow, setPayShow] = useState<{ method: string; amount: number; parts?: { method: string; amount: number }[]; url?: string; scan?: boolean } | null>(null);
   const [thanks, setThanks] = useState<number | null>(null);
   useEffect(() => {
     if (thanks === null) return;

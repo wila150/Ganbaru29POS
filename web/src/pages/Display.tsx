@@ -1,10 +1,10 @@
 import { doc, onSnapshot } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { QrImg } from "../components/QrImg";
 import { useData } from "../data";
 import { db } from "../firebase";
-import { displayChannel, setSignup, type DisplayState, type SignupState } from "../lib/display";
+import { displayChannel, sendScannedCode, setSignup, type DisplayState, type SignupState } from "../lib/display";
 import { useDeviceLocation } from "../lib/location";
 import { money, PAY_LABEL } from "../lib/util";
 
@@ -43,6 +43,21 @@ function Screen() {
         <div className="cd-big">謝謝光臨 🙏</div>
         {(s.change ?? 0) > 0 && <div className="cd-sub">找零 {money(s.change!)}</div>}
         <div className="cd-shop">{shop}</div>
+      </div>
+    );
+  if (s.mode === "pay" && s.pay?.scan)
+    return (
+      <div className="cd cd-pay" onClick={full}>
+        <header className="cd-bar">
+          <b>{shop}</b>
+          <span>本次消費 {money(s.total ?? 0)}</span>
+        </header>
+        <div className="cd-scan">
+          <div className="cd-pay-m">LINE Pay</div>
+          <div className="cd-amount">{money(s.pay.amount)}</div>
+          <FrontScanner key={`${s.pay.amount}`} onCode={(c) => sendScannedCode(displayChannel(loc), c)} />
+          <div className="cd-sub">請打開 LINE →「錢包」→「付款」，把付款碼對準上方鏡頭</div>
+        </div>
       </div>
     );
   if (s.mode === "pay" && s.pay) {
@@ -355,6 +370,50 @@ function PhoneEntry({ ch, s }: { ch: string; s: SignupState }) {
       <button className="cd-send" disabled={!ok} onClick={() => setSignup(ch, { status: "phoneSent", mobile: region.cc + v }).catch(() => undefined)}>
         確定
       </button>
+    </div>
+  );
+}
+
+/** 顧客螢幕：用平板前鏡頭掃客人手機上的付款碼（掃到一次就停，等扣款結果） */
+function FrontScanner({ onCode }: { onCode: (code: string) => void }) {
+  const id = useRef(`fs-${Math.random().toString(36).slice(2)}`).current;
+  const [state, setState] = useState<"scan" | "got" | "error">("scan");
+  const [err, setErr] = useState("");
+  const cb = useRef(onCode);
+  cb.current = onCode;
+  useEffect(() => {
+    let stopped = false;
+    let scanner: { start: Function; stop: () => Promise<void>; clear: () => void; isScanning: boolean } | null = null;
+    import("html5-qrcode").then(({ Html5Qrcode, Html5QrcodeSupportedFormats: F }) => {
+      if (stopped) return;
+      const sc = new Html5Qrcode(id, { formatsToSupport: [F.QR_CODE, F.CODE_128, F.EAN_13], verbose: false });
+      scanner = sc as unknown as typeof scanner;
+      sc.start(
+        { facingMode: "user" },
+        { fps: 10, qrbox: (w: number, h: number) => ({ width: Math.min(w, h) * 0.8, height: Math.min(w, h) * 0.8 }) },
+        (text: string) => {
+          if (stopped) return;
+          stopped = true;
+          setState("got");
+          cb.current(text);
+          sc.stop().catch(() => undefined);
+        },
+        () => undefined
+      ).catch((e: unknown) => {
+        setState("error");
+        setErr(String((e as Error)?.message ?? e));
+      });
+    });
+    return () => {
+      stopped = true;
+      if (scanner?.isScanning) scanner.stop().then(() => scanner?.clear()).catch(() => undefined);
+    };
+  }, [id]);
+  return (
+    <div className="cd-cam">
+      <div id={id} className={`cd-cam-view ${state === "got" ? "hide" : ""}`} />
+      {state === "got" && <div className="cd-sub">✅ 已讀到付款碼，扣款中，請稍候…</div>}
+      {state === "error" && <div className="cd-err">無法開啟相機：{err}（請允許相機權限）</div>}
     </div>
   );
 }

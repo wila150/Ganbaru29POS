@@ -86,6 +86,12 @@ service cloud.firestore {
         && request.resource.data.status in ['open', 'filled', 'done', 'closed', 'phone', 'phoneSent'];
     }
 
+    // 顧客螢幕前鏡頭掃到的付款碼（收銀電腦讀取後扣款）
+    match /customerScan/{id} {
+      allow read: if active();
+      allow write: if active() && request.resource.data.keys().hasOnly(['code', 'at']) && request.resource.data.code is string && request.resource.data.code.size() <= 64;
+    }
+
     match /posHolds/{id} {
       allow read, delete: if active();
       allow create, update: if active()

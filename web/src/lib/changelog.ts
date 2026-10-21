@@ -11,6 +11,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-21-a",
+    date: "2026-10-21",
+    title: "顧客螢幕可以直接掃客人的 LINE Pay",
+    items: [
+      "電腦結帳選「LINE Pay」時，平板顧客螢幕自動打開前鏡頭",
+      "客人把 LINE Pay 付款碼對著平板，掃到後電腦自動扣款、完成結帳",
+      "現金不夠、剩下用 LINE Pay 時也一樣",
+    ],
+  },
+  {
     id: "2026-10-19-al",
     date: "2026-10-19",
     title: "結帳完自動寄消費明細",

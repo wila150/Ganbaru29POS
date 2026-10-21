@@ -8,6 +8,8 @@ import { useData } from "../../data";
 import { call, db } from "../../firebase";
 import { printReceipt } from "../../lib/receipt";
 import { money, PAY_LABEL } from "../../lib/util";
+import { useDeviceLocation } from "../../lib/location";
+import { displayChannel } from "../../lib/display";
 import type { PosOrder } from "../../types";
 
 export type Pay = { method: string; amount: number; ref?: string };
@@ -23,7 +25,7 @@ export interface InvoiceInput {
 const PROVIDER_LABEL: Record<string, string> = { ecpay: "綠界", newebpay: "藍新" };
 
 /** 結帳：付款方式（含掃碼線上付款）＋電子發票開立方式。 */
-export function Checkout({ total, itemName, onClose, submit, onPayShow, customerEmail }: { customerEmail?: string | null; total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void>; onPayShow?: (p: { method: string; amount: number; parts?: Pay[]; url?: string } | null) => void }) {
+export function Checkout({ total, itemName, onClose, submit, onPayShow, customerEmail }: { customerEmail?: string | null; total: number; itemName: string; onClose: () => void; submit: (p: Pay[], invoice: InvoiceInput | null) => Promise<void>; onPayShow?: (p: { method: string; amount: number; parts?: Pay[]; url?: string; scan?: boolean } | null) => void }) {
   const { settings } = useData();
   const provider = settings.payment?.provider ?? null;
   const linePayApi = !!settings.linePay?.enabled && total > 0;
@@ -63,7 +65,8 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow, customer
   const scanLinePay = method === "linepay" && linePayApi;
   // 顧客螢幕：非現金的部分顯示給客人（轉帳帳號／QR、LINE Pay QR）
   const mixShow = [...mixed].reverse().find((p) => p.method !== "cash");
-  const showPay =
+  const lpScanShow = scanLinePay ? { method: "linepay", amount: total, scan: true } : restScan ? { method: "linepay", amount: rest, scan: true, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: "linepay", amount: rest }] } : null;
+  const showPay = lpScanShow ??
     method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : cardLink ? null : { method, amount: total };
   const showKey = JSON.stringify(showPay);
   useEffect(() => {
@@ -286,9 +289,26 @@ function LinePayScan({ amount, itemName, invoiceOk, stage, onBusy, onPaid }: { a
     });
   };
   const pending = state?.status === "unknown" || state?.status === "processing";
+  // 顧客螢幕（平板前鏡頭）掃到客人付款碼 → 這裡扣款
+  const { locationId } = useDeviceLocation();
+  const chargeRef = useRef(charge);
+  chargeRef.current = charge;
+  useEffect(() => {
+    const since = Date.now() - 2000;
+    let last = "";
+    return onSnapshot(doc(db, "customerScan", displayChannel(locationId)), (d) => {
+      const x = d.data();
+      const at = x?.at?.toMillis?.() ?? 0;
+      if (!x?.code || at < since || x.code === last || done.current) return;
+      last = x.code;
+      toast("顧客螢幕已讀到付款碼，扣款中…", "info");
+      chargeRef.current(String(x.code));
+    });
+  }, [locationId, toast]);
 
   return (
     <div className="linepay-box">
+      <p className="center muted small">📱 顧客螢幕已開前鏡頭，請客人把 LINE Pay 付款碼對著平板</p>
       <div className="big strong center">LINE Pay {money(amount)}{stage && <span className="badge badge-warn" style={{ marginLeft: 8 }}>測試環境</span>}</div>
       {state?.status === "paid" ? (
         <div className="center">

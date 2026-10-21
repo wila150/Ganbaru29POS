@@ -23,7 +23,8 @@ export interface DisplayState {
   /** 金額明細：原價、各種折扣、購物金折抵、服務費 */
   summary?: { gross: number; rows: { label: string; amount: number }[] } | null;
   /** 付款畫面：要客人付的方式和金額（現金＋轉帳時只顯示轉帳那部分） */
-  pay?: { method: string; amount: number; parts?: { method: string; amount: number }[]; url?: string } | null;
+  /** scan = 顧客螢幕開前鏡頭掃客人的 LINE Pay 付款碼 */
+  pay?: { method: string; amount: number; parts?: { method: string; amount: number }[]; url?: string; scan?: boolean } | null;
   change?: number;
 }
 
@@ -61,3 +62,6 @@ export interface SignupState extends Partial<SignupForm> {
 }
 export const setSignup = (channel: string, s: SignupState) =>
   setDoc(doc(db, "customerSignup", channel), { email: "", name: "", mobile: "", birthDate: "", error: null, ...s, at: serverTimestamp() });
+
+/** 顧客螢幕掃到的付款碼：customerScan/{門市}，收銀電腦收到後向 LINE Pay 扣款 */
+export const sendScannedCode = (channel: string, code: string) => setDoc(doc(db, "customerScan", channel), { code, at: serverTimestamp() });
