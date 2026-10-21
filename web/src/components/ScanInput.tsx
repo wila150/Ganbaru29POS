@@ -107,6 +107,40 @@ export const ScanInput = forwardRef<ScanInputHandle, { onCode: (code: string) =>
       setText("");
       onCode(code);
     };
+    // 掃描槍「直接 BB」：游標不在任何輸入框時，掃描槍打進來的字（很快、最後按 Enter）也直接收下
+    const cb = useRef(onCode);
+    cb.current = onCode;
+    useEffect(() => {
+      if (disabled) return;
+      let buf = "";
+      let lastAt = 0;
+      let fast = 0;
+      const onKey = (e: KeyboardEvent) => {
+        const el = document.activeElement as HTMLElement | null;
+        const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+        if (typing || document.querySelector(".modal")) return; // 正在打字或有視窗開著：不攔
+        const now = performance.now();
+        if (now - lastAt > 120) {
+          buf = "";
+          fast = 0;
+        } else fast++;
+        lastAt = now;
+        if (e.key === "Enter") {
+          const code = buf.trim();
+          // 至少 4 個字、而且幾乎都是連續快速輸入（掃描槍）才當成掃碼
+          if (code.length >= 4 && fast >= code.length - 1) {
+            e.preventDefault();
+            cb.current(code);
+          }
+          buf = "";
+          fast = 0;
+          return;
+        }
+        if (e.key.length === 1) buf += e.key;
+      };
+      window.addEventListener("keydown", onKey, true);
+      return () => window.removeEventListener("keydown", onKey, true);
+    }, [disabled]);
     return (
       <div className="scan-input">
         <input

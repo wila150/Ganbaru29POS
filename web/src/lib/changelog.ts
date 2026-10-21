@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-21-f",
+    date: "2026-10-21",
+    title: "掃描槍直接嗶就好",
+    items: [
+      "收銀、進貨掃碼、盤點等頁面：不用先點「掃條碼」欄位，掃描槍直接嗶就會收到",
+      "正在其他欄位打字、或有視窗開著時不會誤收",
+    ],
+  },
+  {
     id: "2026-10-21-e",
     date: "2026-10-21",
     title: "LINE Pay 掃碼畫面改到左側",
