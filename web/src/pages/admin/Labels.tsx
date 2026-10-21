@@ -131,10 +131,10 @@ export function Labels() {
                 return { color: parts.filter((x) => x !== size).join(" "), size };
               };
               const rows = [
-                ["QR內容", "品名", "規格", "顏色", "尺寸", "價格", "價格數字", "商品編號", "材質", "洗滌"],
+                ["QR內容", "品名", "規格", "顏色", "尺寸", "價格", "價格數字", "原價", "特價", "商品編號", "材質", "洗滌"],
                 ...list.map((v) => {
                   const o = split(v.options);
-                  return [tagCode(v) || v.id, v.productTitle, v.options || "", o.color, o.size, v.price != null ? `NT$${v.price.toLocaleString("zh-TW")}` : "", v.price ?? "", v.sku ?? "", v.material ?? "", v.careText ?? ""];
+                  return [tagCode(v) || v.id, v.productTitle, v.options || "", o.color, o.size, v.price != null ? `NT$${v.price.toLocaleString("zh-TW")}` : "", v.price ?? "", (v.listPrice ?? 0) > v.price ? `NT$${v.listPrice!.toLocaleString("zh-TW")}` : "", (v.listPrice ?? 0) > v.price ? `特價 NT$${v.price.toLocaleString("zh-TW")}` : "", v.sku ?? "", v.material ?? "", v.careText ?? ""];
                 }),
               ];
               downloadBlob(await makeXlsx(rows, "標籤"), `精臣標籤_${new Date().toISOString().slice(0, 10)}_${list.length}張.xlsx`);
@@ -308,7 +308,19 @@ export function Labels() {
               {p.opts !== false && (v.optionList?.length || v.options) && (
                 <div className="tag-opts">{(v.optionList ?? []).length ? (v.optionList ?? []).map((o) => o.value).join(" / ") : v.options}</div>
               )}
-              {p.price && <div className="tag-price">{money(v.price)}</div>}
+              {p.price &&
+                ((v.listPrice ?? 0) > v.price ? (
+                  // meepShop 定價高於售價：劃掉定價、顯示特價
+                  <div className="tag-price tag-sale">
+                    <s>{money(v.listPrice!)}</s>
+                    <span>
+                      <small>特價</small>
+                      {money(v.price)}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="tag-price">{money(v.price)}</div>
+                ))}
               <div className="tag-code">
                 {(p.code ?? "qr") === "barcode" && tagCode(v) ? (
                   <Barcode value={tagCode(v)} height={Math.max(20, Math.min(40, h * 0.5))} />

@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-21-m",
+    date: "2026-10-21",
+    title: "吊牌顯示原價劃掉＋特價",
+    items: [
+      "meepShop 定價高於售價的商品（例如特價專區），吊牌印「~~NT$4,000~~ 特價 NT$2,150」",
+      "精臣 Excel 也多了「原價」「特價」欄，在 App 裡原價文字可以加刪除線",
+    ],
+  },
+  {
     id: "2026-10-21-l",
     date: "2026-10-21",
     title: "商品與條碼：可以依分類篩選",

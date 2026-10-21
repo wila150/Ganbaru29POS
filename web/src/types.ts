@@ -22,6 +22,8 @@ export interface Variant {
   barcode: string | null;
   vendorSku: string | null;
   price: number;
+  /** meepShop 定價（原價）；高於 price 表示特價 */
+  listPrice?: number | null;
   status: "LISTED" | "NOT_LISTED";
   shopStock: number | null;
   shopStockAt?: Timestamp;
