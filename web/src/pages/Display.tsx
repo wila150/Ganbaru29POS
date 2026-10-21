@@ -10,6 +10,18 @@ import { money, PAY_LABEL } from "../lib/util";
 
 /** 顧客螢幕（平板放在櫃台面向客人）：跟著收銀電腦即時顯示 */
 export function Display() {
+  // 顧客螢幕蓋住了「有新版本」提示 → 自己每分鐘檢查，有新版就直接重新整理（這個畫面沒有要保留的資料）
+  useEffect(() => {
+    if (import.meta.env.DEV) return;
+    const check = () =>
+      fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then(({ build }) => build && build !== __BUILD_ID__ && location.reload())
+        .catch(() => undefined);
+    const t = setInterval(check, 60_000);
+    check();
+    return () => clearInterval(t);
+  }, []);
   return (
     <>
       <Screen />
@@ -378,6 +390,7 @@ function PhoneEntry({ ch, s }: { ch: string; s: SignupState }) {
 function FrontScanner({ onCode }: { onCode: (code: string) => void }) {
   const id = useRef(`fs-${Math.random().toString(36).slice(2)}`).current;
   const [state, setState] = useState<"scan" | "got" | "error">("scan");
+  const [attempt, setAttempt] = useState(0);
   const [err, setErr] = useState("");
   const cb = useRef(onCode);
   cb.current = onCode;
@@ -408,12 +421,27 @@ function FrontScanner({ onCode }: { onCode: (code: string) => void }) {
       stopped = true;
       if (scanner?.isScanning) scanner.stop().then(() => scanner?.clear()).catch(() => undefined);
     };
-  }, [id]);
+  }, [id, attempt]);
   return (
     <div className="cd-cam">
-      <div id={id} className={`cd-cam-view ${state === "got" ? "hide" : ""}`} />
+      <div key={attempt} id={id} className={`cd-cam-view ${state === "got" ? "hide" : ""}`} />
       {state === "got" && <div className="cd-sub">✅ 已讀到付款碼，扣款中，請稍候…</div>}
-      {state === "error" && <div className="cd-err">無法開啟相機：{err}（請允許相機權限）</div>}
+      {state === "error" && (
+        <>
+          <div className="cd-err">無法開啟相機（{err}）。請允許相機權限：iPad「設定 → Safari → 相機 → 允許」</div>
+          <button
+            className="cd-send"
+            onClick={(e) => {
+              e.stopPropagation();
+              setErr("");
+              setState("scan");
+              setAttempt((a) => a + 1);
+            }}
+          >
+            📷 點這裡開啟相機
+          </button>
+        </>
+      )}
     </div>
   );
 }
