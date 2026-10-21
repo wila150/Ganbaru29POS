@@ -41,8 +41,10 @@ interface Prefs {
   opts: boolean;
   /** 吊牌上的碼：qr（二維，推薦）或 barcode（一維） */
   code: "qr" | "barcode";
+  /** 特價商品顯示劃掉的原價 */
+  strike: boolean;
 }
-const DEFAULT: Prefs = { mode: "tag", layout: "roll", w: 40, h: 40, copies: 1, price: true, care: false, shop: true, title: true, opts: true, code: "qr" };
+const DEFAULT: Prefs = { mode: "tag", layout: "roll", w: 40, h: 40, copies: 1, price: true, care: false, shop: true, title: true, opts: true, code: "qr", strike: true };
 const KEY = "g29.labelPrefs";
 
 /**
@@ -196,6 +198,9 @@ export function Labels() {
                   </label>
                 ))}
               </span>
+              <label className="check">
+                <input type="checkbox" checked={p.strike !== false} onChange={(e) => set({ strike: e.target.checked })} /> 特價顯示原價（劃掉）
+              </label>
               <select value={p.code ?? "qr"} onChange={(e) => set({ code: e.target.value as Prefs["code"] })}>
                 <option value="qr">QR code（二維）</option>
                 <option value="barcode">一維條碼</option>
@@ -309,17 +314,14 @@ export function Labels() {
                 <div className="tag-opts">{(v.optionList ?? []).length ? (v.optionList ?? []).map((o) => o.value).join(" / ") : v.options}</div>
               )}
               {p.price &&
-                ((v.listPrice ?? 0) > v.price ? (
-                  // meepShop 定價高於售價：劃掉定價、顯示特價
+                ((v.listPrice ?? 0) > v.price && p.strike !== false ? (
+                  // meepShop 定價高於售價（同官網）：原價劃掉、下面是特價
                   <div className="tag-price tag-sale">
-                    <s>{money(v.listPrice!)}</s>
-                    <span>
-                      <small>特價</small>
-                      {money(v.price)}
-                    </span>
+                    <s>${v.listPrice!.toLocaleString("en-US")}</s>
+                    <span>NT$ {v.price.toLocaleString("en-US")}</span>
                   </div>
                 ) : (
-                  <div className="tag-price">{money(v.price)}</div>
+                  <div className="tag-price">NT$ {v.price.toLocaleString("en-US")}</div>
                 ))}
               <div className="tag-code">
                 {(p.code ?? "qr") === "barcode" && tagCode(v) ? (

@@ -144,6 +144,15 @@ export function Products() {
         >
           列印全部未印的 QR（{variants.filter((v) => v.labelPrinted !== true).length} 款）
         </button>
+        {(() => {
+          // 特價吊牌：meepShop 定價高於售價的商品（例如特價專區）
+          const sale = variants.filter((v) => (v.listPrice ?? 0) > v.price);
+          return (
+            <button className="btn btn-sm" disabled={!sale.length} onClick={() => nav("/admin/labels", { state: { ids: sale.map((v) => v.id), mode: "tag" } })}>
+              🏷 列印特價吊牌（{new Set(sale.map((v) => v.productId)).size} 款）
+            </button>
+          );
+        })()}
         <button className="btn btn-sm" disabled={busy} onClick={() => run(() => downloadQrZip(selected.size ? variants.filter((v) => selected.has(v.id)) : variants), "已下載")}>
           下載{selected.size ? `已選 ${selected.size} 款` : "全部"} QR 圖檔（ZIP）
         </button>
