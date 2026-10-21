@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-21-g",
+    date: "2026-10-21",
+    title: "標籤可以匯出給精臣 B1 標籤機",
+    items: [
+      "商品與條碼 → 勾選商品 → 列印標籤 →「匯出精臣 B1 Excel」",
+      "Excel 每張標籤一列（QR內容、品名、規格、價格），在精臣 App 用「Excel 批量列印」匯入即可一次印完",
+    ],
+  },
+  {
     id: "2026-10-21-f",
     date: "2026-10-21",
     title: "掃描槍直接嗶就好",

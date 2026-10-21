@@ -106,6 +106,19 @@ export function Labels() {
         </div>
         <div className="btn-row">
           {marked && <span className="ok small">已標記為已印</span>}
+          <button
+            className="btn"
+            disabled={!list.length}
+            title="精臣 B1 等藍牙標籤機：在精臣 App 用「Excel 批量列印」匯入"
+            onClick={async () => {
+              const { makeXlsx, downloadBlob } = await import("../../lib/xlsx");
+              // 一張標籤一列（每款印幾張就幾列）；QR 內容 = 吊牌條碼（掃描器嗶了就認得）
+              const rows = [["QR內容", "品名", "規格", "價格"], ...list.map((v) => [tagCode(v) || v.id, v.productTitle, v.options || "", v.price != null ? `$${v.price}` : ""])];
+              downloadBlob(await makeXlsx(rows, "標籤"), `精臣標籤_${new Date().toISOString().slice(0, 10)}_${list.length}張.xlsx`);
+            }}
+          >
+            匯出精臣 B1 Excel
+          </button>
           <button className="btn btn-primary" onClick={() => window.print()} disabled={!list.length}>
             列印
           </button>
