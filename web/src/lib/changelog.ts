@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-21-k",
+    date: "2026-10-21",
+    title: "沒有條碼的商品一次產生店內條碼",
+    items: [
+      "列印標籤（服飾吊牌）時，若商品沒有條碼，按「一次產生店內條碼」就幫全部補上（G29 開頭）",
+      "產生後一維條碼、QR、精臣 Excel 都用這個號碼，掃描器嗶了就認得",
+    ],
+  },
+  {
     id: "2026-10-21-j",
     date: "2026-10-21",
     title: "吊牌標籤可以選尺寸和內容",

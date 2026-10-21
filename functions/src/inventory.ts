@@ -199,6 +199,36 @@ export const generateStoreCode = onCall(opts, async (req) => {
   throw new HttpsError("internal", "產生條碼失敗，請再試一次");
 });
 
+/** 一次幫多款沒有任何條碼的商品產生店內條碼（已有條碼／商品編號／店內碼的會跳過） */
+export const generateStoreCodes = onCall({ ...opts, timeoutSeconds: 300 }, async (req) => {
+  await requireRole(req, "manager");
+  const ids: string[] = (Array.isArray(req.data?.variantIds) ? req.data.variantIds : []).map(String).slice(0, 2000);
+  assert(ids.length, "沒有選擇商品");
+  const snaps = [];
+  for (let i = 0; i < ids.length; i += 300) snaps.push(...(await db.getAll(...ids.slice(i, i + 300).map((id) => db.doc(`variants/${id}`)))));
+  const need = snaps.filter((s) => s.exists && !s.data()?.barcode && !s.data()?.storeCode && !s.data()?.sku).map((s) => s.id);
+  const out: Record<string, string> = {};
+  for (let i = 0; i < need.length; i += 150) {
+    const chunk = need.slice(i, i + 150);
+    // 先產生、確認沒有撞號，再一起寫入
+    let codes = chunk.map(() => `G29${String(Math.floor(Math.random() * 1e8)).padStart(8, "0")}`);
+    for (let t = 0; t < 5; t++) {
+      const exist = await db.getAll(...codes.map((c) => db.doc(`codes/${c}`)));
+      const dup = new Set(codes.filter((c, k) => exist[k].exists || codes.indexOf(c) !== k));
+      if (!dup.size) break;
+      codes = codes.map((c) => (dup.has(c) ? `G29${String(Math.floor(Math.random() * 1e8)).padStart(8, "0")}` : c));
+    }
+    const batch = db.batch();
+    chunk.forEach((vid, k) => {
+      batch.set(db.doc(`codes/${codes[k]}`), { code: codes[k], variantId: vid, source: "store", at: FieldValue.serverTimestamp() });
+      batch.update(db.doc(`variants/${vid}`), { extraCodes: FieldValue.arrayUnion(codes[k]), storeCode: codes[k] });
+      out[vid] = codes[k];
+    });
+    await batch.commit();
+  }
+  return { created: need.length, skipped: ids.length - need.length };
+});
+
 /** 標籤印好了：從「未印 QR」清單移除（printed=false 則放回清單，例如要補印） */
 export const markLabelsPrinted = onCall(opts, async (req) => {
   await requireRole(req, "staff");

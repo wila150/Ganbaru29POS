@@ -2,6 +2,7 @@ import JsBarcode from "jsbarcode";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { QrImg } from "../../components/QrImg";
+import { useToast } from "../../components/ui";
 import { useData } from "../../data";
 import { call } from "../../firebase";
 import { money } from "../../lib/util";
@@ -50,6 +51,8 @@ const KEY = "g29.labelPrefs";
  */
 export function Labels() {
   const { byId, settings } = useData();
+  const toast = useToast();
+  const [genBusy, setGenBusy] = useState(false);
   const state = useLocation().state as { ids?: string[]; markPrinted?: boolean; mode?: Mode } | null;
   const allIds = (state?.ids ?? []).filter((id) => byId.has(id));
   // 可勾選：預設全勾；也可以個別設定張數（空白 = 用上方的「每款幾張」）
@@ -265,7 +268,24 @@ export function Labels() {
             )}
           </div>
         )}
-        {noCode.length > 0 && <p className="notice notice-warn">{noCode.length} 款沒有條碼或商品編號，吊牌會改印 QR code。可在「商品與條碼」按「產生店內條碼」。</p>}
+        {noCode.length > 0 && (
+          <div className="notice notice-warn row-between">
+            <span>{noCode.length} 款沒有條碼（meepShop 沒填條碼／商品編號），一維條碼印不出來。產生店內條碼後，一維條碼和 QR 都會用這個號碼，掃描器嗶了就認得。</span>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={genBusy}
+              onClick={() => {
+                setGenBusy(true);
+                call<{ created: number }>("generateStoreCodes", { variantIds: noCode.map((v) => v.id) })
+                  .then((r) => toast(`已產生 ${r.created} 個店內條碼`, "ok"))
+                  .catch((e) => toast((e as Error).message, "bad"))
+                  .finally(() => setGenBusy(false));
+              }}
+            >
+              {genBusy ? "產生中…" : `一次產生 ${noCode.length} 個店內條碼`}
+            </button>
+          </div>
+        )}
         {!list.length && <p className="muted">請先在「商品與條碼」勾選要印的款式。</p>}
       </div>
 
