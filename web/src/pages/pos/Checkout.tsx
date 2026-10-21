@@ -68,8 +68,8 @@ export function Checkout({ total, itemName, onClose, submit, onPayShow, customer
   // 顧客螢幕：非現金的部分顯示給客人（轉帳帳號／QR、LINE Pay QR）
   const mixShow = [...mixed].reverse().find((p) => p.method !== "cash");
   const lpScanShow = scanLinePay ? { method: "linepay", amount: total, scan: true } : restScan ? { method: "linepay", amount: rest, scan: true, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: "linepay", amount: rest }] } : null;
-  const showPay = lpScanShow ??
-    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" || (cardOnline && !cardLink) ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : cardLink ? null : { method, amount: total };
+  const showPay = lpScanShow ?? (
+    method === "cash" ? (rest > 0 ? { method: restMethod!, amount: rest, parts: [...(cashIn > 0 ? [{ method: "cash", amount: cashIn }] : []), { method: restMethod!, amount: rest }] } : null) : method === "mixed" ? (mixShow ? { method: mixShow.method, amount: mixShow.amount, parts: mixed } : null) : method === "online" || (cardOnline && !cardLink) ? (online?.url ? { method: "online", amount: total, url: online.url } : null) : cardLink ? null : { method, amount: total });
   const showKey = JSON.stringify(showPay);
   useEffect(() => {
     onPayShow?.(showPay);

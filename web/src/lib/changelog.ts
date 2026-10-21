@@ -11,10 +11,11 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
-    id: "2026-10-21-c",
+    id: "2026-10-21-d",
     date: "2026-10-21",
     title: "顧客螢幕會自己更新、相機開不起來可以重開",
     items: [
+      "修正：LINE Pay 結帳時顧客螢幕沒有打開相機",
       "顧客螢幕每分鐘檢查新版本，有新版會自己重新整理（不用再手動）",
       "LINE Pay 掃客人付款碼時，平板相機如果沒開成功，會出現「📷 點這裡開啟相機」",
     ],
