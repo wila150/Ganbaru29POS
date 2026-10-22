@@ -407,35 +407,93 @@ const DEFAULT_PREFS = ["長褲", "短褲", "長袖", "短袖", "外套", "套裝
 /** 喜好 → 商品分類 */
 const PREF_CATS: Record<string, string[]> = { 特價優惠: ["特價專區"], 新品通知: [] };
 
-async function replyPrefs(uid: string, toggle?: string): Promise<Msg[]> {
+const PREFS_URL = "https://asia-east1-ganbaru29.cloudfunctions.net/linePrefs";
+/** 喜好表單連結：簽章（channel secret）＋30 分鐘到期，只有本人能開 */
+async function prefsLink(uid: string) {
+  const exp = Date.now() + 30 * 60_000;
+  const sig = createHmac("sha256", (await botCreds()).channelSecret).update(`${uid}.${exp}`).digest("hex").slice(0, 32);
+  return `${PREFS_URL}?u=${encodeURIComponent(uid)}&e=${exp}&s=${sig}`;
+}
+
+async function prefOptions(): Promise<string[]> {
+  const st = await shopSettings();
+  return (st.lineBot?.prefOptions as string[] | undefined)?.length ? st.lineBot.prefOptions : DEFAULT_PREFS;
+}
+
+/** 「我的喜好」：一張卡片＋一個按鈕，打開表單一次勾完（不會每點一下就多一則訊息） */
+async function replyPrefs(uid: string): Promise<Msg[]> {
   const s = await shopperByLine(uid);
   if (!s) return replyCard(uid);
-  const st = await shopSettings();
-  const options: string[] = (st.lineBot?.prefOptions as string[] | undefined)?.length ? st.lineBot.prefOptions : DEFAULT_PREFS;
-  let likes: string[] = (s.data().likes ?? []) as string[];
-  if (toggle && options.includes(toggle)) {
-    likes = likes.includes(toggle) ? likes.filter((x) => x !== toggle) : [...likes, toggle];
-    await s.ref.update({ likes, likesAt: FieldValue.serverTimestamp() });
-  }
-  const btn = (o: string) => {
-    const on = likes.includes(o);
-    return { type: "button", style: on ? "primary" : "secondary", color: on ? "#4a3b32" : "#eae3da", height: "sm", action: { type: "postback", label: `${on ? "✓ " : ""}${o}`, data: `a=pref&v=${encodeURIComponent(o)}` } };
-  };
-  const rows = [];
-  for (let i = 0; i < options.length; i += 2) rows.push({ type: "box", layout: "horizontal", spacing: "sm", contents: options.slice(i, i + 2).map(btn).concat(options.length - i === 1 ? [{ type: "box", layout: "vertical", contents: [], flex: 1 } as never] : []) });
+  const likes: string[] = (s.data().likes ?? []) as string[];
   return [
     {
       type: "flex",
-      altText: "選擇你的喜好",
+      altText: "我的喜好",
       contents: {
         type: "bubble",
-        header: { type: "box", layout: "vertical", backgroundColor: "#4a3b32", contents: [{ type: "text", text: "MY STYLE", color: "#c9ae90", size: "sm", weight: "bold" }, { type: "text", text: "你喜歡哪些？（可複選）", color: "#ffffff", weight: "bold" }] },
-        body: { type: "box", layout: "vertical", spacing: "sm", contents: [...rows, { type: "text", text: likes.length ? `已選：${likes.join("、")}` : "點一下勾選，再點一下取消", size: "xs", color: "#6b7280", wrap: true, margin: "md" }] },
-        footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#059669", action: { type: "postback", label: "完成，看推薦", data: "a=foryou", displayText: "為你推薦" } }] },
+        header: { type: "box", layout: "vertical", backgroundColor: "#4a3b32", contents: [{ type: "text", text: "MY STYLE", color: "#c9ae90", size: "sm", weight: "bold" }, { type: "text", text: "我的喜好", color: "#ffffff", weight: "bold", size: "lg" }] },
+        body: { type: "box", layout: "vertical", spacing: "sm", contents: [{ type: "text", text: likes.length ? `目前：${likes.join("、")}` : "還沒有選喜好，選了之後「為你推薦」會更準喔！", size: "sm", color: "#3b2f28", wrap: true }] },
+        footer: {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            { type: "button", style: "primary", color: "#4a3b32", action: { type: "uri", label: likes.length ? "修改我的喜好" : "選擇我的喜好", uri: await prefsLink(uid) } },
+            { type: "button", style: "secondary", action: { type: "postback", label: "✨ 看為你推薦", data: "a=foryou", displayText: "為你推薦" } },
+          ],
+        },
       },
     },
   ];
 }
+
+const esc = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+
+/** 喜好表單頁（在 LINE 內建瀏覽器打開）：GET 顯示、POST 儲存 */
+export const linePrefs = onRequest({ maxInstances: 10 }, async (req, res) => {
+  res.set("cache-control", "no-store");
+  const u = String(req.query.u ?? req.body?.u ?? "");
+  const e = Number(req.query.e ?? req.body?.e ?? 0);
+  const sig = String(req.query.s ?? req.body?.s ?? "");
+  const page = (body: string) =>
+    res.send(`<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的喜好</title>
+<style>body{margin:0;font-family:-apple-system,"PingFang TC","Noto Sans TC",sans-serif;background:#efe6da;color:#3b2f28}
+header{background:#4a3b32;color:#fff;padding:20px 20px 16px}header small{color:#c9ae90;letter-spacing:2px;font-weight:700}header h1{margin:4px 0 0;font-size:22px}
+main{padding:18px}p{margin:0 0 14px;color:#6b5a4d;font-size:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:flex;align-items:center;justify-content:center;gap:6px;padding:14px 8px;border-radius:12px;background:#fff;border:2px solid #e2d5c4;font-size:17px;font-weight:600}
+input{display:none}input:checked+span{color:#fff}label:has(input:checked){background:#4a3b32;border-color:#4a3b32;color:#fff}
+button{margin-top:18px;width:100%;padding:15px;border:0;border-radius:12px;background:#059669;color:#fff;font-size:18px;font-weight:700}
+.ok{text-align:center;padding:40px 10px}.ok b{font-size:44px;display:block}</style></head><body>
+<header><small>MY STYLE</small><h1>我的喜好</h1></header><main>${body}</main></body></html>`);
+  try {
+    const c = await botCreds();
+    const expect = createHmac("sha256", c.channelSecret).update(`${u}.${e}`).digest("hex").slice(0, 32);
+    if (!u || !sig || sig.length !== expect.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expect)) || e < Date.now()) {
+      page(`<div class="ok"><b>⏰</b>連結已過期，請回到 LINE 再點一次「我的喜好」。</div>`);
+      return;
+    }
+    const s = await shopperByLine(u);
+    if (!s) {
+      page(`<div class="ok"><b>🙏</b>請先回到 LINE 點「會員卡」綁定會員。</div>`);
+      return;
+    }
+    const options = await prefOptions();
+    if (req.method === "POST") {
+      const raw = req.body?.likes;
+      const picked = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(String).filter((x) => options.includes(x));
+      await s.ref.update({ likes: picked, likesAt: FieldValue.serverTimestamp() });
+      page(`<div class="ok"><b>✓</b>已儲存！<br><br>${picked.length ? esc(picked.join("、")) : "（沒有選）"}<br><br>回到 LINE 點「✨ 看為你推薦」就能看到推薦商品。</div><script>setTimeout(()=>{try{window.close()}catch(e){}},1800)</script>`);
+      return;
+    }
+    const likes = (s.data().likes ?? []) as string[];
+    page(`<p>可以複選，選好按「儲存」。</p><form method="post"><input type="hidden" name="u" value="${esc(u)}"><input type="hidden" name="e" value="${e}"><input type="hidden" name="s" value="${esc(sig)}">
+<div class="grid">${options.map((o) => `<label><input type="checkbox" name="likes" value="${esc(o)}"${likes.includes(o) ? " checked" : ""}><span>${esc(o)}</span></label>`).join("")}</div>
+<button type="submit">儲存</button></form>`);
+  } catch (err) {
+    logger.error("linePrefs", err);
+    page(`<div class="ok"><b>😵</b>暫時無法儲存，請稍後再試。</div>`);
+  }
+});
 
 /** 為你推薦：看他買過的分類＋會員標籤，挑還沒買過的新品；沒資料就給最新 */
 async function replyForYou(uid: string): Promise<Msg[]> {
@@ -581,7 +639,7 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
   } else if (e.type === "postback") {
     const qp = new URLSearchParams(e.postback?.data ?? "");
     const a = qp.get("a");
-    out = a === "prefs" ? await replyPrefs(uid) : a === "pref" ? await replyPrefs(uid, qp.get("v") ?? "") : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
+    out = a === "prefs" || a === "pref" ? await replyPrefs(uid) : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
   } else if (e.type === "message" && e.message?.type === "image" && e.message.id) {
     out = await replyAiImage(uid, e.message.id);
   } else if (e.type === "message" && e.message?.type === "text") {
