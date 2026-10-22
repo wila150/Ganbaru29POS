@@ -253,6 +253,62 @@ const TAG_HINTS: [RegExp, string[]][] = [
   [/特價|優惠|折扣/, ["特價專區"]],
 ];
 
+// ---------- 找商品（關鍵字，不用 AI、免費） ----------
+
+const COLORS = ["黑", "白", "灰", "咖", "棕", "卡其", "米", "杏", "藍", "深藍", "淺藍", "綠", "軍綠", "紅", "酒紅", "粉", "紫", "黃", "橘", "奶茶", "牛仔", "深灰", "淺灰"];
+const CAT_WORDS: [RegExp, string[]][] = [
+  [/寬褲|長褲|褲子|牛仔褲|工作褲/, ["長褲"]],
+  [/短褲/, ["短褲"]],
+  [/短袖|短T|T恤|t恤|tee/i, ["短袖"]],
+  [/長袖|衛衣|大學T|襯衫/, ["長袖"]],
+  [/外套|夾克|大衣|風衣|背心/, ["外套"]],
+  [/套裝/, ["套裝"]],
+  [/包/, ["包款"]],
+];
+
+/** 把客人的話拆成條件：顏色、分類、其他關鍵字 */
+function parseQuery(q: string) {
+  const t = q.replace(/^(我)?(想|要)?(找|買|看)(一件|一條|件|條)?/, "").replace(/[，。,.!！?？]/g, " ").trim();
+  const colors = COLORS.filter((c) => t.includes(c));
+  const cats = CAT_WORDS.filter(([re]) => re.test(t)).flatMap(([, c]) => c);
+  let rest = t;
+  for (const c of colors) rest = rest.split(c).join(" ");
+  for (const [re] of CAT_WORDS) rest = rest.replace(re, " ");
+  const words = rest.replace(/色|的|有沒有|嗎|一件|一條|款/g, " ").split(/\s+/).filter((w) => w.length >= 2);
+  return { text: t, colors, cats, words };
+}
+
+async function replySearch(q: string): Promise<Msg[]> {
+  const { text: t, colors, cats, words } = parseQuery(q);
+  if (!t) return [text("想找什麼呢？例如：「找 咖啡色短袖」「找 寬褲」「找 外套」", MENU)];
+  const vs = await db.collection("variants").where("active", "==", true).where("productStatus", "==", "LISTED").select("productId", "productTitle", "options", "price", "listPrice", "imageUrl", "shopCreatedAt", "tags", "posCategory").get();
+  const byP = new Map<string, P & { opts: string[] }>();
+  for (const d of vs.docs) {
+    const v = d.data();
+    const cur = byP.get(v.productId);
+    if (cur) {
+      cur.opts.push(v.options ?? "");
+      if (!cur.imageUrl && v.imageUrl) cur.imageUrl = v.imageUrl;
+    } else byP.set(v.productId, { ...v, productId: v.productId, cats: [...new Set([v.posCategory, ...(v.tags ?? [])].filter(Boolean) as string[])], at: v.shopCreatedAt?.toMillis?.() ?? 0, opts: [v.options ?? ""] });
+  }
+  const scored = [...byP.values()]
+    .filter((p) => p.imageUrl?.startsWith("https://"))
+    .map((p) => {
+      const hay = `${p.productTitle} ${p.opts.join(" ")}`;
+      let score = 0;
+      if (cats.length) score += cats.some((c) => p.cats.includes(c) || hay.includes(c.replace("長", ""))) ? 5 : -10;
+      for (const c of colors) score += hay.includes(c) ? 4 : -3;
+      for (const w of words) score += hay.includes(w) ? 3 : 0;
+      if (!cats.length && !colors.length && !words.some((w) => hay.includes(w)) && !hay.includes(t)) score -= 10;
+      if (hay.includes(t)) score += 6;
+      return { p, score };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score || b.p.at - a.p.at);
+  if (!scored.length) return [text(`找不到「${t}」相關的商品 🙏\n可以換個說法試試，例如「找 黑色長褲」，或點「新品」看看最近上架的。`, MENU)];
+  return [text(`幫你找到 ${Math.min(scored.length, 10)} 款「${t}」👇`), await carousel(scored.map((r) => r.p), `找商品：${t}`)];
+}
+
 /** 客人自己勾的喜好選項（可在設定頁改 lineBot.prefOptions） */
 const DEFAULT_PREFS = ["長褲", "短褲", "長袖", "短袖", "外套", "套裝", "包款", "特價優惠", "新品通知"];
 /** 喜好 → 商品分類 */
@@ -402,6 +458,7 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
   }
   if (/會員卡|會員/.test(t)) return replyCard(uid);
   if (/消費|紀錄|購物金|點數/.test(t)) return replyHistory(uid);
+  if (/^(我)?(想|要)?(找|搜尋|搜)/.test(t) || /有沒有.+(褲|袖|衣|外套|包|裙)/.test(t)) return replySearch(t);
   if (/喜好|偏好|我的風格/.test(t)) return replyPrefs(uid);
   if (/推薦|喜歡|適合我/.test(t)) return replyForYou(uid);
   if (/新品|新貨|上新/.test(t)) return replyNew();
