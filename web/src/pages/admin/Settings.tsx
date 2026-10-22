@@ -1,4 +1,4 @@
-import { collection, doc, onSnapshot, orderBy, query, setDoc, type Timestamp } from "firebase/firestore";
+import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, type Timestamp } from "firebase/firestore";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth";
@@ -1055,7 +1055,8 @@ function AiLearnPanel() {
   useEffect(() => {
     load();
   }, []);
-  const saveSyn = (list: [string, string][]) => run(() => setDoc(doc(db, "settings", "shop"), { lineBot: { synonyms: Object.fromEntries(list) } }, { merge: true }), "已儲存同義詞");
+  // 用 updateDoc 指定欄位路徑：整份同義詞換掉（merge 的話刪掉的字不會真的消失）
+  const saveSyn = (list: [string, string][]) => run(() => updateDoc(doc(db, "settings", "shop"), { "lineBot.synonyms": Object.fromEntries(list) }), "已儲存同義詞");
   return (
     <>
       <h3>AI 找商品</h3>
