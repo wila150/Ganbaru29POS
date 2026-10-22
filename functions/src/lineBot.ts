@@ -67,6 +67,7 @@ const text = (t: string, quick?: [string, string][]): Msg => ({
 });
 const MENU: [string, string][] = [
   ["會員卡", "a=card"],
+  ["為你推薦", "a=foryou"],
   ["消費紀錄", "a=history"],
   ["新品", "a=new"],
   ["本月活動", "a=promo"],
@@ -102,8 +103,10 @@ async function replyCard(uid: string): Promise<Msg[]> {
       altText: `${x.name || "會員"} 的會員卡`,
       contents: {
         type: "bubble",
-        header: { type: "box", layout: "vertical", backgroundColor: "#1f2937", contents: [{ type: "text", text: "ganbaru29 會員卡", color: "#ffffff", weight: "bold", size: "lg" }, { type: "text", text: group, color: "#d1d5db", size: "sm" }] },
-        hero: { type: "image", url: `${CARD_IMG}?t=${x.cardToken}`, size: "full", aspectRatio: "1:1", aspectMode: "fit", backgroundColor: "#ffffff", action: { type: "postback", data: "a=barcode", displayText: "放大會員條碼" } },
+        size: "giga",
+        header: { type: "box", layout: "vertical", backgroundColor: "#4a3b32", contents: [{ type: "text", text: "ganbaru29 會員卡", color: "#ffffff", weight: "bold", size: "lg" }, { type: "text", text: group, color: "#d1d5db", size: "sm" }] },
+        // 條碼直接放大顯示在卡片上，結帳時打開就能掃，不用再點放大
+        hero: { type: "image", url: `${CARD_IMG}?t=${x.cardToken}`, size: "full", aspectRatio: "1:1", aspectMode: "fit", backgroundColor: "#ffffff" },
         body: {
           type: "box",
           layout: "vertical",
@@ -119,8 +122,8 @@ async function replyCard(uid: string): Promise<Msg[]> {
           layout: "vertical",
           spacing: "sm",
           contents: [
-            { type: "button", style: "primary", color: "#059669", action: { type: "postback", label: "放大條碼（結帳給店員掃）", data: "a=barcode", displayText: "放大會員條碼" } },
             { type: "button", style: "secondary", action: { type: "postback", label: "消費紀錄", data: "a=history", displayText: "消費紀錄" } },
+            { type: "button", style: "secondary", action: { type: "postback", label: "✨ 為你推薦", data: "a=foryou", displayText: "為你推薦" } },
           ],
         },
       },
@@ -188,46 +191,99 @@ async function replyHistory(uid: string): Promise<Msg[]> {
   ];
 }
 
-async function replyNew(sale = false): Promise<Msg[]> {
-  const st = await shopSettings();
-  const site = (st.siteBaseUrl || DEFAULT_SITE).replace(/\/$/, "");
-  const vs = await db.collection("variants").where("active", "==", true).where("productStatus", "==", "LISTED").select("productId", "productTitle", "price", "listPrice", "imageUrl", "shopCreatedAt").get();
-  const byProduct = new Map<string, FirebaseFirestore.DocumentData>();
+type P = FirebaseFirestore.DocumentData & { productId: string; cats: string[]; at: number };
+
+/** 上架中的商品（一個商品一筆，帶分類與上架時間） */
+async function listedProducts(): Promise<P[]> {
+  const vs = await db.collection("variants").where("active", "==", true).where("productStatus", "==", "LISTED").select("productId", "productTitle", "price", "listPrice", "imageUrl", "shopCreatedAt", "tags", "posCategory").get();
+  const byProduct = new Map<string, P>();
   for (const d of vs.docs) {
     const v = d.data();
     const cur = byProduct.get(v.productId);
-    if (!cur || (!cur.imageUrl && v.imageUrl)) byProduct.set(v.productId, v);
+    if (!cur || (!cur.imageUrl && v.imageUrl)) byProduct.set(v.productId, { ...v, productId: v.productId, cats: [...new Set([v.posCategory, ...(v.tags ?? [])].filter(Boolean) as string[])], at: v.shopCreatedAt?.toMillis?.() ?? 0 });
   }
-  const list = [...byProduct.values()]
-    .filter((v) => v.imageUrl?.startsWith("https://") && (!sale || (v.listPrice ?? 0) > v.price))
-    .sort((a, b) => (b.shopCreatedAt?.toMillis?.() ?? 0) - (a.shopCreatedAt?.toMillis?.() ?? 0))
-    .slice(0, 10);
-  if (!list.length) return [text(sale ? "目前沒有特價商品，請到官網看看！" : "新品整理中，請到官網看看！", MENU)];
-  return [
-    {
-      type: "flex",
-      altText: sale ? "ganbaru29 限時特惠" : "ganbaru29 新品",
-      contents: {
-        type: "carousel",
-        contents: list.map((v) => ({
-          type: "bubble",
-          size: "kilo",
-          hero: { type: "image", url: v.imageUrl, size: "full", aspectRatio: "3:4", aspectMode: "cover", action: { type: "uri", uri: `${site}/products/${v.productId}` } },
-          body: {
-            type: "box",
-            layout: "vertical",
-            spacing: "xs",
-            contents: [
-              { type: "text", text: v.productTitle, weight: "bold", size: "sm", wrap: true, maxLines: 2 },
-              ...((v.listPrice ?? 0) > v.price ? [{ type: "text", text: `$${Number(v.listPrice).toLocaleString("en-US")}`, size: "xs", color: "#9ca3af", decoration: "line-through" }] : []),
-              { type: "text", text: $(v.price), weight: "bold", color: (v.listPrice ?? 0) > v.price ? "#b91c1c" : "#111827" },
-            ],
-          },
-          footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#1f2937", height: "sm", action: { type: "uri", label: "看商品", uri: `${site}/products/${v.productId}` } }] },
-        })),
-      },
+  return [...byProduct.values()].filter((v) => v.imageUrl?.startsWith("https://"));
+}
+
+async function carousel(list: P[], alt: string): Promise<Msg> {
+  const st = await shopSettings();
+  const site = (st.siteBaseUrl || DEFAULT_SITE).replace(/\/$/, "");
+  return {
+    type: "flex",
+    altText: alt,
+    contents: {
+      type: "carousel",
+      contents: list.slice(0, 10).map((v) => ({
+        type: "bubble",
+        size: "kilo",
+        hero: { type: "image", url: v.imageUrl, size: "full", aspectRatio: "3:4", aspectMode: "cover", action: { type: "uri", uri: `${site}/products/${v.productId}` } },
+        body: {
+          type: "box",
+          layout: "vertical",
+          spacing: "xs",
+          contents: [
+            { type: "text", text: v.productTitle, weight: "bold", size: "sm", wrap: true, maxLines: 2 },
+            ...((v.listPrice ?? 0) > v.price ? [{ type: "text", text: `$${Number(v.listPrice).toLocaleString("en-US")}`, size: "xs", color: "#9ca3af", decoration: "line-through" }] : []),
+            { type: "text", text: $(v.price), weight: "bold", color: (v.listPrice ?? 0) > v.price ? "#b91c1c" : "#111827" },
+          ],
+        },
+        footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#4a3b32", height: "sm", action: { type: "uri", label: "看商品", uri: `${site}/products/${v.productId}` } }] },
+      })),
     },
-  ];
+  };
+}
+
+async function replyNew(sale = false): Promise<Msg[]> {
+  const list = (await listedProducts()).filter((v) => !sale || (v.listPrice ?? 0) > v.price).sort((a, b) => b.at - a.at);
+  if (!list.length) return [text(sale ? "目前沒有特價商品，請到官網看看！" : "新品整理中，請到官網看看！", MENU)];
+  return [await carousel(list, sale ? "ganbaru29 限時特惠" : "ganbaru29 新品")];
+}
+
+/** 會員標籤 → 商品分類關鍵字（例：常買褲子 → 長褲、短褲） */
+const TAG_HINTS: [RegExp, string[]][] = [
+  [/褲/, ["長褲", "短褲", "褲"]],
+  [/外套|夾克|大衣/, ["外套"]],
+  [/上衣|T|短袖/, ["短袖", "上衣"]],
+  [/長袖|襯衫|衛衣/, ["長袖"]],
+  [/套裝/, ["套裝"]],
+  [/包/, ["包款"]],
+  [/特價|優惠|折扣/, ["特價專區"]],
+];
+
+/** 為你推薦：看他買過的分類＋會員標籤，挑還沒買過的新品；沒資料就給最新 */
+async function replyForYou(uid: string): Promise<Msg[]> {
+  const s = await shopperByLine(uid);
+  if (!s) return replyCard(uid);
+  const x = s.data();
+  const [store, online, all] = await Promise.all([
+    db.collection("posOrders").where("shopper.id", "==", s.id).orderBy("createdAt", "desc").limit(20).get(),
+    meep.ordersPage({ first: 20, query: { shopperId: s.id } }).catch(() => null),
+    listedProducts(),
+  ]);
+  const boughtVariantIds = new Set<string>([
+    ...store.docs.flatMap((d) => ((d.data().lines ?? []) as { variantId: string }[]).map((l) => l.variantId)),
+    ...(online?.edges ?? []).flatMap((e) => (e.node?.lineItems ?? []).map((l) => l.variant?.id).filter(Boolean) as string[]),
+  ]);
+  const boughtSnaps = boughtVariantIds.size ? await db.getAll(...[...boughtVariantIds].slice(0, 100).map((id) => db.doc(`variants/${id}`))) : [];
+  const weight = new Map<string, number>();
+  const boughtProducts = new Set<string>();
+  for (const v of boughtSnaps) {
+    const d = v.data();
+    if (!d) continue;
+    boughtProducts.add(d.productId);
+    for (const c of [d.posCategory, ...(d.tags ?? [])].filter(Boolean) as string[]) if (c !== "29 STUDIO") weight.set(c, (weight.get(c) ?? 0) + 2);
+  }
+  for (const t of (x.tags ?? []) as string[]) for (const [re, cats] of TAG_HINTS) if (re.test(t)) cats.forEach((c) => weight.set(c, (weight.get(c) ?? 0) + 3));
+  const newest = Math.max(...all.map((p) => p.at), 0);
+  const scored = all
+    .filter((p) => !boughtProducts.has(p.productId))
+    .map((p) => ({ p, score: p.cats.reduce((a, c) => a + (weight.get(c) ?? 0), 0) + Math.max(0, 2 - (newest - p.at) / (30 * 86400_000)) }))
+    .sort((a, b) => b.score - a.score || b.p.at - a.p.at);
+  const personal = weight.size > 0;
+  const pick = scored.slice(0, 10).map((r) => r.p);
+  if (!pick.length) return replyNew();
+  const top = [...weight.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([c]) => c);
+  return [text(personal ? `${x.name || ""} 您好！依你常買的「${top.join("、")}」挑了這些 👇` : "先推薦你最新上架的商品，買過幾次之後會越推越準 👇"), await carousel(pick, "為你推薦")];
 }
 
 async function replyPromo(): Promise<Msg[]> {
@@ -306,6 +362,7 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
   }
   if (/會員卡|會員/.test(t)) return replyCard(uid);
   if (/消費|紀錄|購物金|點數/.test(t)) return replyHistory(uid);
+  if (/推薦|喜歡|適合我/.test(t)) return replyForYou(uid);
   if (/新品|新貨|上新/.test(t)) return replyNew();
   if (/特價|特惠|出清|sale/i.test(t)) return replyNew(true);
   if (/客服|真人|聯絡/.test(t)) return [text("收到了！客服會盡快回覆您 🙏\n可以先告訴我們：想問的商品（或截圖）、身高體重，或訂單編號。")];
@@ -327,7 +384,7 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
     return;
   } else if (e.type === "postback") {
     const a = new URLSearchParams(e.postback?.data ?? "").get("a");
-    out = a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
+    out = a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
   } else if (e.type === "message" && e.message?.type === "text") {
     out = await handleText(uid, e.message.text ?? "");
   }
