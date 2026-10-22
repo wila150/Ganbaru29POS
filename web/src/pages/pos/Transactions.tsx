@@ -359,11 +359,12 @@ function RefundDialog({ order: o, onClose }: { order: PosOrder; onClose: () => v
 // ---------- 會員：用手機查 meepShop 會員、現場新增、看消費紀錄 ----------
 
 function ShopperTagLine({ id }: { id: string }) {
-  const { tags, pref } = useShopperPrefs(id);
+  const { tags, pref, likes } = useShopperPrefs(id);
   return (
     <>
       {tags.length ? <TagChips tags={tags} /> : <span className="muted">沒有標籤</span>}
       {pref && <div className="member-pref">💬 喜好：{pref}</div>}
+      {likes.length > 0 && <div className="member-pref">❤️ 客人自選（LINE）：{likes.join("、")}</div>}
     </>
   );
 }

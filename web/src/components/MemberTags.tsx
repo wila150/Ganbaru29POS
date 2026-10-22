@@ -19,11 +19,12 @@ export function useShopperTags(shopperId: string | null | undefined): string[] {
 }
 
 /** 標籤＋喜好備註（即時） */
-export function useShopperPrefs(shopperId: string | null | undefined): { tags: string[]; pref: string } {
-  const [v, setV] = useState<{ tags: string[]; pref: string }>({ tags: [], pref: "" });
+export function useShopperPrefs(shopperId: string | null | undefined): { tags: string[]; pref: string; likes: string[] } {
+  const [v, setV] = useState<{ tags: string[]; pref: string; likes: string[] }>({ tags: [], pref: "", likes: [] });
   useEffect(() => {
-    if (!shopperId) return setV({ tags: [], pref: "" });
-    return onSnapshot(doc(db, "shoppers", shopperId), (d) => setV({ tags: (d.data()?.tags as string[]) ?? [], pref: (d.data()?.prefNote as string) ?? "" }));
+    if (!shopperId) return setV({ tags: [], pref: "", likes: [] });
+    // likes = 客人自己在 LINE「我的喜好」勾選的
+    return onSnapshot(doc(db, "shoppers", shopperId), (d) => setV({ tags: (d.data()?.tags as string[]) ?? [], pref: (d.data()?.prefNote as string) ?? "", likes: (d.data()?.likes as string[]) ?? [] }));
   }, [shopperId]);
   return v;
 }

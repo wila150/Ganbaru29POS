@@ -11,6 +11,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-22-e",
+    date: "2026-10-22",
+    title: "LINE：客人自選喜好、為你推薦",
+    items: [
+      "客人在 LINE 會員卡按「❤️ 我的喜好」，可以自己勾長褲、外套、短袖、特價優惠…",
+      "「✨ 為你推薦」會依客人勾的喜好、買過的分類、店員貼的標籤，推薦還沒買過的商品",
+      "POS 會員視窗、會員頁會顯示「❤️ 客人自選喜好（LINE）」",
+    ],
+  },
+  {
     id: "2026-10-22-d",
     date: "2026-10-22",
     title: "LINE 官方帳號串接",

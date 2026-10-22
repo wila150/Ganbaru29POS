@@ -769,7 +769,7 @@ function LineEditor({ line, title, onClose, onSave, onDelete }: { line: CartLine
 
 /** 會員視窗上方：群組（meepShop，唯讀）＋本系統標籤（可編輯） */
 function CurrentMemberTags({ current }: { current: Shopper }) {
-  const { tags, pref } = useShopperPrefs(current.id);
+  const { tags, pref, likes } = useShopperPrefs(current.id);
   const [editing, setEditing] = useState(false);
   // 最近在門市買過的東西（最近 5 張單）
   const [bought, setBought] = useState<string[] | null>(null);
@@ -792,6 +792,7 @@ function CurrentMemberTags({ current }: { current: Shopper }) {
         編輯標籤／喜好
       </button>
       {pref && <div className="member-pref">💬 {pref}</div>}
+      {likes.length > 0 && <div className="member-pref">❤️ 客人自選喜好（LINE）：{likes.join("、")}</div>}
       {bought && bought.length > 0 && <div className="member-pref bought">🛍 最近在門市買過：{bought.join("、")}</div>}
       {editing && <MemberTagEditor shopperId={current.id} name={current.name || current.mobile} onClose={() => setEditing(false)} />}
     </div>

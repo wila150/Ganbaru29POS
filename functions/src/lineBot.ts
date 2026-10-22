@@ -123,7 +123,10 @@ async function replyCard(uid: string): Promise<Msg[]> {
           spacing: "sm",
           contents: [
             { type: "button", style: "secondary", action: { type: "postback", label: "消費紀錄", data: "a=history", displayText: "消費紀錄" } },
-            { type: "button", style: "secondary", action: { type: "postback", label: "✨ 為你推薦", data: "a=foryou", displayText: "為你推薦" } },
+            { type: "box", layout: "horizontal", spacing: "sm", contents: [
+              { type: "button", style: "secondary", action: { type: "postback", label: "✨ 為你推薦", data: "a=foryou", displayText: "為你推薦" } },
+              { type: "button", style: "secondary", action: { type: "postback", label: "❤️ 我的喜好", data: "a=prefs", displayText: "我的喜好" } },
+            ] },
           ],
         },
       },
@@ -250,6 +253,41 @@ const TAG_HINTS: [RegExp, string[]][] = [
   [/特價|優惠|折扣/, ["特價專區"]],
 ];
 
+/** 客人自己勾的喜好選項（可在設定頁改 lineBot.prefOptions） */
+const DEFAULT_PREFS = ["長褲", "短褲", "長袖", "短袖", "外套", "套裝", "包款", "特價優惠", "新品通知"];
+/** 喜好 → 商品分類 */
+const PREF_CATS: Record<string, string[]> = { 特價優惠: ["特價專區"], 新品通知: [] };
+
+async function replyPrefs(uid: string, toggle?: string): Promise<Msg[]> {
+  const s = await shopperByLine(uid);
+  if (!s) return replyCard(uid);
+  const st = await shopSettings();
+  const options: string[] = (st.lineBot?.prefOptions as string[] | undefined)?.length ? st.lineBot.prefOptions : DEFAULT_PREFS;
+  let likes: string[] = (s.data().likes ?? []) as string[];
+  if (toggle && options.includes(toggle)) {
+    likes = likes.includes(toggle) ? likes.filter((x) => x !== toggle) : [...likes, toggle];
+    await s.ref.update({ likes, likesAt: FieldValue.serverTimestamp() });
+  }
+  const btn = (o: string) => {
+    const on = likes.includes(o);
+    return { type: "button", style: on ? "primary" : "secondary", color: on ? "#4a3b32" : "#eae3da", height: "sm", action: { type: "postback", label: `${on ? "✓ " : ""}${o}`, data: `a=pref&v=${encodeURIComponent(o)}` } };
+  };
+  const rows = [];
+  for (let i = 0; i < options.length; i += 2) rows.push({ type: "box", layout: "horizontal", spacing: "sm", contents: options.slice(i, i + 2).map(btn).concat(options.length - i === 1 ? [{ type: "box", layout: "vertical", contents: [], flex: 1 } as never] : []) });
+  return [
+    {
+      type: "flex",
+      altText: "選擇你的喜好",
+      contents: {
+        type: "bubble",
+        header: { type: "box", layout: "vertical", backgroundColor: "#4a3b32", contents: [{ type: "text", text: "MY STYLE", color: "#c9ae90", size: "sm", weight: "bold" }, { type: "text", text: "你喜歡哪些？（可複選）", color: "#ffffff", weight: "bold" }] },
+        body: { type: "box", layout: "vertical", spacing: "sm", contents: [...rows, { type: "text", text: likes.length ? `已選：${likes.join("、")}` : "點一下勾選，再點一下取消", size: "xs", color: "#6b7280", wrap: true, margin: "md" }] },
+        footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#059669", action: { type: "postback", label: "完成，看推薦", data: "a=foryou", displayText: "為你推薦" } }] },
+      },
+    },
+  ];
+}
+
 /** 為你推薦：看他買過的分類＋會員標籤，挑還沒買過的新品；沒資料就給最新 */
 async function replyForYou(uid: string): Promise<Msg[]> {
   const s = await shopperByLine(uid);
@@ -274,6 +312,8 @@ async function replyForYou(uid: string): Promise<Msg[]> {
     for (const c of [d.posCategory, ...(d.tags ?? [])].filter(Boolean) as string[]) if (c !== "29 STUDIO") weight.set(c, (weight.get(c) ?? 0) + 2);
   }
   for (const t of (x.tags ?? []) as string[]) for (const [re, cats] of TAG_HINTS) if (re.test(t)) cats.forEach((c) => weight.set(c, (weight.get(c) ?? 0) + 3));
+  // 客人自己勾的喜好最準
+  for (const l of (x.likes ?? []) as string[]) for (const c of PREF_CATS[l] ?? [l]) weight.set(c, (weight.get(c) ?? 0) + 4);
   const newest = Math.max(...all.map((p) => p.at), 0);
   const scored = all
     .filter((p) => !boughtProducts.has(p.productId))
@@ -362,6 +402,7 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
   }
   if (/會員卡|會員/.test(t)) return replyCard(uid);
   if (/消費|紀錄|購物金|點數/.test(t)) return replyHistory(uid);
+  if (/喜好|偏好|我的風格/.test(t)) return replyPrefs(uid);
   if (/推薦|喜歡|適合我/.test(t)) return replyForYou(uid);
   if (/新品|新貨|上新/.test(t)) return replyNew();
   if (/特價|特惠|出清|sale/i.test(t)) return replyNew(true);
@@ -383,8 +424,9 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
     await db.doc(`lineFollowers/${uid}`).set({ blocked: true, unfollowedAt: FieldValue.serverTimestamp() }, { merge: true });
     return;
   } else if (e.type === "postback") {
-    const a = new URLSearchParams(e.postback?.data ?? "").get("a");
-    out = a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
+    const qp = new URLSearchParams(e.postback?.data ?? "");
+    const a = qp.get("a");
+    out = a === "prefs" ? await replyPrefs(uid) : a === "pref" ? await replyPrefs(uid, qp.get("v") ?? "") : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
   } else if (e.type === "message" && e.message?.type === "text") {
     out = await handleText(uid, e.message.text ?? "");
   }
