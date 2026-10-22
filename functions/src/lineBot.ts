@@ -1,4 +1,7 @@
+import bwipjs from "bwip-js";
 import { createHmac, timingSafeEqual } from "crypto";
+import QRCode from "qrcode";
+import sharp from "sharp";
 import { logger } from "firebase-functions";
 import { onCall, onRequest } from "firebase-functions/v2/https";
 import { ensureMemberCodes } from "./cards";
@@ -18,7 +21,8 @@ import { mobileKeyCandidates } from "./sync";
 
 const API = "https://api.line.me/v2/bot";
 const DEFAULT_SITE = "https://www.ganbaru29.com";
-const CARD_BASE = "https://ganbaru29.web.app/card";
+// 會員條碼圖片（放在 LINE 聊天室裡，客人不會被帶到 POS 網站）
+const CARD_IMG = "https://asia-east1-ganbaru29.cloudfunctions.net/lineCardImage";
 
 type Msg = Record<string, unknown>;
 
@@ -99,6 +103,7 @@ async function replyCard(uid: string): Promise<Msg[]> {
       contents: {
         type: "bubble",
         header: { type: "box", layout: "vertical", backgroundColor: "#1f2937", contents: [{ type: "text", text: "ganbaru29 會員卡", color: "#ffffff", weight: "bold", size: "lg" }, { type: "text", text: group, color: "#d1d5db", size: "sm" }] },
+        hero: { type: "image", url: `${CARD_IMG}?t=${x.cardToken}`, size: "full", aspectRatio: "1:1", aspectMode: "fit", backgroundColor: "#ffffff", action: { type: "postback", data: "a=barcode", displayText: "放大會員條碼" } },
         body: {
           type: "box",
           layout: "vertical",
@@ -114,13 +119,22 @@ async function replyCard(uid: string): Promise<Msg[]> {
           layout: "vertical",
           spacing: "sm",
           contents: [
-            { type: "button", style: "primary", color: "#059669", action: { type: "uri", label: "顯示會員條碼（結帳用）", uri: `${CARD_BASE}/${x.cardToken}` } },
+            { type: "button", style: "primary", color: "#059669", action: { type: "postback", label: "放大條碼（結帳給店員掃）", data: "a=barcode", displayText: "放大會員條碼" } },
             { type: "button", style: "secondary", action: { type: "postback", label: "消費紀錄", data: "a=history", displayText: "消費紀錄" } },
           ],
         },
       },
     },
   ];
+}
+
+/** 放大條碼：用 LINE 內建看圖畫面全螢幕顯示 */
+async function replyBarcode(uid: string): Promise<Msg[]> {
+  const s = await shopperByLine(uid);
+  if (!s) return replyCard(uid);
+  await ensureMemberCodes([s.id]);
+  const url = `${CARD_IMG}?t=${(await s.ref.get()).data()!.cardToken}`;
+  return [{ type: "image", originalContentUrl: url, previewImageUrl: url }, text("結帳時請把這張條碼給店員掃描 🙏", MENU)];
 }
 
 async function replyHistory(uid: string): Promise<Msg[]> {
@@ -298,7 +312,7 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
     return;
   } else if (e.type === "postback") {
     const a = new URLSearchParams(e.postback?.data ?? "").get("a");
-    out = a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
+    out = a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
   } else if (e.type === "message" && e.message?.type === "text") {
     out = await handleText(uid, e.message.text ?? "");
   }
@@ -362,4 +376,29 @@ export const setLineRichMenu = onCall(async (req) => {
   else await lineApi("/user/all/richmenu", undefined, "DELETE");
   await db.doc("settings/shop").set({ lineBot: { richMenuOn: !!req.data?.on } }, { merge: true });
   return { ok: true };
+});
+
+/** 會員條碼圖片：QR＋一維條碼＋會員編號（t = 會員卡 token） */
+export const lineCardImage = onRequest({ maxInstances: 10, memory: "512MiB" }, async (req, res) => {
+  const t = String(req.query.t ?? "").replace(/[^0-9a-f]/gi, "");
+  const q = t.length >= 16 ? await db.collection("shoppers").where("cardToken", "==", t).limit(1).get() : null;
+  const code = q?.docs[0]?.data().memberCode as string | undefined;
+  if (!code) {
+    res.status(404).send("not found");
+    return;
+  }
+  const W = 1000;
+  const qr = await QRCode.toBuffer(code, { width: 560, margin: 1, errorCorrectionLevel: "M" });
+  const bar = await bwipjs.toBuffer({ bcid: "code128", text: code, scale: 4, height: 18, includetext: true, textsize: 13, textxalign: "center" });
+  const barMeta = await sharp(bar).metadata();
+  const barW = Math.min(W - 80, barMeta.width ?? 800);
+  const barImg = await sharp(bar).resize({ width: barW }).toBuffer();
+  const png = await sharp({ create: { width: W, height: W, channels: 3, background: "#ffffff" } })
+    .composite([
+      { input: qr, top: 40, left: (W - 560) / 2 },
+      { input: barImg, top: 640, left: Math.round((W - barW) / 2) },
+    ])
+    .png()
+    .toBuffer();
+  res.set("content-type", "image/png").set("cache-control", "public, max-age=86400").send(png);
 });
