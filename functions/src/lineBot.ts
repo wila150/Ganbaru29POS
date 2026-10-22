@@ -188,7 +188,7 @@ async function replyHistory(uid: string): Promise<Msg[]> {
   ];
 }
 
-async function replyNew(): Promise<Msg[]> {
+async function replyNew(sale = false): Promise<Msg[]> {
   const st = await shopSettings();
   const site = (st.siteBaseUrl || DEFAULT_SITE).replace(/\/$/, "");
   const vs = await db.collection("variants").where("active", "==", true).where("productStatus", "==", "LISTED").select("productId", "productTitle", "price", "listPrice", "imageUrl", "shopCreatedAt").get();
@@ -199,14 +199,14 @@ async function replyNew(): Promise<Msg[]> {
     if (!cur || (!cur.imageUrl && v.imageUrl)) byProduct.set(v.productId, v);
   }
   const list = [...byProduct.values()]
-    .filter((v) => v.imageUrl?.startsWith("https://"))
+    .filter((v) => v.imageUrl?.startsWith("https://") && (!sale || (v.listPrice ?? 0) > v.price))
     .sort((a, b) => (b.shopCreatedAt?.toMillis?.() ?? 0) - (a.shopCreatedAt?.toMillis?.() ?? 0))
     .slice(0, 10);
-  if (!list.length) return [text("新品整理中，請到官網看看！", MENU)];
+  if (!list.length) return [text(sale ? "目前沒有特價商品，請到官網看看！" : "新品整理中，請到官網看看！", MENU)];
   return [
     {
       type: "flex",
-      altText: "ganbaru29 新品",
+      altText: sale ? "ganbaru29 限時特惠" : "ganbaru29 新品",
       contents: {
         type: "carousel",
         contents: list.map((v) => ({
@@ -294,6 +294,8 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
   if (/會員卡|會員/.test(t)) return replyCard(uid);
   if (/消費|紀錄|購物金|點數/.test(t)) return replyHistory(uid);
   if (/新品|新貨|上新/.test(t)) return replyNew();
+  if (/特價|特惠|出清|sale/i.test(t)) return replyNew(true);
+  if (/客服|真人|聯絡/.test(t)) return [text("收到了！客服會盡快回覆您 🙏\n可以先告訴我們：想問的商品（或截圖）、身高體重，或訂單編號。")];
   if (/活動|優惠|折扣/.test(t)) return replyPromo();
   if (/門市|地址|營業|電話|地圖|在哪/.test(t)) return replyStore();
   return null; // 其他訊息交給店家在 LINE 後台手動回覆
@@ -312,7 +314,7 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
     return;
   } else if (e.type === "postback") {
     const a = new URLSearchParams(e.postback?.data ?? "").get("a");
-    out = a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
+    out = a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
   } else if (e.type === "message" && e.message?.type === "text") {
     out = await handleText(uid, e.message.text ?? "");
   }
