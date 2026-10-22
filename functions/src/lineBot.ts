@@ -566,6 +566,11 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
   const uid = e.source?.userId;
   if (!uid || !e.replyToken) return;
   let out: Msg[] | null = null;
+  // 聊天室顯示「…」輸入中動畫（回覆送到就自動消失；不算訊息則數）。AI 找商品（圖片、找…）比較久，給長一點
+  if (e.type === "postback" || e.type === "message") {
+    const slow = e.message?.type === "image" || /^(我)?(想|要)?(找|搜)|有沒有|適合|推薦|喜歡/.test(e.message?.text ?? "") || /a=(foryou|history|new|sale)/.test(e.postback?.data ?? "");
+    lineApi("/chat/loading/start", { chatId: uid, loadingSeconds: slow ? 30 : 10 }).catch(() => undefined);
+  }
   if (e.type === "follow") {
     const st = await shopSettings();
     out = [text(`歡迎加入 ${st.shopName || "ganbaru29"}！👋\n點下方選單可以看會員卡、消費紀錄、新品和本月活動。\n第一次使用請先點「會員卡」綁定會員。`, MENU)];
