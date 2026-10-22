@@ -124,7 +124,7 @@ export interface ShopSettings {
   /** 結帳完自動寄消費明細（沒設定 = 開） */
   autoReceiptMail?: boolean;
   /** LINE 官方帳號：門市資訊、本月活動、圖文選單 */
-  lineBot?: { address?: string; hours?: string; phone?: string; lat?: string; lng?: string; monthlyText?: string; monthlyImageUrl?: string; richMenuId?: string; richMenuOn?: boolean };
+  lineBot?: { mapUrl?: string; address?: string; hours?: string; phone?: string; lat?: string; lng?: string; monthlyText?: string; monthlyImageUrl?: string; richMenuId?: string; richMenuOn?: boolean };
   /** 顧客螢幕付款畫面：轉帳帳號、轉帳 QR、LINE Pay 收款 QR */
   payDisplay?: { transferBank?: string; transferAccount?: string; transferName?: string; transferQrUrl?: string; linepayQrUrl?: string };
   payMethods?: { key: string; label: string; enabled: boolean; feePct?: number }[];

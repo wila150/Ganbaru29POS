@@ -245,17 +245,30 @@ async function replyPromo(): Promise<Msg[]> {
 async function replyStore(): Promise<Msg[]> {
   const st = await shopSettings();
   const info = st.lineBot ?? {};
-  const out: Msg[] = [];
-  if (info.lat && info.lng && info.address) out.push({ type: "location", title: st.shopName || "ganbaru29", address: info.address, latitude: Number(info.lat), longitude: Number(info.lng) });
-  const map = info.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(info.address)}` : "";
-  out.push(
-    text(
-      [`📍 ${st.shopName || "ganbaru29"} 門市`, info.address && `地址：${info.address}`, info.hours && `營業時間：${info.hours}`, info.phone && `電話：${info.phone}`, map && `地圖：${map}`].filter(Boolean).join("\n") ||
-        "門市資訊整理中",
-      MENU
-    )
-  );
-  return out;
+  const name = st.shopName === "ganbaru29" || !st.shopName ? "29 STUDIO 台中門市" : st.shopName;
+  const map = info.mapUrl || (info.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(info.address)}` : info.lat && info.lng ? `https://www.google.com/maps/search/?api=1&query=${info.lat},${info.lng}` : "");
+  const row = (k: string, v?: string) => (v ? [{ type: "box", layout: "baseline", spacing: "md", contents: [{ type: "text", text: k, size: "sm", color: "#8a7a6d", flex: 2 }, { type: "text", text: v, size: "sm", color: "#3b2f28", flex: 7, wrap: true }] }] : []);
+  return [
+    {
+      type: "flex",
+      altText: `${name}：${info.address ?? "門市資訊"}`,
+      contents: {
+        type: "bubble",
+        header: { type: "box", layout: "vertical", backgroundColor: "#4a3b32", contents: [{ type: "text", text: "STORE", color: "#c9ae90", size: "sm", weight: "bold" }, { type: "text", text: name, color: "#ffffff", weight: "bold", size: "lg" }] },
+        body: { type: "box", layout: "vertical", spacing: "md", contents: [...row("地址", info.address), ...row("營業", info.hours), ...row("電話", info.phone), ...(!info.address && !info.hours && !info.phone ? [{ type: "text", text: "點下方按鈕用 Google 地圖導航到門市 👇", size: "sm", color: "#6b7280", wrap: true }] : [])] },
+        footer: {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            ...(map ? [{ type: "button", style: "primary", color: "#4a3b32", action: { type: "uri", label: "📍 開啟 Google 地圖", uri: map } }] : []),
+            ...(info.phone ? [{ type: "button", style: "secondary", action: { type: "uri", label: "📞 打電話", uri: `tel:${String(info.phone).replace(/[^\d+]/g, "")}` } }] : []),
+          ],
+        },
+      },
+      quickReply: { items: MENU.map(([label, data]) => ({ type: "action", action: { type: "postback", label, data, displayText: label } })) },
+    },
+  ];
 }
 
 // ---------- 綁定會員（在聊天室輸入手機 → Email 確認） ----------

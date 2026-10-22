@@ -1012,11 +1012,10 @@ function LineOaSettings() {
 
       <h3>門市資訊（「門市資訊」按鈕回覆的內容）</h3>
       <div className="paydisp-fields">
+        {f("mapUrl", "Google 地圖連結", "https://maps.app.goo.gl/…")}
         {f("address", "地址", "台中市…")}
         {f("hours", "營業時間", "每天 15:00～22:00")}
         {f("phone", "電話")}
-        {f("lat", "緯度（選填，會送出地圖位置）", "24.1477")}
-        {f("lng", "經度（選填）", "120.6736")}
       </div>
 
       <h3>本月活動（「本月活動」按鈕回覆的內容）</h3>
