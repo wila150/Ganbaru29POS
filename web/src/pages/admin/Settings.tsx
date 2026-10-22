@@ -1038,7 +1038,88 @@ function LineOaSettings() {
       <button className="btn btn-primary" disabled={!dirty || busy} onClick={() => run(() => setDoc(doc(db, "settings", "shop"), { lineBot: v }, { merge: true }), "已儲存")}>
         儲存
       </button>
+      <AiLearnPanel />
     </section>
+  );
+}
+
+/** AI 找商品：學習進度、客人找不到的字、同義詞 */
+function AiLearnPanel() {
+  const { settings } = useData();
+  const [st, setSt] = useState<{ indexed: number; products: number; learned: number; confirmed: number; misses: { q: string; kind: string; at: number }[] } | null>(null);
+  const [syn, setSyn] = useState<[string, string][]>(() => Object.entries(settings.lineBot?.synonyms ?? {}));
+  const [k, setK] = useState("");
+  const [val, setVal] = useState("");
+  const { busy, run } = useAction();
+  const load = () => call<NonNullable<typeof st>>("aiLearnStatus").then(setSt).catch(() => undefined);
+  useEffect(() => {
+    load();
+  }, []);
+  const saveSyn = (list: [string, string][]) => run(() => setDoc(doc(db, "settings", "shop"), { lineBot: { synonyms: Object.fromEntries(list) } }, { merge: true }), "已儲存同義詞");
+  return (
+    <>
+      <h3>AI 找商品</h3>
+      {st ? (
+        <p className="small">
+          以圖搜圖：已建立 <b>{st.indexed}</b> 張照片特徵（{st.products} 款商品）・客人確認「就是這件」<b>{st.confirmed}</b> 次，學到 <b>{st.learned}</b> 張照片
+          <br />
+          <span className="muted">特徵每 20 分鐘自動補一批；在「商品與條碼」幫商品多上傳穿搭照，找得更準。</span>{" "}
+          <button className="link-btn small" disabled={busy} onClick={() => run(async () => (await call("buildImageIndex"), load()), "已補建")}>
+            立即補建
+          </button>
+        </p>
+      ) : (
+        <p className="muted small">讀取中…</p>
+      )}
+      <h4>同義詞（客人打左邊的字，就當成右邊的字找）</h4>
+      <div className="chip-row">
+        {syn.map(([a, b]) => (
+          <span key={a} className="member-tag">
+            {a} → {b}{" "}
+            <button
+              className="link-btn small"
+              onClick={() => {
+                const n = syn.filter((x) => x[0] !== a);
+                setSyn(n);
+                saveSyn(n);
+              }}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+        {!syn.length && <span className="muted small">還沒有（系統已內建：丹寧＝牛仔、襯＝襯衫）</span>}
+      </div>
+      <div className="inline-form">
+        <input placeholder="客人會打的字（例：大學T）" value={k} onChange={(e) => setK(e.target.value.trim())} />
+        <input placeholder="店裡的說法（例：衛衣）" value={val} onChange={(e) => setVal(e.target.value.trim())} />
+        <button
+          className="btn"
+          disabled={!k || !val}
+          onClick={() => {
+            const n: [string, string][] = [...syn.filter((x) => x[0] !== k), [k, val]];
+            setSyn(n);
+            setK("");
+            setVal("");
+            saveSyn(n);
+          }}
+        >
+          新增
+        </button>
+      </div>
+      <h4>客人找不到的字（最近 40 筆）</h4>
+      {st?.misses.length ? (
+        <div className="chip-row">
+          {st.misses.map((m, i) => (
+            <span key={i} className="member-tag" title={new Date(m.at).toLocaleString("zh-TW")}>
+              {m.q}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="muted small">目前沒有。常出現的字可以加成同義詞；也可能是客人想買、店裡還沒進的商品。</p>
+      )}
+    </>
   );
 }
 
