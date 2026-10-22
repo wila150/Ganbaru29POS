@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-22-a",
+    date: "2026-10-22",
+    title: "7-11 匯入檔包裹價值固定 999、顧客螢幕 Email 英文鍵盤",
+    items: [
+      "網店出貨 → 7-11 交貨便匯入檔的「實際包裹價值」固定填 999",
+      "顧客螢幕加入會員：點 Email 欄會出現畫面上的英文鍵盤（含 @gmail.com 等快捷），不用再切換 iPad 輸入法",
+    ],
+  },
+  {
     id: "2026-10-21-n",
     date: "2026-10-21",
     title: "吊牌顯示原價劃掉＋特價",

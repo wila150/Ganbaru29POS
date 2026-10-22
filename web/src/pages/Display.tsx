@@ -205,6 +205,8 @@ function Signup() {
   const [f, setF] = useState({ email: "", name: "", mobile: "", birthDate: "" });
   const [err, setErr] = useState("");
   const [confirming, setConfirming] = useState(false);
+  // Email 用畫面上的英文鍵盤（iPad 系統鍵盤常停在中文，要切來切去）
+  const [emailKb, setEmailKb] = useState(false);
   const [region, setRegion] = useState<Region>(REGIONS[0]);
   useEffect(
     () =>
@@ -288,11 +290,26 @@ function Signup() {
       <p className="muted">填寫後即可累積購物金、享會員優惠</p>
       <label>
         Email
-        <input type="email" inputMode="email" autoComplete="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+        <input
+          type="email"
+          inputMode="none"
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          lang="en"
+          readOnly
+          placeholder="點這裡輸入"
+          value={f.email}
+          onFocus={() => setEmailKb(true)}
+          onClick={() => setEmailKb(true)}
+          className={emailKb ? "cd-focus" : ""}
+        />
       </label>
+      {emailKb && <EmailKeyboard value={f.email} onChange={(v) => setF({ ...f, email: v })} onDone={() => setEmailKb(false)} />}
       <label>
         姓名
-        <input autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <input autoComplete="name" value={f.name} onFocus={() => setEmailKb(false)} onChange={(e) => setF({ ...f, name: e.target.value })} />
       </label>
       <label>
         手機
@@ -449,6 +466,57 @@ function FrontScanner({ onCode }: { onCode: (code: string) => void }) {
           </button>
         </>
       )}
+    </div>
+  );
+}
+
+/** 顧客螢幕專用英文鍵盤（Email）：不靠 iPad 系統鍵盤，客人不用切中英文 */
+function EmailKeyboard({ value, onChange, onDone }: { value: string; onChange: (v: string) => void; onDone: () => void }) {
+  const [shift, setShift] = useState(false);
+  const rows = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"];
+  const add = (t: string) => onChange((value + t).slice(0, 80));
+  const domains = ["@gmail.com", "@yahoo.com.tw", "@hotmail.com", "@icloud.com", "@outlook.com"];
+  return (
+    <div className="cd-kb" onClick={(e) => e.stopPropagation()}>
+      <div className="cd-kb-domains">
+        {domains.map((d) => (
+          <button key={d} disabled={value.includes("@")} onClick={() => add(d)}>
+            {d}
+          </button>
+        ))}
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} className="cd-kb-row">
+          {i === 3 && (
+            <button className="fn" onClick={() => setShift(!shift)}>
+              {shift ? "⇧ 大寫" : "⇧"}
+            </button>
+          )}
+          {[...r].map((c) => (
+            <button key={c} onClick={() => add(shift ? c.toUpperCase() : c)}>
+              {shift ? c.toUpperCase() : c}
+            </button>
+          ))}
+          {i === 3 && (
+            <button className="fn" onClick={() => onChange(value.slice(0, -1))}>
+              ⌫
+            </button>
+          )}
+        </div>
+      ))}
+      <div className="cd-kb-row">
+        {["@", ".", "_", "-"].map((c) => (
+          <button key={c} className="sym" onClick={() => add(c)}>
+            {c}
+          </button>
+        ))}
+        <button className="fn" onClick={() => onChange("")}>
+          清除
+        </button>
+        <button className="ok" onClick={onDone}>
+          完成
+        </button>
+      </div>
     </div>
   );
 }

@@ -112,7 +112,7 @@ export const EXPORTS: Record<ExportKind, ExportDef> = {
       ["B", s.name],
       ["C", s.phone],
       ["D", s.email],
-      ["E", Math.round(o.totalPrice)],
+      ["E", 999], // 實際包裹價值：固定 999（填售價會超過 1000、運費變高）
       ["F", o.shipmentDetail?.convenienceStore?.name ?? ""],
       ["G", o.shipmentDetail?.convenienceStore?.storeCode ?? ""],
       ["H", receiver(o)],

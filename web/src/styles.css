@@ -966,3 +966,14 @@ span.tier-switch { cursor: default; }
 .cat-tabs small { opacity: .6; }
 .tag-sale { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
 .tag-sale s { font-size: 0.6em; font-weight: 500; color: #555; }
+.cd-focus { outline: 3px solid var(--pay); }
+.cd-kb { width: min(760px, 96vw); background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.cd-kb-row { display: flex; gap: 6px; justify-content: center; }
+.cd-kb button { flex: 1; min-width: 0; max-width: 64px; font-size: 22px; padding: 12px 0; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.cd-kb button:active { background: var(--border); }
+.cd-kb button.fn { max-width: 110px; font-size: 18px; color: var(--muted); }
+.cd-kb button.sym { max-width: 80px; font-weight: 700; }
+.cd-kb button.ok { max-width: 140px; background: var(--pay); color: #fff; border-color: var(--pay); font-size: 20px; }
+.cd-kb-domains { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.cd-kb-domains button { flex: 0 0 auto; max-width: none; font-size: 17px; padding: 8px 12px; }
+.cd-kb-domains button:disabled { opacity: .35; }
