@@ -1,7 +1,8 @@
+import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { onCall } from "firebase-functions/v2/https";
 import { audit } from "./lib/audit";
 import { requireRole } from "./lib/auth";
-import { assert, db, FieldValue, str, taipeiDate, Timestamp } from "./lib/util";
+import { assert, db, FieldValue, HttpsError, str, taipeiDate, Timestamp } from "./lib/util";
 
 /** 員工打卡：上班／下班用伺服器時間記錄；店長以上可補登或修正（留下操作紀錄）。 */
 
@@ -69,4 +70,78 @@ export const fixAttendance = onCall(async (req) => {
   const ref = await db.collection("attendance").add({ uid, name: u.name || u.email, ...data, locationId: null });
   await audit(actor, "attendance.add", { id: ref.id, name: u.name, inAt, outAt, note });
   return { id: ref.id };
+});
+
+// ---------- 員工打卡密碼：共用的收銀電腦上，員工選自己的名字＋輸入密碼就能打卡 ----------
+// 密碼只存雜湊（staffPins/{uid}，前端讀不到）；錯 5 次鎖 10 分鐘
+
+const hashPin = (pin: string, salt: string) => scryptSync(pin, salt, 32).toString("hex");
+
+async function clockFor(uid: string, name: string, action: "in" | "out", extra: { locationId: string | null; device: string | null; via: string }) {
+  const open = await openRecord(uid);
+  if (action === "in") {
+    assert(!open, `${name} 已經在上班中，請打下班卡`, "failed-precondition");
+    await db.collection("attendance").add({ uid, name, date: taipeiDate(), inAt: FieldValue.serverTimestamp(), outAt: null, minutes: null, open: true, ...extra });
+    return { action, minutes: null };
+  }
+  assert(open, `${name} 目前沒有上班紀錄，請先打上班卡`, "failed-precondition");
+  const minutes = Math.max(0, Math.round((Date.now() - (open.data().inAt as Timestamp).toMillis()) / 60_000));
+  await open.ref.update({ outAt: FieldValue.serverTimestamp(), minutes, open: false, outVia: extra.via });
+  return { action, minutes };
+}
+
+/** 設定打卡密碼：自己設自己的；店長以上可以幫別人設（uid） */
+export const setClockPin = onCall(async (req) => {
+  const actor = await requireRole(req, "staff");
+  const uid = req.data?.uid ? str(req.data.uid, "員工", { max: 128 }) : actor.uid;
+  if (uid !== actor.uid) await requireRole(req, "manager");
+  const pin = str(req.data?.pin, "密碼", { max: 6 });
+  assert(/^\d{4,6}$/.test(pin), "打卡密碼請設 4～6 位數字");
+  const u = (await db.doc(`users/${uid}`).get()).data();
+  assert(u, "找不到員工", "not-found");
+  const salt = randomBytes(8).toString("hex");
+  await db.doc(`staffPins/${uid}`).set({ hash: hashPin(pin, salt), salt, fails: 0, lockedUntil: null, setBy: actor.name, setAt: FieldValue.serverTimestamp() });
+  if (uid !== actor.uid) await audit(actor, "attendance.pin", { uid, name: u.name });
+  return { ok: true };
+});
+
+/** 打卡名單：在職員工、有沒有設密碼、現在是否上班中 */
+export const clockRoster = onCall(async (req) => {
+  await requireRole(req, "staff");
+  const [users, pins, open] = await Promise.all([db.collection("users").get(), db.collection("staffPins").select("hash").get(), db.collection("attendance").where("open", "==", true).get()]);
+  const hasPin = new Set(pins.docs.map((d) => d.id));
+  const onDuty = new Map(open.docs.map((d) => [d.data().uid as string, (d.data().inAt as Timestamp | null)?.toMillis() ?? null]));
+  return {
+    staff: users.docs
+      .filter((d) => d.data().active !== false && d.data().role)
+      .map((d) => ({ uid: d.id, name: (d.data().name || d.data().email || "員工") as string, hasPin: hasPin.has(d.id), onDuty: onDuty.has(d.id), inAt: onDuty.get(d.id) ?? null }))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")),
+  };
+});
+
+/** 用打卡密碼打卡（共用裝置） */
+export const clockByPin = onCall(async (req) => {
+  await requireRole(req, "staff");
+  const uid = str(req.data?.uid, "員工", { max: 128 });
+  const pin = str(req.data?.pin, "密碼", { max: 6 });
+  const action = req.data?.action === "out" ? "out" : "in";
+  const ref = db.doc(`staffPins/${uid}`);
+  const p = (await ref.get()).data();
+  assert(p?.hash, "這位員工還沒設定打卡密碼，請先在「打卡」頁設定", "failed-precondition");
+  const locked = (p.lockedUntil as Timestamp | null)?.toMillis() ?? 0;
+  if (locked > Date.now()) throw new HttpsError("resource-exhausted", `密碼錯太多次，請 ${Math.ceil((locked - Date.now()) / 60_000)} 分鐘後再試，或請店長重設`);
+  const ok = timingSafeEqual(Buffer.from(hashPin(pin, p.salt), "hex"), Buffer.from(p.hash, "hex"));
+  if (!ok) {
+    const fails = (p.fails ?? 0) + 1;
+    await ref.update({ fails: fails >= 5 ? 0 : fails, lockedUntil: fails >= 5 ? Timestamp.fromMillis(Date.now() + 10 * 60_000) : null });
+    throw new HttpsError("permission-denied", fails >= 5 ? "密碼錯 5 次，鎖定 10 分鐘" : `密碼錯誤（還可以試 ${5 - fails} 次）`);
+  }
+  if (p.fails) await ref.update({ fails: 0 });
+  const u = (await db.doc(`users/${uid}`).get()).data();
+  assert(u && u.active !== false, "這位員工已停用", "permission-denied");
+  return clockFor(uid, (u.name || u.email) as string, action, {
+    locationId: str(req.data?.locationId, "門市", { optional: true, max: 40 }) || null,
+    device: str(req.data?.device, "裝置", { optional: true, max: 80 }) || null,
+    via: "pin",
+  });
 });

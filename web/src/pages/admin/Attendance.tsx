@@ -1,7 +1,8 @@
 import { collection, onSnapshot, orderBy, query, where, type Timestamp } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
-import { Badge, Empty, Field, Modal, useAction } from "../../components/ui";
+import { Badge, Empty, Field, Modal, useAction, useToast } from "../../components/ui";
+import { Keypad } from "../../components/Keypad";
 import { call, db } from "../../firebase";
 import { getDeviceLocationId } from "../../lib/location";
 import { atLeast, deviceId, downloadCsv, fmtTime, todayStr } from "../../lib/util";
@@ -90,6 +91,9 @@ export function Attendance() {
           </button>
         )}
       </div>
+
+      <StaffClock />
+      <MyPin />
 
       <h2>我的紀錄</h2>
       {mine.length === 0 ? (
@@ -223,6 +227,127 @@ function FixDialog({ rec, onClose }: { rec: Rec | null; onClose: () => void }) {
       <Field label="原因（必填，會留下操作紀錄）">
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="例：忘記打下班卡" />
       </Field>
+    </Modal>
+  );
+}
+
+interface RosterItem {
+  uid: string;
+  name: string;
+  hasPin: boolean;
+  onDuty: boolean;
+  inAt: number | null;
+}
+
+/** 員工打卡（共用裝置）：選名字 → 輸入打卡密碼 → 上班／下班；不用登入自己的帳號 */
+function StaffClock() {
+  const { profile } = useAuth();
+  const isManager = atLeast(profile?.role, "manager");
+  const [roster, setRoster] = useState<RosterItem[] | null>(null);
+  const [who, setWho] = useState<RosterItem | null>(null);
+  const [pin, setPin] = useState("");
+  const [resetFor, setResetFor] = useState<RosterItem | null>(null);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const load = () => call<{ staff: RosterItem[] }>("clockRoster").then((r) => setRoster(r.staff)).catch(() => setRoster([]));
+  useEffect(() => {
+    load();
+  }, []);
+  const punch = (action: "in" | "out") =>
+    run(async () => {
+      const r = await call<{ action: string; minutes: number | null }>("clockByPin", { uid: who!.uid, pin, action, locationId: getDeviceLocationId(), device: deviceId() });
+      toast(action === "in" ? `${who!.name} 上班打卡成功` : `${who!.name} 下班打卡成功（${hm(r.minutes)}）`, "ok");
+      setWho(null);
+      setPin("");
+      load();
+    }).catch(() => setPin(""));
+  return (
+    <section className="card">
+      <div className="row-between">
+        <h2 style={{ margin: 0 }}>員工打卡</h2>
+        <span className="muted small">共用電腦／平板：選自己的名字，輸入打卡密碼</span>
+      </div>
+      {roster === null ? (
+        <p className="muted">讀取中…</p>
+      ) : (
+        <div className="staff-grid">
+          {roster.map((s) => (
+            <button key={s.uid} className={`staff-btn ${s.onDuty ? "on" : ""}`} onClick={() => (s.hasPin ? (setWho(s), setPin("")) : isManager ? setResetFor(s) : toast(`${s.name} 還沒設定打卡密碼，請先登入自己的帳號，在「我的打卡密碼」設定`, "bad"))}>
+              <b>{s.name}</b>
+              <small>{s.onDuty ? `上班中${s.inAt ? `（${new Date(s.inAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false })}）` : ""}` : s.hasPin ? "未上班" : "未設密碼"}</small>
+              {isManager && (
+                <span
+                  className="link-btn small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setResetFor(s);
+                  }}
+                >
+                  {s.hasPin ? "重設密碼" : "設定密碼"}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {who && (
+        <Modal title={`${who.name}　${who.onDuty ? "下班打卡" : "上班打卡"}`} onClose={() => (setWho(null), setPin(""))}>
+          <div className="pin-dots">{Array.from({ length: Math.max(4, pin.length) }, (_, i) => (i < pin.length ? "●" : "○")).join(" ")}</div>
+          <Keypad digits value={pin} onChange={(v) => setPin(v.replace(/\D/g, "").slice(0, 6))} />
+          <button className={`btn btn-lg block ${who.onDuty ? "btn-danger" : "btn-pay"}`} disabled={busy || pin.length < 4} onClick={() => punch(who.onDuty ? "out" : "in")}>
+            {busy ? "打卡中…" : who.onDuty ? "下班打卡" : "上班打卡"}
+          </button>
+        </Modal>
+      )}
+      {resetFor && <PinDialog uid={resetFor.uid} name={resetFor.name} onClose={() => (setResetFor(null), load())} />}
+    </section>
+  );
+}
+
+/** 自己設定打卡密碼 */
+function MyPin() {
+  const { profile } = useAuth();
+  const [open, setOpen] = useState(false);
+  return (
+    <p className="muted small">
+      {profile?.name}：
+      <button className="link-btn small" onClick={() => setOpen(true)}>
+        設定我的打卡密碼
+      </button>
+      （設好後，在共用的收銀電腦也能用名字＋密碼打卡）
+      {open && <PinDialog name={profile?.name ?? "我"} onClose={() => setOpen(false)} />}
+    </p>
+  );
+}
+
+function PinDialog({ uid, name, onClose }: { uid?: string; name: string; onClose: () => void }) {
+  const [pin, setPin] = useState("");
+  const [pin2, setPin2] = useState<string | null>(null);
+  const { busy, run } = useAction();
+  const confirming = pin2 !== null;
+  const cur = confirming ? pin2 : pin;
+  return (
+    <Modal title={`${name} 的打卡密碼`} onClose={onClose}>
+      <p className="center">{confirming ? "再輸入一次確認" : "請輸入 4～6 位數字"}</p>
+      <div className="pin-dots">{Array.from({ length: Math.max(4, cur.length) }, (_, i) => (i < cur.length ? "●" : "○")).join(" ")}</div>
+      <Keypad digits value={cur} onChange={(v) => (confirming ? setPin2 : setPin)(v.replace(/\D/g, "").slice(0, 6))} />
+      {!confirming ? (
+        <button className="btn btn-primary btn-lg block" disabled={pin.length < 4} onClick={() => setPin2("")}>
+          下一步
+        </button>
+      ) : (
+        <button
+          className="btn btn-pay btn-lg block"
+          disabled={busy || pin2!.length < 4}
+          onClick={() =>
+            pin2 !== pin
+              ? (setPin(""), setPin2(null), alert("兩次輸入不一樣，請重新設定"))
+              : run(() => call("setClockPin", { pin, ...(uid ? { uid } : {}) }), "打卡密碼已設定").then(onClose)
+          }
+        >
+          儲存
+        </button>
+      )}
     </Modal>
   );
 }

@@ -15,7 +15,7 @@ export { linePayCharge, linePayCheck, linePayRefundUnused, setLinePayCreds, test
 export { initLocationStock, requestTransfer, shipTransfer, receiveTransfer, cancelTransfer } from "./locations";
 export { merchantImagesDaily, syncImagesFromMerchant } from "./merchant";
 export { reportCenter } from "./reports";
-export { clockIn, clockOut, fixAttendance } from "./attendance";
+export { clockIn, clockOut, fixAttendance, setClockPin, clockRoster, clockByPin } from "./attendance";
 export { ensureAllMemberCodes, memberCard, resetMemberCard, createCoupons, setCouponActive } from "./cards";
 export { lineConfig, lineMemberCard, lineBindMember, lineRegisterMember, lineUnbindMember } from "./lineMember";
 export { buildThumbs } from "./thumbs";
