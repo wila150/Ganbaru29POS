@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-22-f",
+    date: "2026-10-22",
+    title: "顧客螢幕可以掃會員條碼",
+    items: [
+      "收銀按「＋會員」時，顧客螢幕左邊開前鏡頭，客人把 LINE 會員卡的條碼對著平板就帶入會員",
+      "右邊一樣可以手動輸入手機",
+    ],
+  },
+  {
     id: "2026-10-22-e",
     date: "2026-10-22",
     title: "LINE：客人自選喜好、為你推薦",

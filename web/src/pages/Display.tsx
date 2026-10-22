@@ -387,8 +387,16 @@ function PhoneEntry({ ch, s }: { ch: string; s: SignupState }) {
     if (next.length <= region.max) setV(next);
   };
   return (
-    <div className="cd cd-over cd-phone">
-      <h1>請輸入會員手機</h1>
+    <div className="cd cd-over cd-member">
+      {/* 左邊：前鏡頭掃 LINE 會員卡 QR（平板橫放時鏡頭在左側）；右邊：手動輸入手機 */}
+      <section className="cd-member-scan">
+        <h2>掃會員條碼</h2>
+        <div className="muted">打開 LINE「會員卡」，把條碼對準左側鏡頭</div>
+        <FrontScanner key={s.error ?? "scan"} onCode={(c) => setSignup(ch, { status: "phoneSent", mobile: c.trim().toUpperCase() }).catch(() => undefined)} />
+      </section>
+      <div className="cd-member-or">或</div>
+      <section className="cd-phone">
+      <h1>輸入會員手機</h1>
       <RegionTabs value={region} onChange={(r) => (setRegion(r), setV(""))} />
       <div className="cd-phone-num">
         <span className={region.id === "tw" ? "" : "muted"}>{region.cc.replace("+", "")}</span>
@@ -406,6 +414,7 @@ function PhoneEntry({ ch, s }: { ch: string; s: SignupState }) {
       <button className="cd-send" disabled={!ok} onClick={() => setSignup(ch, { status: "phoneSent", mobile: region.cc + v }).catch(() => undefined)}>
         確定
       </button>
+      </section>
     </div>
   );
 }
