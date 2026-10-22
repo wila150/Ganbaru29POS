@@ -36,6 +36,8 @@ export const SOUND_WHEN_LABEL: Record<SoundWhen, string> = {
 export interface SoundContext {
   isMember: boolean;
   birthDate?: string | null; // YYYY/MM/DD 或 YYYY-MM-DD
+  /** 只有生日月份時（"01"～"12"）也能判斷本月壽星 */
+  birthMonth?: string | null;
   group?: string | null;
   total: number;
   today: string; // YYYY-MM-DD
@@ -46,8 +48,10 @@ export function ruleMatches(r: SoundRule, c: SoundContext) {
   switch (r.when) {
     case "birthday_today":
       return !!md && md === c.today.slice(5, 10);
-    case "birthday_month":
-      return !!md && md.slice(0, 2) === c.today.slice(5, 7);
+    case "birthday_month": {
+      const mm = md ? md.slice(0, 2) : String(c.birthMonth ?? "").padStart(2, "0");
+      return !!mm && mm !== "00" && mm === c.today.slice(5, 7);
+    }
     case "group":
       return !!c.group && c.group === r.value;
     case "min_total":

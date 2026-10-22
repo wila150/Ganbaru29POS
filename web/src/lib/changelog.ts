@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-22-h",
+    date: "2026-10-22",
+    title: "生日音效改成整個生日月",
+    items: [
+      "結帳音效的生日條件改成「本月壽星」：會員生日那個月結帳都會播生日音效（原本只有生日當天）",
+      "只有生日月份、沒有完整生日的會員也會判斷",
+    ],
+  },
+  {
     id: "2026-10-22-g",
     date: "2026-10-22",
     title: "LINE AI 找商品：以圖搜圖、會學習",

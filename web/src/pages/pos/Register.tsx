@@ -655,7 +655,7 @@ export function Register() {
               let birthDate: string | null = null;
               if (shopper && settings.checkoutSound?.rules?.some((x) => x.when.startsWith("birthday")))
                 birthDate = ((await getDoc(doc(db, "shoppers", shopper.id)).catch(() => null))?.data()?.birthDate as string | undefined) ?? null;
-              playCheckoutSound(settings.checkoutSound, false, { isMember: !!shopper, birthDate, group: shopper?.group ?? null, total: due, today: todayStr() });
+              playCheckoutSound(settings.checkoutSound, false, { isMember: !!shopper, birthDate, birthMonth: shopper?.birthMonth ?? null, group: shopper?.group ?? null, total: due, today: todayStr() });
             })();
             setDone({ order, issues: r.stockIssues });
             setThanks(Math.max(0, payments.reduce((a, p) => a + p.amount, 0) - due));
