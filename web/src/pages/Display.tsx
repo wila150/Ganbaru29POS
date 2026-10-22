@@ -1,6 +1,5 @@
 import { doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { QrImg } from "../components/QrImg";
 import { useData } from "../data";
 import { db } from "../firebase";
@@ -26,9 +25,10 @@ export function Display() {
     <>
       <Screen />
       <Signup />
-      <Link to="/pos" className="cd-exit">
+      {/* 整頁重新載入：顧客螢幕沒有讀商品資料，回 POS 要重新讀 */}
+      <a href="/pos" className="cd-exit">
         返回 POS
-      </Link>
+      </a>
     </>
   );
 }

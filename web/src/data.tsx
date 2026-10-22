@@ -29,33 +29,37 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [settings, setSettings] = useState<ShopSettings>({});
   const enabled = !!profile?.active;
+  // 顧客螢幕只需要設定（店名、收款 QR）：直接打開 /display 時不讀 511 筆商品，省 Firestore 讀取
+  const [lite] = useState(() => typeof window !== "undefined" && window.location.pathname.startsWith("/display"));
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [locStock, setLocStock] = useState<Map<string, Record<string, number>>>(new Map());
   const multi = (settings.locations ?? []).length > 0;
   useEffect(() => {
-    if (!enabled || !multi) return setLocStock(new Map());
+    if (!enabled || !multi || lite) return setLocStock(new Map());
     return onSnapshot(collection(db, "locationStock"), (s) => setLocStock(new Map(s.docs.map((d) => [d.id, (d.data().qty ?? {}) as Record<string, number>]))));
-  }, [enabled, multi]);
+  }, [enabled, multi, lite]);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
-    const u1 = onSnapshot(query(collection(db, "variants"), where("active", "==", true)), (s) => {
-      setVariants(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Variant));
-      setReady(true);
-    });
+    const u1 = lite
+      ? (setReady(true), () => undefined)
+      : onSnapshot(query(collection(db, "variants"), where("active", "==", true)), (s) => {
+          setVariants(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Variant));
+          setReady(true);
+        });
     const u2 = onSnapshot(doc(db, "settings", "shop"), (s) => {
       const st = (s.data() as ShopSettings) ?? {};
       applyPayMethods(st.payMethods); // 付款方式名稱、順序、開關（先更新再讓畫面重畫）
       setSettings(st);
     });
-    const u3 = onSnapshot(query(collection(db, "promotions"), where("active", "==", true)), (s) => setPromotions(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Promotion)));
+    const u3 = lite ? () => undefined : onSnapshot(query(collection(db, "promotions"), where("active", "==", true)), (s) => setPromotions(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Promotion)));
     return () => {
       u1();
       u2();
       u3();
     };
-  }, [enabled]);
+  }, [enabled, lite]);
 
   const byId = useMemo(() => new Map(variants.map((v) => [v.id, v])), [variants]);
   // 同一個物件才不會讓所有頁面跟著重畫
