@@ -169,13 +169,20 @@ export async function buildIndex(deadline: number) {
   await save();
   invalidateIndex();
   const remaining = want.filter((w) => !out.some((o) => o.id === w.id)).length;
+  await db.doc("private/imageIndex").set({ remaining, total: out.length, at: FieldValue.serverTimestamp() });
   logger.info("image index", { total: out.length, added, failed, remaining });
   return { total: out.length, added, failed, remaining, removed: stored.length - (out.length - added) };
 }
 
-/** 每天凌晨補上新商品、新照片的特徵 */
-export const imageIndexDaily = onSchedule({ schedule: "40 4 * * *", timeZone: "Asia/Taipei", timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
-  await buildIndex(Date.now() + 500_000);
+/**
+ * 每 20 分鐘補一批（免費 API 很慢，一次只能做十幾張）；全部做完後只讀 1 筆狀態就結束，
+ * 每 20 小時才完整檢查一次有沒有新商品／新照片（避免一直讀資料庫）。
+ */
+export const imageIndexDaily = onSchedule({ schedule: "every 20 minutes", timeZone: "Asia/Taipei", timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
+  const st = (await db.doc("private/imageIndex").get()).data();
+  const at = st?.at?.toMillis?.() ?? 0;
+  if (st && st.remaining === 0 && Date.now() - at < 20 * 3600_000) return;
+  await buildIndex(Date.now() + 480_000);
 });
 
 /** 老闆手動更新（例如剛上傳很多商品照片） */
