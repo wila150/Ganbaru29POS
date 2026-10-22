@@ -43,6 +43,7 @@ const SECTIONS: { id: string; icon: string; title: string; desc: string; render:
     ),
   },
   { id: "sound", icon: "🔔", title: "結帳音效", desc: "結帳完成的聲音、上傳音樂、依會員生日／群組換聲音", render: () => <SoundSettings /> },
+  { id: "lineoa", icon: "💬", title: "LINE 官方帳號", desc: "圖文選單、會員卡、消費紀錄、新品、本月活動、門市資訊", render: () => <LineOaSettings /> },
   { id: "notify", icon: "📣", title: "通知設定", desc: "每天 9:00 LINE 提醒：營業額、低庫存、滯銷、壽星", render: () => <Alerts /> },
   {
     id: "integrations",
@@ -953,6 +954,89 @@ function PayDisplaySettings() {
         {qr("linepayQrUrl", "LINE Pay 收款 QR（店家 QR code）")}
       </div>
       <button className="btn btn-primary" disabled={!dirty || busy} onClick={() => run(() => setDoc(doc(db, "settings", "shop"), { payDisplay: v }, { merge: true }), "已儲存")}>
+        儲存
+      </button>
+    </section>
+  );
+}
+
+/** LINE 官方帳號（29_STUDIO_TC）：狀態、門市資訊、本月活動、圖文選單開關 */
+function LineOaSettings() {
+  const { settings } = useData();
+  const [v, setV] = useState(settings.lineBot ?? {});
+  const [st, setSt] = useState<{ ok: boolean; name?: string; basicId?: string; quota?: number | null; used?: number; bound?: number; error?: string } | null>(null);
+  const { busy, run } = useAction();
+  useEffect(() => {
+    call<typeof st>("lineBotStatus").then(setSt).catch((e) => setSt({ ok: false, error: (e as Error).message }));
+  }, []);
+  const dirty = JSON.stringify(v) !== JSON.stringify(settings.lineBot ?? {});
+  const uploadImg = (file: File) =>
+    run(async () => {
+      if (!file.type.startsWith("image/")) throw new Error("請選擇圖片");
+      const path = `paydisplay/line-monthly-${Date.now()}.${(file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+      await uploadBytes(ref(storage, path), file, { contentType: file.type });
+      const url = await getDownloadURL(ref(storage, path));
+      setV((x) => ({ ...x, monthlyImageUrl: url }));
+    }, "已上傳，記得按儲存");
+  const f = (k: keyof NonNullable<ShopSettings["lineBot"]>, label: string, ph = "") => (
+    <Field label={label}>
+      <input value={(v[k] as string) ?? ""} placeholder={ph} onChange={(e) => setV({ ...v, [k]: e.target.value })} />
+    </Field>
+  );
+  return (
+    <section className="card">
+      <h2>LINE 官方帳號</h2>
+      {st === null ? (
+        <p className="muted">讀取中…</p>
+      ) : st.ok ? (
+        <p>
+          <Badge tone="ok">已連線</Badge> {st.name}（{st.basicId}）・已綁定會員 <b>{st.bound}</b> 人・本月推播已用 {st.used}／{st.quota ?? "不限"} 則
+          <br />
+          <span className="muted small">客人點圖文選單得到的回覆不算則數；只有主動推播（例如新品通知）才會用掉。</span>
+        </p>
+      ) : (
+        <p className="notice notice-bad">連線失敗：{st.error}</p>
+      )}
+
+      <h3>圖文選單</h3>
+      <p className="muted small">6 個按鈕：會員卡、消費紀錄、新品、本月活動、門市資訊、逛官網。打開後所有好友都會看到。</p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={!!settings.lineBot?.richMenuOn}
+          disabled={busy || !settings.lineBot?.richMenuId}
+          onChange={(e) => run(() => call("setLineRichMenu", { on: e.target.checked }), e.target.checked ? "圖文選單已上線" : "已關閉圖文選單")}
+        />{" "}
+        顯示 ganbaru29 圖文選單
+      </label>
+
+      <h3>門市資訊（「門市資訊」按鈕回覆的內容）</h3>
+      <div className="paydisp-fields">
+        {f("address", "地址", "台中市…")}
+        {f("hours", "營業時間", "每天 15:00～22:00")}
+        {f("phone", "電話")}
+        {f("lat", "緯度（選填，會送出地圖位置）", "24.1477")}
+        {f("lng", "經度（選填）", "120.6736")}
+      </div>
+
+      <h3>本月活動（「本月活動」按鈕回覆的內容）</h3>
+      <Field label="活動說明" hint="會和 POS 正在進行的折扣活動一起顯示">
+        <textarea rows={4} value={v.monthlyText ?? ""} onChange={(e) => setV({ ...v, monthlyText: e.target.value })} placeholder="例：10 月全館滿 3000 送 300 購物金！" />
+      </Field>
+      <div className="paydisp-qr">
+        <div className="muted small">活動圖片（選填）</div>
+        {v.monthlyImageUrl ? <img src={v.monthlyImageUrl} alt="" /> : <div className="paydisp-empty">未上傳</div>}
+        <label className="btn btn-sm">
+          {v.monthlyImageUrl ? "更換" : "上傳圖片"}
+          <input type="file" accept="image/*" hidden disabled={busy} onChange={(e) => e.target.files?.[0] && uploadImg(e.target.files[0])} />
+        </label>
+        {v.monthlyImageUrl && (
+          <button className="btn btn-sm btn-ghost" onClick={() => setV({ ...v, monthlyImageUrl: "" })}>
+            移除
+          </button>
+        )}
+      </div>
+      <button className="btn btn-primary" disabled={!dirty || busy} onClick={() => run(() => setDoc(doc(db, "settings", "shop"), { lineBot: v }, { merge: true }), "已儲存")}>
         儲存
       </button>
     </section>

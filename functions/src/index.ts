@@ -20,3 +20,4 @@ export { ensureAllMemberCodes, memberCard, resetMemberCard, createCoupons, setCo
 export { lineConfig, lineMemberCard, lineBindMember, lineRegisterMember, lineUnbindMember } from "./lineMember";
 export { buildThumbs } from "./thumbs";
 export { convertSound } from "./sound";
+export { lineWebhook, setLineBotCreds, lineBotStatus, setLineRichMenu } from "./lineBot";
