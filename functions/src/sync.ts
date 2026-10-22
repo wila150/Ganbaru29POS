@@ -297,14 +297,15 @@ export const syncShoppersNow = onCall({ timeoutSeconds: 540, maxInstances: 1 }, 
 /** 每 15 分鐘：只抓新增或改過的商品 + 補抓圖片 */
 export const catalogIncremental = onSchedule({ schedule: "every 15 minutes", timeZone: TZ, timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
   const deadline = Date.now() + 520_000;
-  await runCatalogSync("incremental", "schedule");
+  const r = await runCatalogSync("incremental", "schedule");
   try {
     await runShopperSync("incremental");
   } catch (e) {
     logger.warn("shopper sync failed", e);
   }
-  await processPendingImages(deadline);
-  await ensureThumbs(deadline).catch((e) => logger.warn("thumbs failed", e));
+  const images = await processPendingImages(deadline);
+  // 縮圖檢查要讀全部款式（511 筆）：每 15 分鐘都讀一天就 4.9 萬次 → 只有商品或圖片有變才做（每天凌晨的完整同步一定會做）
+  if (r.count > 0 || images > 0) await ensureThumbs(deadline).catch((e) => logger.warn("thumbs failed", e));
 });
 
 /** 每天 04:00：完整同步所有款式、會員 */
