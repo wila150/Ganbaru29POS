@@ -364,71 +364,75 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   }
 
   // --- 3. 每個商品一筆「門市售出」異動，bulkAdjustStockQuantity 一次扣 ---
-  const moveIds: string[] = [];
-  for (let i = 0; i < order.lines.length; i++) {
-    const l = order.lines[i] as Line;
-    const moveId = `${id}_${i}`;
-    await createMovement({ id: moveId, variantId: l.variantId, type: "sale", delta: -l.qty, ref: id, note: order.orderNo, device: order.device, status: "processing", locationId: order.locationId ?? null }, actor);
-    moveIds.push(moveId);
-  }
+  const moveIds = (order.lines as Line[]).map((_, i) => `${id}_${i}`);
+  await Promise.all(
+    (order.lines as Line[]).map((l, i) =>
+      createMovement({ id: moveIds[i], variantId: l.variantId, type: "sale", delta: -l.qty, ref: id, note: order.orderNo, device: order.device, status: "processing", locationId: order.locationId ?? null }, actor)
+    )
+  );
   await ref.update({ status: "completed", completedAt: FieldValue.serverTimestamp() });
   if (order.coupons?.length) await consumeCoupons(id, order.coupons);
   const changed = (order.lines as Line[]).filter((l) => l.unitPrice !== l.listPrice || l.discountPct > 0);
   if (changed.length || order.orderDiscount || order.allowance) {
     await audit(actor, "pos.discount", { orderId: id, orderNo: order.orderNo, priceChanges: changed.map((l) => ({ title: `${l.productTitle} ${l.options}`, listPrice: l.listPrice, unitPrice: l.unitPrice, discountPct: l.discountPct })), orderDiscountPct: order.orderDiscountPct, allowance: order.allowance });
   }
-  await pushBulk(moveIds);
-
-  // --- 4. 回饋購物金 ---
-  const reward = order.shopper && order.total > 0 ? rewardFor(settings, order.total, order.shopper.group ?? null, order.shopper.tier ?? null) : null;
-  if (order.shopper && reward) {
-    const earned = Math.floor(reward.points * (order.pointMultiplier || 1));
-    if (earned > 0) {
+  // 完成之後的四件事彼此不相干 → 同時做（原本一件一件做，結帳要多等好幾秒）
+  const rewardAndStats = async () => {
+    // --- 4. 回饋購物金 ---
+    const reward = order.shopper && order.total > 0 ? rewardFor(settings, order.total, order.shopper.group ?? null, order.shopper.tier ?? null) : null;
+    if (order.shopper && reward) {
+      const earned = Math.floor(reward.points * (order.pointMultiplier || 1));
+      if (earned > 0) {
+        try {
+          await meep.sendRewardPoints(order.shopper.id, earned, `門市消費回饋 ${order.orderNo}（${reward.rule}）`, reward.expiryDays);
+          await ref.update({ rewardEarned: earned, rewardEarnStatus: "ok", rewardRule: reward.rule });
+        } catch (e) {
+          await ref.update({ rewardEarned: 0, rewardEarnStatus: `failed: ${errMsg(e)}` });
+        }
+      }
+    }
+    // --- 4b. 顧客名單即時更新（消費、已用購物金、餘額）；每天凌晨的重算會再校正一次 ---
+    if (order.shopper) {
       try {
-        await meep.sendRewardPoints(order.shopper.id, earned, `門市消費回饋 ${order.orderNo}（${reward.rule}）`, reward.expiryDays);
-        await ref.update({ rewardEarned: earned, rewardEarnStatus: "ok", rewardRule: reward.rule });
+        const first = await db.runTransaction(async (tx) => {
+          const o = (await tx.get(ref)).data();
+          if (o?.shopperStatsApplied) return false;
+          tx.update(ref, { shopperStatsApplied: true });
+          return true;
+        });
+        if (first) {
+          const used = Math.max(0, order.rewardPoints ?? 0); // 走到這裡代表購物金已扣成功
+          const patch: Record<string, unknown> = {
+            spend12m: FieldValue.increment(order.total),
+            spendStore12m: FieldValue.increment(order.total),
+            spendTotal: FieldValue.increment(order.total),
+            ordersTotal: FieldValue.increment(1),
+            orders12m: FieldValue.increment(1),
+            orders6m: FieldValue.increment(1),
+            orders3m: FieldValue.increment(1),
+            orders1m: FieldValue.increment(1),
+            spend6m: FieldValue.increment(order.total),
+            spend3m: FieldValue.increment(order.total),
+            spend1m: FieldValue.increment(order.total),
+            lastOrderAt: FieldValue.serverTimestamp(),
+            pointsUsed: FieldValue.increment(used),
+            pointsUsedStore: FieldValue.increment(used),
+          };
+          const live = await meep.getShopper(order.shopper.id).catch(() => null);
+          if (live) patch.points = live.usableRewardPoints;
+          await db.doc(`shoppers/${order.shopper.id}`).set(patch, { merge: true });
+        }
       } catch (e) {
-        await ref.update({ rewardEarned: 0, rewardEarnStatus: `failed: ${errMsg(e)}` });
+        logger.warn(`shopper stats ${id}`, e);
       }
     }
-  }
-  // --- 4b. 顧客名單即時更新（消費、已用購物金、餘額）；每天凌晨的重算會再校正一次 ---
-  if (order.shopper) {
-    try {
-      const first = await db.runTransaction(async (tx) => {
-        const o = (await tx.get(ref)).data();
-        if (o?.shopperStatsApplied) return false;
-        tx.update(ref, { shopperStatsApplied: true });
-        return true;
-      });
-      if (first) {
-        const used = Math.max(0, order.rewardPoints ?? 0); // 走到這裡代表購物金已扣成功
-        const patch: Record<string, unknown> = {
-          spend12m: FieldValue.increment(order.total),
-          spendStore12m: FieldValue.increment(order.total),
-          spendTotal: FieldValue.increment(order.total),
-          ordersTotal: FieldValue.increment(1),
-          orders12m: FieldValue.increment(1),
-          orders6m: FieldValue.increment(1),
-          orders3m: FieldValue.increment(1),
-          orders1m: FieldValue.increment(1),
-          spend6m: FieldValue.increment(order.total),
-          spend3m: FieldValue.increment(order.total),
-          spend1m: FieldValue.increment(order.total),
-          lastOrderAt: FieldValue.serverTimestamp(),
-          pointsUsed: FieldValue.increment(used),
-          pointsUsedStore: FieldValue.increment(used),
-        };
-        const live = await meep.getShopper(order.shopper.id).catch(() => null);
-        if (live) patch.points = live.usableRewardPoints;
-        await db.doc(`shoppers/${order.shopper.id}`).set(patch, { merge: true });
-      }
-    } catch (e) {
-      logger.warn(`shopper stats ${id}`, e);
-    }
-  }
-  // --- 5. 電子發票（啟用時；失敗不影響交易，可在交易瀏覽重開） ---
-  await issueForOrder(id);
+  };
+  await Promise.all([
+    pushBulk(moveIds),
+    rewardAndStats(),
+    // --- 5. 電子發票（啟用時；失敗不影響交易，可在交易瀏覽重開） ---
+    issueForOrder(id),
+  ]);
   if (d.holdId) await db.doc(`posHolds/${str(d.holdId, "掛單", { max: 64 })}`).delete().catch(() => undefined);
   return summarize(id);
 });

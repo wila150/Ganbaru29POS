@@ -17,6 +17,7 @@ import { MemberTagEditor, ShopperGroup, TagChips, useShopperPrefs } from "../../
 import { beep, deviceId, money, newId, PAY_LABEL, pctToZhe, todayStr, zheToPct } from "../../lib/util";
 import type { ExchangeQuote, PosOrder, Shopper, Variant } from "../../types";
 import { useDeviceLocation } from "../../lib/location";
+import { POS_FUNCTIONS, warm } from "../../lib/warm";
 import { displayChannel, pushDisplay, setSignup, type DisplayLine, type SignupState } from "../../lib/display";
 import { Checkout, Done } from "./Checkout";
 import { useCurrentShift } from "./PosLayout";
@@ -68,6 +69,16 @@ export function Register() {
   const [keypad, setKeypad] = useState<null | { key: keyof CartDiscounts | "guests"; title: string; suffix?: string; hint?: string }>(null);
   const [memberOpen, setMemberOpen] = useState(false);
   const [checkout, setCheckout] = useState(false);
+  // 預先叫醒結帳用的伺服器：打開收銀、有商品、打開結帳時（每 4 分鐘最多一次），按結帳時不用再等它開機
+  useEffect(() => {
+    warm(...POS_FUNCTIONS);
+    const t = setInterval(() => document.visibilityState === "visible" && warm(...POS_FUNCTIONS), 5 * 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const hasItems = cart.length > 0;
+  useEffect(() => {
+    if (hasItems) warm("posCheckout", "linePayCharge", "sendReceipt");
+  }, [hasItems]);
   // One id per checkout attempt, reused on retry, so a dropped connection never records the sale twice.
   const orderId = useRef<string>(newId("o"));
   // iPad 要在點畫面時解鎖聲音，結帳完成才能播放音效
