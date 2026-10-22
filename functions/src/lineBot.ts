@@ -11,6 +11,7 @@ import { getSecret, setSecret } from "./lib/secrets";
 import { assert, db, errMsg, FieldValue, str } from "./lib/util";
 import { describePromo, promoIsLive, taipeiClock, type Promotion } from "./shared/promo";
 import { mobileKeyCandidates } from "./sync";
+import { embedImage, learnFromQuery, markMiss, rankByImage, saveQuery } from "./imageSearch";
 
 /**
  * LINE 官方帳號（Messaging API）：圖文選單按鈕 → webhook → 回覆。
@@ -225,7 +226,7 @@ function withSiblings(pick: P[], all: P[]): P[] {
 }
 
 /** 商品卡片：同款不同顏色合成一張（下面每個顏色一個按鈕），最多 10 款 */
-async function carousel(list: P[], alt: string): Promise<Msg> {
+async function carousel(list: P[], alt: string, fb?: { qid: string }): Promise<Msg> {
   const st = await shopSettings();
   const site = (st.siteBaseUrl || DEFAULT_SITE).replace(/\/$/, "");
   const groups: { style: string; items: (P & { color: string | null })[] }[] = [];
@@ -266,13 +267,17 @@ async function carousel(list: P[], alt: string): Promise<Msg> {
             layout: "vertical",
             spacing: "xs",
             // 每個顏色一個按鈕（最多 3 個），點了到那個顏色的官網頁
-            contents: items.slice(0, 3).map((x, i) => ({
-              type: "button",
-              style: i === 0 ? "primary" : "secondary",
-              color: i === 0 ? "#4a3b32" : undefined,
-              height: "sm",
-              action: { type: "uri", label: (items.length > 1 && x.color ? `看${x.color}` : "看商品").slice(0, 20), uri: `${site}/products/${x.productId}` },
-            })),
+            contents: [
+              ...items.slice(0, 3).map((x, i) => ({
+                type: "button",
+                style: i === 0 ? "primary" : "secondary",
+                color: i === 0 ? "#4a3b32" : undefined,
+                height: "sm",
+                action: { type: "uri", label: (items.length > 1 && x.color ? `看${x.color}` : "看商品").slice(0, 20), uri: `${site}/products/${x.productId}` },
+              })),
+              // 以圖搜圖：客人確認「就是這件」→ 系統記住這張照片（學習）
+              ...(fb ? [{ type: "button", style: "link", height: "sm", action: { type: "postback", label: "✓ 就是這件", data: `a=fb&q=${fb.qid}&p=${v.productId}`, displayText: `就是這件：${style}`.slice(0, 300) } }] : []),
+            ],
           },
         };
       }),
@@ -310,12 +315,19 @@ const CAT_WORDS: [RegExp, string[]][] = [
   [/包/, ["包款"]],
 ];
 
+/** w 裡最長、出現在 hay 的連續片段（至少 2 字）→ 分數 */
+function partial(w: string, hay: string): number {
+  for (let k = w.length; k >= 2; k--) for (let i = 0; i + k <= w.length; i++) if (hay.includes(w.slice(i, i + k))) return k >= w.length ? 3 + k : 1 + k;
+  return 0;
+}
+
 /** 把客人的話拆成條件：顏色、分類、其他關鍵字 */
 function parseQuery(q: string) {
   const t = q
     .replace(/^(我)?(想|要)?(找|買|看)(一件|一條|件|條)?/, "")
     .replace(/[，。,.!！?？]/g, " ")
     .replace(/丹寧|denim/gi, "牛仔")
+    .replace(/襯(?!衫)/g, "襯衫")
     .trim();
   const colors = COLORS.filter((c) => t.includes(c));
   const cats = CAT_WORDS.filter(([re]) => re.test(t)).flatMap(([, c]) => c);
@@ -326,7 +338,18 @@ function parseQuery(q: string) {
   return { text: t, colors, cats, words };
 }
 
-async function replySearch(q: string): Promise<Msg[]> {
+/** 老闆設定的同義詞（例：丹寧＝牛仔、大學T＝衛衣），搜尋前先換掉 */
+async function applySynonyms(q: string): Promise<string> {
+  const syn = ((await shopSettings()).lineBot?.synonyms ?? {}) as Record<string, string>;
+  let out = q;
+  for (const [k, v] of Object.entries(syn)) if (k && v) out = out.split(k).join(v);
+  return out;
+}
+
+const logMiss = (q: string, kind: string) => db.collection("aiMisses").add({ q: q.slice(0, 80), kind, at: FieldValue.serverTimestamp() }).catch(() => undefined);
+
+async function replySearch(q0: string): Promise<Msg[]> {
+  const q = await applySynonyms(q0);
   const { text: t, colors, cats, words } = parseQuery(q);
   if (!t) return [text("想找什麼呢？例如：「找 咖啡色短袖」「找 寬褲」「找 外套」", MENU)];
   const vs = await db.collection("variants").where("active", "==", true).where("productStatus", "==", "LISTED").select("productId", "productTitle", "options", "price", "listPrice", "imageUrl", "shopCreatedAt", "tags", "posCategory").get();
@@ -346,13 +369,15 @@ async function replySearch(q: string): Promise<Msg[]> {
       let score = 0;
       if (cats.length) score += cats.some((c) => p.cats.includes(c) || hay.includes(c.replace("長", ""))) ? 5 : -10;
       for (const c of colors) score += hay.includes(c) ? 4 : -3;
-      for (const w of words) score += hay.includes(w) ? 3 : 0;
-      if (!cats.length && !colors.length && !words.some((w) => hay.includes(w)) && !hay.includes(t)) score -= 10;
+      // 關鍵字部分相符也算（「拼接襯」裡的「拼接」對到「層次拼接工裝寬褲」），越長分越高
+      for (const w of words) score += partial(w, hay);
+      if (!cats.length && !colors.length && !words.some((w) => partial(w, hay) > 0) && !hay.includes(t)) score -= 10;
       if (hay.includes(t)) score += 6;
       return { p, score };
     })
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score || b.p.at - a.p.at);
+  if (!scored.length) await logMiss(q0, "text");
   if (!scored.length) return [text(`找不到「${t}」相關的商品 🙏\n可以換個說法試試，例如「找 黑色長褲」，或點「新品」看看最近上架的。`, MENU)];
   return [text(`幫你找到 ${Math.min(scored.length, 10)} 款「${t}」👇`), await carousel(scored.map((r) => r.p), `找商品：${t}`)];
 }
@@ -361,17 +386,12 @@ async function replySearch(q: string): Promise<Msg[]> {
 
 const AI_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const AI_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b";
-const AI_DAILY_LIMIT = 20;
 
-/** 每位客人每天 AI 次數上限（避免被亂刷） */
+/** AI 使用次數（只記錄、不限制；老闆要求取消每日上限） */
 async function aiQuota(uid: string): Promise<boolean> {
   const ref = db.doc(`lineAiUsage/${uid}_${new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" })}`);
-  return db.runTransaction(async (tx) => {
-    const n = ((await tx.get(ref)).data()?.n ?? 0) as number;
-    if (n >= AI_DAILY_LIMIT) return false;
-    tx.set(ref, { n: n + 1, at: FieldValue.serverTimestamp() }, { merge: true });
-    return true;
-  });
+  await ref.set({ n: FieldValue.increment(1), at: FieldValue.serverTimestamp() }, { merge: true }).catch(() => undefined);
+  return true;
 }
 
 /** 給 AI 看的商品清單（編號｜品名｜分類｜顏色尺寸｜價格），只有公開資訊 */
@@ -391,7 +411,7 @@ async function aiCatalog() {
   return { list, text: lines.join("\n") };
 }
 
-async function aiPick(prompt: string, imageB64?: string): Promise<{ ids: number[]; note: string } | null> {
+async function aiPick(prompt: string, imageB64?: string): Promise<{ ids: number[]; note: string; ask: string; suggest: string[] } | null> {
   const key = await getSecret("AI_NVIDIA");
   if (!key) return null;
   const content: unknown = imageB64
@@ -412,8 +432,13 @@ async function aiPick(prompt: string, imageB64?: string): Promise<{ ids: number[
   const m = out.match(/\{[\s\S]*\}/);
   if (!m) return null;
   try {
-    const r = JSON.parse(m[0]) as { ids?: unknown[]; note?: string };
-    return { ids: (r.ids ?? []).map(Number).filter((n) => Number.isInteger(n) && n >= 0), note: String(r.note ?? "").slice(0, 120) };
+    const r = JSON.parse(m[0]) as { ids?: unknown[]; note?: string; ask?: string; suggest?: unknown[] };
+    return {
+      ids: (r.ids ?? []).map(Number).filter((n) => Number.isInteger(n) && n >= 0),
+      note: String(r.note ?? "").slice(0, 120),
+      ask: String(r.ask ?? "").slice(0, 60),
+      suggest: (r.suggest ?? []).map((x) => String(x).slice(0, 14)).filter(Boolean).slice(0, 4),
+    };
   } catch {
     return null;
   }
@@ -421,17 +446,20 @@ async function aiPick(prompt: string, imageB64?: string): Promise<{ ids: number[
 
 const AI_RULES = `你是 ganbaru29（29 STUDIO）服飾店的店員，只能從下面的商品清單挑商品，不可以編造清單外的商品。
 清單格式：編號|品名|分類|顏色/尺寸|價格
+客人可能只打部分字（例：「拼接襯」＝拼接的襯衫／上衣，「寬褲」＝寬版褲子），請理解意思；名稱部分相符的也算候選。
 規則：客人指定的「品類」一定要相符（說短袖就只能挑短袖／T恤／短襯，說長褲就只能挑褲子），顏色、版型盡量相符；寧可少挑，不要挑不相符的。
 挑出最符合的商品（最多 6 個，越像越前面）；完全沒有相符的就回空陣列。
-只輸出 JSON：{"ids":[編號...],"note":"一句繁體中文說明（例：找到 3 款咖啡色寬版短袖）"}`;
+如果沒有完全相符、或客人說得不清楚：ids 放最接近的幾件，並在 ask 用一句話反問（例：「你是要找拼接襯衫嗎？」），suggest 給 2～4 個更明確的說法（例：["拼接襯衫","拼接上衣","拼接寬褲"]）。完全相符時 ask 留空。
+只輸出 JSON：{"ids":[編號...],"note":"一句繁體中文說明（例：找到 3 款咖啡色寬版短袖）","ask":"","suggest":[]}`;
 
 /** 留給店家手動回的訊息（訂單、付款、客服、打招呼） */
 const HUMAN_TOPIC = /訂單|出貨|寄出|到貨|物流|退貨|換貨|退款|匯款|轉帳|付款|發票|請問|謝謝|感謝|你好|您好|哈囉|嗨|hi|hello|在嗎|客服|真人|聯絡|預約|營業|地址|電話/i;
 /** 沒有指令、但看起來像在說商品（短、像品名）→ 直接幫他找；找不到就不回，留給店家 */
 const looksLikeProduct = (t: string) => t.length >= 2 && t.length <= 20 && !HUMAN_TOPIC.test(t) && !/^[\d\s+-]+$/.test(t) && !/@/.test(t);
 
-async function replyAiText(uid: string, q: string, quiet = false): Promise<Msg[] | null> {
-  if (!(await aiQuota(uid))) return replySearch(q);
+async function replyAiText(uid: string, q0: string, quiet = false): Promise<Msg[] | null> {
+  const q = await applySynonyms(q0);
+  await aiQuota(uid);
   const cat = await aiCatalog();
   const r = await aiPick(`${AI_RULES}\n\n商品清單：\n${cat.text}\n\n客人說：「${q.slice(0, 200)}」`).catch(() => null);
   if (!r) {
@@ -440,7 +468,18 @@ async function replyAiText(uid: string, q: string, quiet = false): Promise<Msg[]
     return quiet && !k.some((m) => m.type === "flex") ? null : k;
   }
   const pick = r.ids.map((i) => cat.list[i]).filter(Boolean);
+  if (!pick.length) {
+    // AI 說沒有 → 再用關鍵字找一次（部分相符），有相近的就給相近的
+    const k = await replySearch(q0);
+    if (k.some((m) => m.type === "flex")) return k;
+  }
+  if (!pick.length) await logMiss(q0, quiet ? "auto" : "ai");
   if (!pick.length) return quiet ? null : [text(`${r.note || "店裡目前沒有很符合的商品"} 🙏\n可以換個說法，或點「新品」看看最近上架的。`, MENU)];
+  // 說得不夠清楚 → 反問「你是要找拼接襯衫嗎？」＋按鈕，同時先給最接近的
+  if (r.ask && r.suggest.length) {
+    const quick = { type: "text", text: `${r.ask}\n先給你最接近的 👇`, quickReply: { items: r.suggest.map((x) => ({ type: "action", action: { type: "message", label: x, text: `找 ${x}` } })) } };
+    return [quick, await carousel(withSiblings(pick, cat.list), "AI 幫你找的商品")];
+  }
   return [text(`${r.note || `幫你找到 ${pick.length} 款`} 👇`), await carousel(withSiblings(pick, cat.list), "AI 幫你找的商品")];
 }
 
@@ -453,14 +492,23 @@ const FOCUS_WORDS: [RegExp, string][] = [
 ];
 const focusOf = (t: string) => FOCUS_WORDS.find(([re]) => re.test(t))?.[1] ?? null;
 
+/** 「褲子」「外套」→ 對應的商品分類（以圖搜圖時只比同一類，不會褲子比到外套） */
+const FOCUS_CATS: [RegExp, string[]][] = [
+  [/褲/, ["長褲", "短褲"]],
+  [/外套|夾克|大衣|背心|風衣/, ["外套"]],
+  [/上衣|T恤|t恤|短袖|襯衫|POLO|polo/i, ["短袖", "長袖"]],
+  [/長袖|衛衣|大學T|針織/, ["長袖"]],
+  [/套裝/, ["套裝"]],
+  [/包/, ["包款"]],
+];
+
 /**
- * 截圖／照片找商品。focus = 客人指定要找圖中哪一件（褲子、外套…）；沒指定時 AI 找最顯眼的那件，
- * 圖裡有好幾件時附上「只找褲子／上衣／外套」快速按鈕。
+ * 以圖搜圖：AI 先看圖找出要找的那件（客人指定的或最顯眼的）並框出位置 → 裁切那件 → 跟所有商品照片（含客人確認過的照片）比相似度。
+ * 圖裡有好幾件時附「只找褲子／上衣／外套」；每張結果有「✓ 就是這件」讓系統學習。
  */
 async function replyAiImage(uid: string, messageId: string, focus: string | null = null): Promise<Msg[] | null> {
-  // 記住剛傳的圖：客人接著打「想找這件褲子」時用同一張圖
   await db.doc(`lineSessions/${uid}`).set({ lastImageId: messageId, lastImageAt: FieldValue.serverTimestamp() }, { merge: true });
-  if (!(await aiQuota(uid))) return [text(`今天的「截圖找商品」已經用了 ${AI_DAILY_LIMIT} 次，明天再試試，或直接打字「找 黑色長褲」🙏`, MENU)];
+  await aiQuota(uid);
   const img = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, { headers: { authorization: `Bearer ${await botToken()}` } });
   if (!img.ok) return [text("圖片已過期或讀取失敗，請再傳一次 🙏")];
   const buf = Buffer.from(await img.arrayBuffer());
@@ -470,34 +518,68 @@ async function replyAiImage(uid: string, messageId: string, focus: string | null
 客人傳了一張圖片（截圖、穿搭照或實拍）。
 ${focus ? `客人要找的是圖片中的「${focus}」，只看那一件，其他衣服忽略。` : "如果圖裡有好幾件衣服，找最顯眼、佔畫面最大的那一件。"}
 步驟：1. 先仔細看那件的品類、顏色、版型（寬／直筒／短版）、材質（丹寧、水洗、格紋…）、細節（打褶、口袋、印花、文字）。2. 品類一定要一樣（褲子只能挑褲子），再比顏色、版型、細節，挑最像的。圖上有商品名稱時，優先找同名商品。
-如果圖片裡沒有衣服或包（例如轉帳截圖、訂單畫面、聊天截圖、風景），只輸出 {"seen":"","items":[],"ids":[],"note":"NOT_CLOTHING"}。
-只輸出 JSON：{"seen":"你看到的那件（例：灰色寬版打褶長褲）","items":["圖中所有衣服的品類，例：外套、褲子"],"ids":[編號...],"note":"一句繁體中文說明"}
+box = 那件衣服在圖中的位置 [左, 上, 右, 下]，用 0～1000 的比例。
+如果圖片裡沒有衣服或包（例如轉帳截圖、訂單畫面、聊天截圖、風景），只輸出 {"seen":"","kind":"","items":[],"ids":[],"box":[],"note":"NOT_CLOTHING"}。
+只輸出 JSON：{"seen":"你看到的那件（例：灰色寬版打褶長褲）","kind":"品類（褲子／上衣／外套／套裝／包包）","items":["圖中所有衣服的品類"],"box":[左,上,右,下],"ids":[編號...],"note":"一句繁體中文說明"}
 
 商品清單：
 ${cat.text}`;
   const r = await aiPickImage(prompt, small.toString("base64"));
-  if (!r) return [text("AI 暫時忙線中，請稍後再傳一次，或直接打字「找 黑色長褲」🙏", MENU)];
-  if (r.note === "NOT_CLOTHING") return null; // 不是衣服的圖（轉帳、訂單截圖…）：不回，留給店家手動回覆
-  const pick = r.ids.map((i) => cat.list[i]).filter(Boolean);
-  // 圖裡不只一件、客人又沒指定 → 給快速按鈕讓他選要找哪件
-  const others = [...new Set(r.items.map((x) => focusOf(x)).filter(Boolean) as string[])];
-  const quick: [string, string][] | undefined = !focus && others.length > 1 ? others.slice(0, 4).map((f) => [`只找${f}`, `a=imgfocus&f=${encodeURIComponent(f)}`]) : undefined;
-  const head = r.seen ? `我看到的是「${r.seen}」` : "";
-  if (!pick.length) return [text(`${head ? `${head}，` : ""}店裡好像沒有很像的 🙏${quick ? "\n圖裡還有其他衣服，可以點下面選要找哪一件。" : "\n看看我們最近的新品？"}`, quick ?? MENU)];
+  if (r?.note === "NOT_CLOTHING") return null; // 不是衣服的圖（轉帳、訂單截圖…）：不回，留給店家
+  // 裁出那件衣服再比相似度（整張穿搭照會混到別件）
+  let target = small;
+  const bx = r?.box ?? [];
+  if (bx.length === 4 && bx.every((n) => Number.isFinite(n))) {
+    const meta = await sharp(small).metadata();
+    const W = meta.width ?? 1024;
+    const H = meta.height ?? 1024;
+    const [x1, y1, x2, y2] = bx.map((n) => Math.max(0, Math.min(1000, n)) / 1000);
+    const pad = 0.04;
+    const left = Math.max(0, Math.floor((Math.min(x1, x2) - pad) * W));
+    const top = Math.max(0, Math.floor((Math.min(y1, y2) - pad) * H));
+    const width = Math.min(W - left, Math.ceil((Math.abs(x2 - x1) + pad * 2) * W));
+    const height = Math.min(H - top, Math.ceil((Math.abs(y2 - y1) + pad * 2) * H));
+    if (width > 60 && height > 60) target = await sharp(small).extract({ left, top, width, height }).toBuffer().catch(() => small);
+  }
+  const qv = await embedImage(target).catch(() => null);
+  // 同品類的商品才比（褲子只比褲子）
+  const kindText = `${focus ?? ""} ${r?.kind ?? ""} ${r?.seen ?? ""}`;
+  const allowCats = FOCUS_CATS.find(([re]) => re.test(kindText))?.[1];
+  const allow = allowCats ? new Set(cat.list.filter((p) => p.cats.some((c) => allowCats.includes(c))).map((p) => p.productId)) : undefined;
+  const byPid = new Map(cat.list.map((p) => [p.productId, p]));
+  const aiIds = new Set((r?.ids ?? []).map((i) => cat.list[i]?.productId).filter(Boolean) as string[]);
+  let ranked: { pid: string; score: number }[] = [];
+  if (qv) {
+    ranked = (await rankByImage(qv, allow && allow.size ? allow : undefined))
+      .filter((x) => byPid.has(x.pid))
+      .map((x) => ({ pid: x.pid, score: x.score + (aiIds.has(x.pid) ? 0.03 : 0) + (x.learned ? 0.02 : 0) }))
+      .sort((a, b) => b.score - a.score);
+  }
+  // 圖片特徵還沒建好時，退回 AI 文字比對的結果
+  const pickIds = ranked.length ? ranked.slice(0, 8).map((x) => x.pid) : [...aiIds];
+  if (!pickIds.length) return r ? [text(`我看到的是「${r.seen || "這件衣服"}」，店裡好像沒有很像的 🙏\n可以拍清楚一點，或打字描述，例如「找 灰色寬褲」。`, MENU)] : [text("AI 暫時忙線中，請稍後再傳一次，或直接打字「找 黑色長褲」🙏", MENU)];
+  const pick = pickIds.map((pid) => byPid.get(pid)!).filter(Boolean);
+  const qid = qv ? await saveQuery(uid, qv, pickIds) : null;
+  const others = [...new Set((r?.items ?? []).map((x) => focusOf(x)).filter(Boolean) as string[])];
+  const quick: [string, string][] = [
+    ...(qid ? ([["都不是", `a=fbno&q=${qid}`]] as [string, string][]) : []),
+    ...(!focus && others.length > 1 ? others.slice(0, 3).map((f) => [`只找${f}`, `a=imgfocus&f=${encodeURIComponent(f)}`] as [string, string]) : []),
+  ];
+  const head = r?.seen ? `我看到的是「${r.seen}」，` : "";
   return [
-    { ...text(`${head ? `${head}，` : ""}${r.note || "這幾款最像"} 👇${quick ? "\n（想找圖中其他件，點下面按鈕）" : ""}`, quick) },
-    await carousel(withSiblings(pick, cat.list), "AI 截圖找商品"),
+    text(`${head}這幾款最像 👇\n找到的話點「✓ 就是這件」，我會記住，下次更快找到！`, quick.length ? quick : undefined),
+    await carousel(withSiblings(pick, cat.list), "以圖搜圖", qid ? { qid } : undefined),
   ];
 }
 
 /** 圖片版 aiPick：多回傳 seen（看到什麼）與 items（圖中有哪些衣服） */
-async function aiPickImage(prompt: string, imageB64: string): Promise<{ ids: number[]; note: string; seen: string; items: string[] } | null> {
+async function aiPickImage(prompt: string, imageB64: string): Promise<{ ids: number[]; note: string; seen: string; kind: string; items: string[]; box: number[] } | null> {
   const key = await getSecret("AI_NVIDIA");
   if (!key) return null;
   const res = await fetch(AI_URL, {
     method: "POST",
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: AI_MODEL, temperature: 0, max_tokens: 400, chat_template_kwargs: { enable_thinking: false }, messages: [{ role: "system", content: "detailed thinking off" }, { role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageB64}` } }] }] }),
+    body: JSON.stringify({ model: AI_MODEL, temperature: 0, max_tokens: 500, chat_template_kwargs: { enable_thinking: false }, messages: [{ role: "system", content: "detailed thinking off" }, { role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageB64}` } }] }] }),
     signal: AbortSignal.timeout(45_000),
   }).catch(() => null);
   if (!res?.ok) return null;
@@ -505,8 +587,15 @@ async function aiPickImage(prompt: string, imageB64: string): Promise<{ ids: num
   const m = out.match(/\{[\s\S]*\}/);
   if (!m) return null;
   try {
-    const r = JSON.parse(m[0]) as { ids?: unknown[]; note?: string; seen?: string; items?: unknown[] };
-    return { ids: (r.ids ?? []).map(Number).filter((n) => Number.isInteger(n) && n >= 0), note: String(r.note ?? "").slice(0, 120), seen: String(r.seen ?? "").slice(0, 60), items: (r.items ?? []).map(String).slice(0, 6) };
+    const r = JSON.parse(m[0]) as { ids?: unknown[]; note?: string; seen?: string; kind?: string; items?: unknown[]; box?: unknown[] };
+    return {
+      ids: (r.ids ?? []).map(Number).filter((n) => Number.isInteger(n) && n >= 0),
+      note: String(r.note ?? "").slice(0, 120),
+      seen: String(r.seen ?? "").slice(0, 60),
+      kind: String(r.kind ?? "").slice(0, 20),
+      items: (r.items ?? []).map(String).slice(0, 6),
+      box: (r.box ?? []).map(Number).slice(0, 4),
+    };
   } catch {
     return null;
   }
@@ -772,7 +861,13 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
   } else if (e.type === "postback") {
     const qp = new URLSearchParams(e.postback?.data ?? "");
     const a = qp.get("a");
-    out = a === "imgfocus" ? await (async () => { const id = await recentImage(uid); return id ? replyAiImage(uid, id, qp.get("f")) : [text("圖片已經過期了，請再傳一次 🙏")]; })() : a === "prefs" || a === "pref" ? await replyPrefs(uid) : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
+    out = a === "fb"
+      ? (await learnFromQuery(qp.get("q") ?? "", qp.get("p") ?? "", uid).catch(() => false))
+        ? [text("謝謝！已經記住這件了 🙌 下次有人傳類似的照片，會更快找到。", MENU)]
+        : [text("這次的搜尋已經過期了，再傳一次照片就可以 🙏")]
+      : a === "fbno"
+      ? (await markMiss(qp.get("q") ?? "", uid).catch(() => undefined), [text("收到，我們會再改進 🙏\n可以：①拍清楚一點、只拍那一件 ②打字描述，例如「找 灰色打褶寬褲」③點「只找褲子」這類按鈕。", MENU)])
+      : a === "imgfocus" ? await (async () => { const id = await recentImage(uid); return id ? replyAiImage(uid, id, qp.get("f")) : [text("圖片已經過期了，請再傳一次 🙏")]; })() : a === "prefs" || a === "pref" ? await replyPrefs(uid) : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
   } else if (e.type === "message" && e.message?.type === "image" && e.message.id) {
     out = await replyAiImage(uid, e.message.id);
   } else if (e.type === "message" && e.message?.type === "text") {

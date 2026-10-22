@@ -21,3 +21,4 @@ export { lineConfig, lineMemberCard, lineBindMember, lineRegisterMember, lineUnb
 export { buildThumbs } from "./thumbs";
 export { convertSound } from "./sound";
 export { lineWebhook, setLineBotCreds, lineBotStatus, setLineRichMenu, lineCardImage, linePrefs } from "./lineBot";
+export { buildImageIndex, imageIndexDaily, aiLearnStatus } from "./imageSearch";
