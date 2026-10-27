@@ -17,6 +17,8 @@ interface Cell {
   sub: string;
   color: Color;
   url?: string;
+  /** 這一格自己上傳的照片（data URL）；沒有就用共用的商品照片 */
+  photo?: string;
 }
 
 const ACTIONS: Record<Action, { name: string; en: string; zh: string; sub: string }> = {
@@ -146,6 +148,7 @@ export function RichMenuEditor() {
         return;
       }
       const photo = photoUrl ? await loadImg(photoUrl).catch(() => null) : null;
+      const cellPics = await Promise.all(cells.map((c) => (c.photo ? loadImg(c.photo).catch(() => null) : Promise.resolve(null))));
       const igDark = await loadImg("/rm-ig-dark.png").catch(() => null);
       const igLight = await loadImg("/rm-ig-light.png").catch(() => null);
       if (!alive) return;
@@ -166,9 +169,10 @@ export function RichMenuEditor() {
         ctx.clip();
         ctx.fillStyle = col.bg;
         ctx.fillRect(x, y, w, h);
-        if (c.color === "photo" && photo) {
-          const s = Math.max(w / photo.width, h / photo.height);
-          ctx.drawImage(photo, x + (w - photo.width * s) / 2, y + (h - photo.height * s) * 0.3, photo.width * s, photo.height * s);
+        const pic = cellPics[i] ?? photo;
+        if (c.color === "photo" && pic) {
+          const s = Math.max(w / pic.width, h / pic.height);
+          ctx.drawImage(pic, x + (w - pic.width * s) / 2, y + (h - pic.height * s) * 0.3, pic.width * s, pic.height * s);
           const gr = ctx.createLinearGradient(0, y, 0, y + h);
           gr.addColorStop(0, "rgba(40,30,24,0.15)");
           gr.addColorStop(1, "rgba(40,30,24,0.65)");
@@ -270,7 +274,7 @@ export function RichMenuEditor() {
         {cells.map((c, i) => (
           <div key={i} className="rm-cell">
             <b>第 {i + 1} 格</b>
-            <select value={c.action} onChange={(e) => upd(i, { ...mk(e.target.value as Action, c.color), color: c.color })}>
+            <select value={c.action} onChange={(e) => upd(i, { ...mk(e.target.value as Action, c.color), color: c.color, photo: c.photo })}>
               {(Object.keys(ACTIONS) as Action[]).map((a) => (
                 <option key={a} value={a}>
                   {ACTIONS[a].name}
@@ -290,6 +294,39 @@ export function RichMenuEditor() {
                   ))}
                 </select>
               </>
+            )}
+            {!own && c.color === "photo" && (
+              <span className="rm-photo">
+                <label className="btn btn-sm">
+                  {c.photo ? "換這格的照片" : "上傳這格的照片"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      // 縮到 1250px 再放進預覽，避免手機大圖讓頁面變慢
+                      const r = new FileReader();
+                      r.onload = async () => {
+                        const im = await loadImg(String(r.result));
+                        const k = Math.min(1, 1250 / Math.max(im.width, im.height));
+                        const cv = document.createElement("canvas");
+                        cv.width = Math.round(im.width * k);
+                        cv.height = Math.round(im.height * k);
+                        cv.getContext("2d")!.drawImage(im, 0, 0, cv.width, cv.height);
+                        upd(i, { photo: cv.toDataURL("image/jpeg", 0.88) });
+                      };
+                      r.readAsDataURL(f);
+                    }}
+                  />
+                </label>
+                {c.photo && (
+                  <button className="link-btn small" onClick={() => upd(i, { photo: undefined })}>
+                    改用商品照片
+                  </button>
+                )}
+              </span>
             )}
             {(c.action === "url" || c.action === "ig") && <input value={c.url ?? ""} onChange={(e) => upd(i, { url: e.target.value.trim() })} placeholder={c.action === "ig" ? "https://www.instagram.com/你的帳號" : "https://"} />}
           </div>

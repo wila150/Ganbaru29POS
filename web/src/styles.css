@@ -1023,3 +1023,4 @@ span.tier-switch { cursor: default; }
 .rm-own { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
 .rm-cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .rm-cell { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
+.rm-photo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
