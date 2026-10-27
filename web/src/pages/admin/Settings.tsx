@@ -1,5 +1,5 @@
 import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, type Timestamp } from "firebase/firestore";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth";
 import { Badge, Field, useAction, useToast } from "../../components/ui";
@@ -1042,8 +1042,132 @@ function LineOaSettings() {
       <button className="btn btn-primary" disabled={!dirty || busy} onClick={() => run(() => setDoc(doc(db, "settings", "shop"), { lineBot: v }, { merge: true }), "已儲存")}>
         儲存
       </button>
+      <LinePushPanel />
       <AiLearnPanel />
     </section>
+  );
+}
+
+/** LINE 推播：選對象（客人勾的喜好）→ 寫訊息、挑商品 → 預覽人數與額度 → 發送 */
+const PUSH_KINDS: [string, string, string][] = [
+  ["新品通知", "勾了「新品通知」的人", "✨ 新品上架！上架一週內每件現折 $100，快來看看 👇"],
+  ["特價活動", "勾了「特價活動」的人", "🔥 特價活動開跑！特價專區／直播／福袋，數量有限 👇"],
+  ["長褲", "喜歡長褲的人", "👖 長褲新品上架 👇"],
+  ["短褲", "喜歡短褲的人", "🩳 短褲新品上架 👇"],
+  ["長袖", "喜歡長袖的人", "🧥 長袖新品上架 👇"],
+  ["短袖", "喜歡短袖的人", "👕 短袖新品上架 👇"],
+  ["外套", "喜歡外套的人", "🧥 外套新品上架 👇"],
+  ["all", "所有綁定 LINE 的會員", "ganbaru29 最新消息 👇"],
+];
+function LinePushPanel() {
+  const { variants } = useData();
+  const [kind, setKind] = useState("新品通知");
+  const [msg, setMsg] = useState(PUSH_KINDS[0][2]);
+  const [pv, setPv] = useState<{ count: number; limit: number | null; used: number; left: number | null } | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [q, setQ] = useState("");
+  const [logs, setLogs] = useState<{ kind: string; text: string; count: number; by: string; at: number }[]>([]);
+  const { busy, run } = useAction();
+  // 上架中的商品（一款一筆），新的排前面
+  const products = useMemo(() => {
+    const m = new Map<string, { id: string; title: string; at: number; sale: boolean }>();
+    for (const v of variants) {
+      if (v.productStatus !== "LISTED" || m.has(v.productId)) continue;
+      const at = (v as unknown as { shopCreatedAt?: { toMillis?: () => number } }).shopCreatedAt?.toMillis?.() ?? 0;
+      m.set(v.productId, { id: v.productId, title: v.productTitle, at, sale: (v.listPrice ?? 0) > v.price });
+    }
+    return [...m.values()].sort((a, b) => b.at - a.at);
+  }, [variants]);
+  const loadLogs = () => call<{ logs: typeof logs }>("linePushLogs").then((r) => setLogs(r.logs)).catch(() => undefined);
+  useEffect(() => {
+    setPv(null);
+    call<NonNullable<typeof pv>>("linePushPreview", { kind }).then(setPv).catch(() => setPv(null));
+  }, [kind]);
+  useEffect(() => {
+    loadLogs();
+  }, []);
+  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 10 ? p : [...p, id]));
+  const list = products.filter((p) => !q || p.title.includes(q)).slice(0, 60);
+  const over = !!pv && pv.left != null && pv.count > pv.left;
+  return (
+    <>
+      <h3>LINE 推播</h3>
+      <p className="muted small">只會發給「有綁定 LINE、而且勾了這一項」的客人。推播會用掉官方帳號每月額度（一人一則）；客人點選單得到的回覆不算。</p>
+      <div className="paydisp-fields">
+        <Field label="發給誰">
+          <select
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value);
+              setMsg(PUSH_KINDS.find((k) => k[0] === e.target.value)?.[2] ?? "");
+            }}
+          >
+            {PUSH_KINDS.map(([k, l]) => (
+              <option key={k} value={k}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <p className={`small ${over ? "error" : ""}`}>
+        {pv ? `會發給 ${pv.count} 人・本月已用 ${pv.used}／${pv.limit ?? "不限"} 則${pv.left != null ? `，還剩 ${pv.left} 則` : ""}${over ? "（額度不夠）" : ""}` : "計算人數中…"}
+      </p>
+      <Field label="訊息">
+        <textarea rows={3} value={msg} onChange={(e) => setMsg(e.target.value)} />
+      </Field>
+      <div className="row-between">
+        <b className="small">附上商品卡片（最多 10 款，已選 {picked.length}）</b>
+        <span className="btn-row">
+          <button className="btn btn-sm" onClick={() => setPicked(products.slice(0, 8).map((p) => p.id))}>
+            最新 8 款
+          </button>
+          <button className="btn btn-sm" onClick={() => setPicked(products.filter((p) => p.sale).slice(0, 10).map((p) => p.id))}>
+            特價商品
+          </button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setPicked([])}>
+            清除
+          </button>
+        </span>
+      </div>
+      <input className="search" placeholder="搜尋商品名稱" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="push-list">
+        {list.map((p) => (
+          <label key={p.id} className="check">
+            <input type="checkbox" checked={picked.includes(p.id)} onChange={() => toggle(p.id)} /> {p.title}
+            {p.sale && <span className="muted small">（特價）</span>}
+          </label>
+        ))}
+      </div>
+      <button
+        className="btn btn-primary"
+        disabled={busy || !pv?.count || over || !msg.trim()}
+        onClick={() =>
+          confirm(`確定發送給 ${pv?.count} 人？會用掉 ${pv?.count} 則額度。`) &&
+          run(async () => {
+            await call("linePushSend", { kind, text: msg, productIds: picked });
+            setPicked([]);
+            loadLogs();
+            const r = await call<NonNullable<typeof pv>>("linePushPreview", { kind });
+            setPv(r);
+          }, "已發送")
+        }
+      >
+        {busy ? "發送中…" : `發送推播（${pv?.count ?? 0} 人）`}
+      </button>
+      {logs.length > 0 && (
+        <>
+          <h4>推播紀錄</h4>
+          <ul className="small">
+            {logs.map((l, i) => (
+              <li key={i}>
+                {new Date(l.at).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}　{l.kind === "all" ? "全部會員" : l.kind}　{l.count} 人　{l.by}：{l.text.slice(0, 30)}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
   );
 }
 

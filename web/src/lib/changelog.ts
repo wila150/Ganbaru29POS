@@ -11,6 +11,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-27-j",
+    date: "2026-10-27",
+    title: "LINE 推播",
+    items: [
+      "後台設定 → LINE 官方帳號 → LINE 推播：選對象（勾了新品通知／特價活動／某個種類的客人，或全部會員）",
+      "寫訊息、附上商品卡片（可一鍵選最新 8 款或特價商品），發送前會顯示人數和剩餘額度",
+      "為你推薦：寫出客人勾的全部喜好，每一類輪流挑商品",
+    ],
+  },
+  {
     id: "2026-10-27-i",
     date: "2026-10-27",
     title: "甘爹／超級VIP 專屬黑金會員卡",

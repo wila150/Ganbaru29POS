@@ -1140,3 +1140,55 @@ export const lineCardImage = onRequest({ maxInstances: 10, memory: "512MiB" }, a
     .toBuffer();
   res.set("content-type", "image/png").set("cache-control", "public, max-age=86400").send(png);
 });
+
+// ---------- 推播（主動發送，會用掉官方帳號每月額度：一人一則） ----------
+
+/** 對象：notify = 勾了「新品通知／特價活動」或某個種類的人；all = 所有綁定 LINE 的會員 */
+async function audience(kind: string): Promise<string[]> {
+  const snap = await db.collection("shoppers").where("lineUserId", ">", "").select("lineUserId", "likes").get();
+  const ids = snap.docs.filter((d) => kind === "all" || ((d.data().likes ?? []) as string[]).includes(kind)).map((d) => d.data().lineUserId as string);
+  return [...new Set(ids)];
+}
+
+async function quotaLeft(): Promise<{ limit: number | null; used: number; left: number | null }> {
+  const [q, u] = await Promise.all([lineApi("/message/quota", undefined, "GET"), lineApi("/message/quota/consumption", undefined, "GET")]);
+  const limit = q.type === "limited" ? (q.value as number) : null;
+  const used = (u.totalUsage as number) ?? 0;
+  return { limit, used, left: limit == null ? null : Math.max(0, limit - used) };
+}
+
+/** 發送前預覽：會發給幾個人、本月還剩多少額度 */
+export const linePushPreview = onCall(async (req) => {
+  await requireRole(req, "manager");
+  const kind = str(req.data?.kind, "對象", { max: 20 });
+  const [ids, quota] = await Promise.all([audience(kind), quotaLeft()]);
+  return { count: ids.length, ...quota };
+});
+
+/** 發送推播：一段文字＋（可選）商品卡片；對象人數超過剩餘額度就不發 */
+export const linePushSend = onCall({ timeoutSeconds: 120 }, async (req) => {
+  const actor = await requireRole(req, "manager");
+  const kind = str(req.data?.kind, "對象", { max: 20 });
+  const msg = str(req.data?.text, "訊息", { max: 1000 });
+  const productIds: string[] = (Array.isArray(req.data?.productIds) ? (req.data.productIds as unknown[]) : []).map(String).slice(0, 10);
+  const ids = await audience(kind);
+  assert(ids.length, "沒有符合的對象（要有綁定 LINE、而且勾了這一項）");
+  const q = await quotaLeft();
+  assert(q.left == null || ids.length <= q.left, `本月推播額度不夠：要發 ${ids.length} 則，只剩 ${q.left} 則`);
+  const messages: Msg[] = [text(msg)];
+  if (productIds.length) {
+    const all = await listedProducts();
+    const pick = productIds.map((id) => all.find((p) => p.productId === id)).filter(Boolean) as P[];
+    if (pick.length) messages.push(await carousel(withSiblings(pick, all), msg.slice(0, 60)));
+  }
+  for (let i = 0; i < ids.length; i += 500) await lineApi("/message/multicast", { to: ids.slice(i, i + 500), messages });
+  await db.collection("linePushLogs").add({ kind, text: msg, productIds, count: ids.length, by: actor.name, at: FieldValue.serverTimestamp() });
+  return { sent: ids.length };
+});
+
+/** 推播紀錄 */
+export const linePushLogs = onCall(async (req) => {
+  await requireRole(req, "manager");
+  const s = await db.collection("linePushLogs").orderBy("at", "desc").limit(20).get();
+  return { logs: s.docs.map((d) => ({ kind: d.data().kind, text: d.data().text, count: d.data().count, by: d.data().by, at: d.data().at?.toMillis?.() ?? 0 })) };
+});

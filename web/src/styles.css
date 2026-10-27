@@ -1010,3 +1010,4 @@ span.tier-switch { cursor: default; }
 .member-card.vip .mc-badges span { background-size: 200% 100%; background-image: linear-gradient(90deg, #b8912e, #f6e27a, #b8912e); animation: vip-badge 2.4s linear infinite; }
 @keyframes vip-badge { from { background-position: 200% 0; } to { background-position: 0 0; } }
 @media (prefers-reduced-motion: reduce) { .member-card.vip, .member-card.vip::after, .member-card.vip .mc-badges span { animation: none; } }
+.push-list { max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 2px; }
