@@ -9,7 +9,7 @@ import { useAction } from "./ui";
  */
 
 type Action = "card" | "new" | "sale" | "promo" | "store" | "foryou" | "prefs" | "service" | "url" | "ig";
-type Color = "photo" | "brown" | "gray" | "purple";
+type Color = "photo" | "brown" | "gray" | "purple" | "igGrad" | "igMilk";
 interface Cell {
   action: Action;
   en: string;
@@ -40,6 +40,13 @@ const COLORS: Record<Color, { name: string; bg: string; fg: string; bar: string 
   brown: { name: "大地咖", bg: "#4a3b32", fg: "#eae3da", bar: "#c9ae90" },
   gray: { name: "水泥灰", bg: "#e5e5e5", fg: "#4a3b32", bar: "#4a3b32" },
   purple: { name: "洗舊紫灰", bg: "#6c636b", fg: "#f1ecef", bar: "#e5e5e5" },
+  igGrad: { name: "IG 漸層（紫粉橘）", bg: "#8134af", fg: "#ffffff", bar: "#ffffff" },
+  igMilk: { name: "IG 漸層（咖啡奶茶）", bg: "#4a3b32", fg: "#ffffff", bar: "#f3e6d6" },
+};
+/** IG 風格漸層底：左下 → 右上，再壓一層暗色讓字比較有質感 */
+const GRADS: Partial<Record<Color, string[]>> = {
+  igGrad: ["#feda75", "#fa7e1e", "#d62976", "#962fbf", "#4f5bd5"],
+  igMilk: ["#d9b99b", "#a9805f", "#6e4f3c", "#3a2b23"],
 };
 const BOXES: Record<string, { x: number; y: number; w: number; h: number }[]> = {
   "4": [
@@ -171,6 +178,18 @@ export function RichMenuEditor() {
         ctx.clip();
         ctx.fillStyle = col.bg;
         ctx.fillRect(x, y, w, h);
+        const stops = GRADS[c.color];
+        if (stops) {
+          const gr = ctx.createLinearGradient(x, y + h, x + w, y);
+          stops.forEach((st, k) => gr.addColorStop(k / (stops.length - 1), st));
+          ctx.fillStyle = gr;
+          ctx.fillRect(x, y, w, h);
+          const shade = ctx.createLinearGradient(0, y, 0, y + h);
+          shade.addColorStop(0, "rgba(0,0,0,0.05)");
+          shade.addColorStop(1, "rgba(0,0,0,0.3)");
+          ctx.fillStyle = shade;
+          ctx.fillRect(x, y, w, h);
+        }
         const pic = cellPics[i] ?? photo;
         if (c.plain && cellPics[i]) {
           const im = cellPics[i]!;
