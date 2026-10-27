@@ -612,9 +612,15 @@ async function recentImage(uid: string): Promise<string | null> {
 }
 
 /** 客人自己勾的喜好選項（可在設定頁改 lineBot.prefOptions） */
-const DEFAULT_PREFS = ["長褲", "短褲", "長袖", "短袖", "外套", "套裝", "包款", "特價優惠", "新品通知"];
-/** 喜好 → 商品分類 */
-const PREF_CATS: Record<string, string[]> = { 特價優惠: ["特價專區"], 新品通知: [] };
+/** 「想要收到」表單（照老闆的手寫稿）：通知類＋特定種類上新 */
+const NOTIFY_PREFS: [string, string][] = [
+  ["新品通知", "新品上架一週內，每件現折 $100"],
+  ["特價活動", "特價專區、直播、福袋"],
+];
+const CAT_PREFS = ["長褲", "短褲", "長袖", "短袖", "外套"];
+const DEFAULT_PREFS = [...NOTIFY_PREFS.map(([k]) => k), ...CAT_PREFS];
+/** 喜好 → 商品分類（推薦用） */
+const PREF_CATS: Record<string, string[]> = { 特價活動: ["特價專區"], 特價優惠: ["特價專區"], 新品通知: [] };
 
 const PREFS_URL = "https://asia-east1-ganbaru29.cloudfunctions.net/linePrefs";
 /** 喜好表單連結：簽章（channel secret）＋30 分鐘到期，只有本人能開 */
@@ -647,7 +653,7 @@ async function replyPrefs(uid: string): Promise<Msg[]> {
           layout: "vertical",
           spacing: "sm",
           contents: [
-            { type: "button", style: "primary", color: "#4a3b32", action: { type: "uri", label: likes.length ? "修改我的喜好" : "選擇我的喜好", uri: await prefsLink(uid) } },
+            { type: "button", style: "primary", color: "#4a3b32", action: { type: "uri", label: likes.length ? "修改通知設定" : "選擇想收到的通知", uri: await prefsLink(uid) } },
             { type: "button", style: "secondary", action: { type: "postback", label: "✨ 看為你推薦", data: "a=foryou", displayText: "為你推薦" } },
           ],
         },
@@ -670,10 +676,11 @@ export const linePrefs = onRequest({ maxInstances: 10 }, async (req, res) => {
 header{background:#4a3b32;color:#fff;padding:20px 20px 16px}header small{color:#c9ae90;letter-spacing:2px;font-weight:700}header h1{margin:4px 0 0;font-size:22px}
 main{padding:18px}p{margin:0 0 14px;color:#6b5a4d;font-size:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 label{display:flex;align-items:center;justify-content:center;gap:6px;padding:14px 8px;border-radius:12px;background:#fff;border:2px solid #e2d5c4;font-size:17px;font-weight:600}
+h2{font-size:16px;margin:18px 0 8px;color:#4a3b32}h2:first-of-type{margin-top:0}.grid.one{grid-template-columns:1fr}label.wide{justify-content:flex-start;padding:14px 16px}label span small{display:block;font-weight:400;font-size:13px;opacity:.8;margin-top:2px}
 input{display:none}input:checked+span{color:#fff}label:has(input:checked){background:#4a3b32;border-color:#4a3b32;color:#fff}
 button{margin-top:18px;width:100%;padding:15px;border:0;border-radius:12px;background:#059669;color:#fff;font-size:18px;font-weight:700}
 .ok{text-align:center;padding:40px 10px}.ok b{font-size:44px;display:block}</style></head><body>
-<header><small>MY STYLE</small><h1>我的喜好</h1></header><main>${body}</main></body></html>`);
+<header><small>MY STYLE</small><h1>想要收到哪些通知？</h1></header><main>${body}</main></body></html>`);
   try {
     const c = await botCreds();
     const expect = createHmac("sha256", c.channelSecret).update(`${u}.${e}`).digest("hex").slice(0, 32);
@@ -695,8 +702,12 @@ button{margin-top:18px;width:100%;padding:15px;border:0;border-radius:12px;backg
       return;
     }
     const likes = (s.data().likes ?? []) as string[];
-    page(`<p>可以複選，選好按「儲存」。</p><form method="post"><input type="hidden" name="u" value="${esc(u)}"><input type="hidden" name="e" value="${e}"><input type="hidden" name="s" value="${esc(sig)}">
-<div class="grid">${options.map((o) => `<label><input type="checkbox" name="likes" value="${esc(o)}"${likes.includes(o) ? " checked" : ""}><span>${esc(o)}</span></label>`).join("")}</div>
+    const box = (o: string, sub = "") => `<label class="${sub ? "wide" : ""}"><input type="checkbox" name="likes" value="${esc(o)}"${likes.includes(o) ? " checked" : ""}><span>${esc(o)}${sub ? `<small>${esc(sub)}</small>` : ""}</span></label>`;
+    const notify = NOTIFY_PREFS.filter(([k]) => options.includes(k));
+    const cats = options.filter((o) => !NOTIFY_PREFS.some(([k]) => k === o));
+    page(`<form method="post"><input type="hidden" name="u" value="${esc(u)}"><input type="hidden" name="e" value="${e}"><input type="hidden" name="s" value="${esc(sig)}">
+<h2>想要收到</h2><div class="grid one">${notify.map(([k, sub]) => box(k, sub)).join("")}</div>
+<h2>特定種類商品上新</h2><p>這幾類有新品時通知你（可複選）</p><div class="grid">${cats.map((o) => box(o)).join("")}</div>
 <button type="submit">儲存</button></form>`);
   } catch (err) {
     logger.error("linePrefs", err);
@@ -1021,7 +1032,8 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
 }
 
 /** LINE 平台送事件到這裡（官方帳號後台的 Webhook URL） */
-export const lineWebhook = onRequest({ maxInstances: 10, timeoutSeconds: 60 }, async (req, res) => {
+// 以圖搜圖要處理照片＋載入 180 張圖片特徵：256MB 會被系統砍掉（客人收不到回覆）→ 給 1GB
+export const lineWebhook = onRequest({ maxInstances: 10, timeoutSeconds: 120, memory: "1GiB" }, async (req, res) => {
   try {
     const c = await botCreds();
     const sig = String(req.get("x-line-signature") ?? "");
