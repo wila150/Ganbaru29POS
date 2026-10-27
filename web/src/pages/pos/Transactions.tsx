@@ -381,7 +381,7 @@ function LineBound({ id }: { id: string }) {
     <>
     {bound.todo && (
       <div className="notice notice-warn small">
-        ⚠️ 這位會員已在門市升級為「{bound.todo}」，門市折扣已生效。官網群組 meepShop 不能用程式改，請到 meepShop 後台把他的顧客群組改成「{bound.todo}」。
+        ⚠️ 這位會員已在門市升級為「{bound.todo}」，下次在門市消費開始享優惠。官網群組 meepShop 不能用程式改，請到 meepShop 後台把他的顧客群組改成「{bound.todo}」。
         {atLeast(profile?.role, "manager") && (
           <button className="btn btn-sm" disabled={busy} onClick={() => run(() => call("clearMeepGroupTodo", { id }), "已標記")}>
             已在 meepShop 改好
