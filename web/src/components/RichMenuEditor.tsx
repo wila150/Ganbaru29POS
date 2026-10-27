@@ -23,6 +23,8 @@ interface Cell {
   plain?: boolean;
   /** 字放在最下面，不遮到圖中間（例如 logo 底圖） */
   low?: boolean;
+  /** Instagram 格不畫 IG 圖示 */
+  noIcon?: boolean;
   /** 上傳圖的位置：縮放 100~300（%）、左右 / 上下 -100~100（往右 / 往下為正） */
   zoom?: number;
   px?: number;
@@ -261,7 +263,7 @@ export function RichMenuEditor() {
           ctx.textBaseline = "alphabetic";
           const enPx = fitText(ctx, c.en, (p) => `${p}px "Bebas Neue", Impact, sans-serif`, 120, w * 0.6);
           const tw = ctx.measureText(c.en).width;
-          const ig = c.action === "ig";
+          const ig = c.action === "ig" && !c.noIcon;
           const sz = ig ? enPx * 0.95 : 0;
           const gap = ig ? 28 : 0;
           const left = cx - (sz + gap + tw) / 2;
@@ -312,7 +314,7 @@ export function RichMenuEditor() {
         const cx = x + w / 2;
         let top = y + h * 0.5;
         // IG 圖示
-        if (c.action === "ig") {
+        if (c.action === "ig" && !c.noIcon) {
           const ic = c.color === "gray" ? igDark : igLight;
           if (ic) {
             const sz = Math.min(w, h) * 0.28;
@@ -505,6 +507,11 @@ export function RichMenuEditor() {
                 </option>
               ))}
             </select>
+            {!own && !c.plain && c.action === "ig" && (
+              <label className="check small">
+                <input type="checkbox" checked={!c.noIcon} onChange={(e) => upd(i, { noIcon: !e.target.checked })} /> 顯示 IG 圖示
+              </label>
+            )}
             {!own && !c.plain && (
               <>
                 <input value={c.en} onChange={(e) => upd(i, { en: e.target.value.toUpperCase() })} placeholder="英文大字" />
