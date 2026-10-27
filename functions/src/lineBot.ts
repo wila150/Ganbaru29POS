@@ -76,7 +76,6 @@ const MENU: [string, string][] = [
   ["本月活動", "a=promo"],
   ["門市資訊", "a=store"],
   ["查訂單", "a=orders"],
-  ["功能說明", "a=help"],
 ];
 const $ = (n: number) => `NT$ ${Math.round(n).toLocaleString("en-US")}`;
 
@@ -945,83 +944,24 @@ async function replyStore(): Promise<Msg[]> {
 
 // ---------- 功能說明（客人不知道官方帳號能做什麼） ----------
 
-const HELP: [string, string, string][] = [
-  ["💳", "會員卡", "a=card"],
-  ["📦", "查訂單・出貨進度", "a=orders"],
-  ["🧾", "消費紀錄・購物金", "a=history"],
-  ["🆕", "看新品", "a=new"],
-  ["🏷️", "特價商品", "a=sale"],
-  ["✨", "為你推薦", "a=foryou"],
-  ["🔔", "設定想收到的通知", "a=prefs"],
-  ["📍", "門市地址・營業時間", "a=store"],
-];
-
-function replyHelp(intro = ""): Msg[] {
-  const item = ([icon, label, data]: [string, string, string]) => ({
-    type: "box",
-    layout: "horizontal",
-    spacing: "md",
-    paddingTop: "10px",
-    paddingBottom: "10px",
-    action: { type: "postback", label: label.slice(0, 20), data, displayText: label },
-    contents: [
-      { type: "text", text: icon, flex: 0, size: "md" },
-      { type: "text", text: label, size: "md", color: "#3b2f28", flex: 1 },
-      { type: "text", text: "›", size: "lg", color: "#c9ae90", flex: 0 },
-    ],
-  });
-  const tip = (t: string, d: string) => ({
-    type: "box",
-    layout: "vertical",
-    contents: [
-      { type: "text", text: t, size: "sm", weight: "bold", color: "#3b2f28" },
-      { type: "text", text: d, size: "xs", color: "#8a7a6d", wrap: true },
-    ],
-  });
+/** 使用說明：提醒先註冊／綁定會員，再用下方圖文選單 */
+async function replyHelp(uid: string, welcome = false): Promise<Msg[]> {
+  const st = await shopSettings();
+  const name = st.shopName === "ganbaru29" || !st.shopName ? "29 STUDIO" : st.shopName;
+  const bound = !!(await shopperByLine(uid));
   return [
-    ...(intro ? [text(intro)] : []),
-    {
-      type: "flex",
-      altText: "我可以幫你做這些事：會員卡、查訂單、新品、找商品…",
-      contents: {
-        type: "bubble",
-        header: {
-          type: "box",
-          layout: "vertical",
-          backgroundColor: "#4a3b32",
-          paddingAll: "16px",
-          paddingStart: "20px",
-          contents: [
-            { type: "text", text: "HOW TO USE", color: "#c9ae90", size: "xs", weight: "bold" },
-            { type: "text", text: "我可以幫你做這些事", color: "#ffffff", weight: "bold", size: "lg" },
-            { type: "text", text: "點一下就能用 👇", color: "#eae3da", size: "xs" },
-          ],
-        },
-        body: {
-          type: "box",
-          layout: "vertical",
-          paddingStart: "20px",
-          paddingEnd: "20px",
-          contents: [
-            ...HELP.flatMap((h, k) => (k ? [{ type: "separator" }, item(h)] : [item(h)])),
-            { type: "separator", margin: "md" },
-            { type: "text", text: "也可以直接打字或傳照片", size: "xs", color: "#8a7a6d", margin: "lg" },
-            {
-              type: "box",
-              layout: "vertical",
-              spacing: "md",
-              margin: "md",
-              contents: [
-                tip("🔍 找商品", "打「我想找寬褲」「格紋襯衫」，或傳一張穿搭截圖"),
-                tip("📦 查訂單", "直接貼訂單編號（官網編號或門市收據 P 開頭的單號）"),
-                tip("💬 真人客服", "打「客服」，尺寸、退換貨、其他問題由店員回覆"),
-              ],
-            },
-          ],
-        },
-      },
-      quickReply: { items: MENU.map(([label, data]) => ({ type: "action", action: { type: "postback", label, data, displayText: label } })) },
-    } as Msg,
+    text(
+      [
+        welcome ? `歡迎加入 ${name}！👋` : `${name} LINE 使用說明 📖`,
+        "",
+        bound ? "✅ 您已經綁定會員" : "① 先註冊／綁定會員\n點下方按鈕「加入會員」，或圖文選單的「會員卡」，輸入手機就能綁定（還不是會員可以直接加入）",
+        "",
+        `${bound ? "👇" : "②"} 使用下方的圖文選單\n・「逛逛」：新品、特價、本月活動、為你推薦\n・「會員」：會員卡、查訂單、消費紀錄、購物金、客服`,
+        "",
+        "也可以直接打字找商品（例：寬褲），或傳一張穿搭照片給我們 🔍",
+      ].join("\n"),
+      bound ? MENU : [["加入會員", "a=card"], ...MENU]
+    ),
   ];
 }
 
@@ -1236,7 +1176,7 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
     await sRef.delete();
     return [text(`綁定完成 🎉 ${s.name || ""} 您好！`), ...(await replyCard(uid))];
   }
-  if (/^(功能|說明|使用說明|功能說明|怎麼用|教學|help|選單|menu|[?？]+)$/i.test(t)) return replyHelp();
+  if (/^(功能|說明|使用說明|功能說明|怎麼用|教學|help|選單|menu|[?？]+)$/i.test(t)) return replyHelp(uid);
   const on = orderNumberIn(t);
   if (on || ORDER_ASK.test(t)) return replyOrders(uid, on).catch((e) => (logger.warn("order lookup", errMsg(e)), [text("訂單系統暫時連不上 🙏 請稍後再試，或直接留言，客服會回覆您。")]));
   if (/會員卡|會員/.test(t)) return replyCard(uid);
@@ -1271,15 +1211,14 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
   if (e.type === "postback" || e.type === "message") {
     const txt = (e.message?.text ?? "").trim();
     const willReply =
-      e.type === "postback" ||
+      (e.type === "postback" && !/(^|&)a=tab\b/.test(e.postback?.data ?? "")) ||
       e.message?.type === "image" ||
       (e.message?.type === "text" && (BOT_KEYWORDS.test(txt) || !!orderNumberIn(txt) || ORDER_ASK.test(txt) || looksLikeProduct(txt) || (await db.doc(`lineSessions/${uid}`).get()).exists));
     const slow = e.message?.type === "image" || /^(我)?(想|要)?(找|搜)|有沒有|適合|推薦|喜歡/.test(txt) || looksLikeProduct(txt) || /a=(foryou|history|new|sale)/.test(e.postback?.data ?? "");
     if (willReply) lineApi("/chat/loading/start", { chatId: uid, loadingSeconds: slow ? 30 : 10 }).catch(() => undefined);
   }
   if (e.type === "follow") {
-    const st = await shopSettings();
-    out = replyHelp(`歡迎加入 ${st.shopName === "ganbaru29" || !st.shopName ? "29 STUDIO" : st.shopName}！👋\n第一次使用請先點「會員卡」綁定會員，就能查訂單、看購物金。\n之後忘記怎麼用，隨時打「功能」就會再出現這張說明。`);
+    out = await replyHelp(uid, true);
     await db.doc(`lineFollowers/${uid}`).set({ followedAt: FieldValue.serverTimestamp(), blocked: false }, { merge: true });
   } else if (e.type === "unfollow") {
     await db.doc(`lineFollowers/${uid}`).set({ blocked: true, unfollowedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -1314,7 +1253,7 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
         : [text("這次的搜尋已經過期了，請再傳一次照片 🙏")]
       : a === "join"
       ? await replyJoin(uid)
-      : a === "imgfocus" ? await (async () => { const id = await recentImage(uid); return id ? replyAiImage(uid, id, qp.get("f")) : [text("圖片已經過期了，請再傳一次 🙏")]; })() : a === "prefs" || a === "pref" ? await replyPrefs(uid) : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : a === "help" ? replyHelp() : a === "orders" ? await replyOrders(uid, null).catch(() => [text("訂單系統暫時連不上 🙏 請稍後再試。")]) : null;
+      : a === "imgfocus" ? await (async () => { const id = await recentImage(uid); return id ? replyAiImage(uid, id, qp.get("f")) : [text("圖片已經過期了，請再傳一次 🙏")]; })() : a === "prefs" || a === "pref" ? await replyPrefs(uid) : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : a === "help" ? await replyHelp(uid) : a === "orders" ? await replyOrders(uid, null).catch(() => [text("訂單系統暫時連不上 🙏 請稍後再試。")]) : null;
   } else if (e.type === "message" && e.message?.type === "image" && e.message.id) {
     out = await replyAiImage(uid, e.message.id);
   } else if (e.type === "message" && e.message?.type === "text") {
@@ -1498,7 +1437,8 @@ const RM_ACTIONS: Record<string, { data?: string; text?: string; label: string }
   prefs: { data: "a=prefs", label: "我的喜好" },
   service: { text: "我想聯絡客服", label: "一對一客服" },
   orders: { data: "a=orders", label: "查訂單" },
-  help: { data: "a=help", label: "功能說明" },
+  help: { data: "a=help", label: "使用說明" },
+  history: { data: "a=history", label: "消費紀錄" },
   url: { label: "網址" },
   ig: { label: "追蹤 IG" },
 };
@@ -1513,47 +1453,99 @@ export const richMenuPhoto = onCall(async (req) => {
   return { dataUrl: `data:image/jpeg;base64,${jpg.toString("base64")}` };
 });
 
-/** 套用新選單：建立 → 上傳圖片 → 設成預設 → 確認成功才刪舊的 */
+/** 兩頁選單：上方分頁列的高度（跟網頁編輯器一致） */
+const RM_TAB_H = 240;
+const RM_ALIAS = ["ganbaru-shop", "ganbaru-member"];
+
+/** 讓 alias 指到新選單（沒有就建立） */
+async function pointAlias(alias: string, richMenuId: string) {
+  try {
+    await lineApi(`/richmenu/alias/${alias}`, { richMenuId });
+  } catch {
+    await lineApi("/richmenu/alias", { richMenuAliasId: alias, richMenuId });
+  }
+}
+
+/** 套用新選單：建立（一頁或兩頁）→ 上傳圖片 → 設成預設 → 確認成功才刪舊的 */
 export const applyRichMenu = onCall({ timeoutSeconds: 120, memory: "512MiB" }, async (req) => {
   await requireRole(req, "owner");
-  const layout = String(req.data?.layout ?? "");
-  const boxes = RM_LAYOUTS[layout];
-  assert(boxes, "版型不正確");
-  const cells = (Array.isArray(req.data?.cells) ? req.data.cells : []) as { action?: string; url?: string; label?: string }[];
-  assert(cells.length === boxes.length, "每一格都要設定功能");
-  const areas = boxes.map((b, i) => {
-    const c = cells[i];
-    const a = RM_ACTIONS[String(c.action)];
-    assert(a, `第 ${i + 1} 格的功能不正確`);
-    let action: Record<string, string>;
-    if (c.action === "url" || c.action === "ig") {
-      const u = String(c.url ?? "").trim();
-      assert(/^https?:\/\/\S+$/.test(u), `第 ${i + 1} 格的網址不正確`);
-      assert(c.action !== "ig" || /instagram\.com\//i.test(u), `第 ${i + 1} 格請填 Instagram 網址（https://www.instagram.com/帳號）`);
-      action = { type: "uri", uri: u };
-    } else if (a.text) action = { type: "message", text: a.text };
-    else action = { type: "postback", data: a.data!, displayText: (c.label || a.label).slice(0, 20) };
-    return { bounds: { x: b.x, y: b.y, width: b.w, height: b.h }, action };
+  type PageIn = { layout?: string; image?: string; cells?: { action?: string; url?: string; label?: string }[] };
+  const pages: PageIn[] = Array.isArray(req.data?.pages) ? req.data.pages : [{ layout: req.data?.layout, image: req.data?.image, cells: req.data?.cells }];
+  assert(pages.length === 1 || pages.length === 2, "選單只能一頁或兩頁");
+  const two = pages.length === 2;
+  const tabs = (two ? (req.data?.tabs as string[] | undefined) ?? [] : []).map((t, k) => String(t || ["逛逛", "會員"][k]).slice(0, 20));
+  const K = (H_RM - RM_TAB_H) / H_RM;
+  const built = pages.map((pg, pi) => {
+    const layout = String(pg.layout ?? "");
+    const base = RM_LAYOUTS[layout];
+    assert(base, "版型不正確");
+    const boxes = two ? base.map((b) => ({ x: b.x, y: RM_TAB_H + Math.round(b.y * K), w: b.w, h: Math.round((b.y + b.h) * K) - Math.round(b.y * K) })) : base;
+    const cells = Array.isArray(pg.cells) ? pg.cells : [];
+    const where = two ? `第 ${pi + 1} 頁` : "";
+    assert(cells.length === boxes.length, `${where}每一格都要設定功能`);
+    const areas: object[] = boxes.map((b, i) => {
+      const c = cells[i];
+      const a = RM_ACTIONS[String(c.action)];
+      assert(a, `${where}第 ${i + 1} 格的功能不正確`);
+      let action: Record<string, string>;
+      if (c.action === "url" || c.action === "ig") {
+        const u = String(c.url ?? "").trim();
+        assert(/^https?:\/\/\S+$/.test(u), `${where}第 ${i + 1} 格的網址不正確`);
+        assert(c.action !== "ig" || /instagram\.com\//i.test(u), `${where}第 ${i + 1} 格請填 Instagram 網址（https://www.instagram.com/帳號）`);
+        action = { type: "uri", uri: u };
+      } else if (a.text) action = { type: "message", text: a.text };
+      else action = { type: "postback", data: a.data!, displayText: (c.label || a.label).slice(0, 20) };
+      return { bounds: { x: b.x, y: b.y, width: b.w, height: b.h }, action };
+    });
+    // 分頁列：左右各一半，點了切換到那一頁（a=tab 不回訊息）
+    if (two)
+      for (const k of [0, 1])
+        areas.push({ bounds: { x: k * 1250, y: 0, width: 1250, height: RM_TAB_H }, action: { type: "richmenuswitch", richMenuAliasId: RM_ALIAS[k], data: `a=tab&p=${k}` } });
+    const raw = String(pg.image ?? "").replace(/^data:image\/\w+;base64,/, "");
+    assert(raw.length > 1000, "請提供選單圖片");
+    return { layout, cells, areas, raw };
   });
-  const raw = String(req.data?.image ?? "").replace(/^data:image\/\w+;base64,/, "");
-  assert(raw.length > 1000, "請提供選單圖片");
-  // 不管上傳什麼尺寸都裁成 2500×1686，JPEG 壓在 1MB 內（LINE 規定）
-  let q = 88;
-  let img = await sharp(Buffer.from(raw, "base64")).rotate().resize(W_RM, H_RM, { fit: "cover" }).jpeg({ quality: q }).toBuffer();
-  while (img.length > 990_000 && q > 50) img = await sharp(img).jpeg({ quality: (q -= 8) }).toBuffer();
   const st = await shopSettings();
-  const old = String(st.lineBot?.richMenuId ?? "");
-  const created = await lineApi("/richmenu", { size: { width: W_RM, height: H_RM }, selected: true, name: `29 STUDIO ${layout} 格`, chatBarText: (String(req.data?.chatBarText ?? "") || "29 STUDIO 選單").slice(0, 14), areas });
-  const id = created.richMenuId as string;
-  const up = await fetch(`https://api-data.line.me/v2/bot/richmenu/${id}/content`, { method: "POST", headers: { authorization: `Bearer ${await botToken()}`, "content-type": "image/jpeg" }, body: img });
-  if (!up.ok) {
-    await lineApi(`/richmenu/${id}`, undefined, "DELETE").catch(() => undefined);
-    throw new Error(`圖片上傳到 LINE 失敗：${(await up.text()).slice(0, 120)}`);
+  const old = [...new Set([String(st.lineBot?.richMenuId ?? ""), ...((st.lineBot?.richMenuIds as string[] | undefined) ?? [])].filter(Boolean))];
+  const ids: string[] = [];
+  try {
+    for (const [pi, b] of built.entries()) {
+      // 不管上傳什麼尺寸都裁成 2500×1686，JPEG 壓在 1MB 內（LINE 規定）
+      let q = 88;
+      let img = await sharp(Buffer.from(b.raw, "base64")).rotate().resize(W_RM, H_RM, { fit: "cover" }).jpeg({ quality: q }).toBuffer();
+      while (img.length > 990_000 && q > 50) img = await sharp(img).jpeg({ quality: (q -= 8) }).toBuffer();
+      const created = await lineApi("/richmenu", {
+        size: { width: W_RM, height: H_RM },
+        selected: true,
+        name: `29 STUDIO ${two ? tabs[pi] : `${b.layout} 格`}`,
+        chatBarText: (String(req.data?.chatBarText ?? "") || "29 STUDIO 選單").slice(0, 14),
+        areas: b.areas,
+      });
+      ids.push(created.richMenuId as string);
+      const up = await fetch(`https://api-data.line.me/v2/bot/richmenu/${created.richMenuId}/content`, { method: "POST", headers: { authorization: `Bearer ${await botToken()}`, "content-type": "image/jpeg" }, body: img });
+      if (!up.ok) throw new Error(`圖片上傳到 LINE 失敗：${(await up.text()).slice(0, 120)}`);
+    }
+    if (two) for (const k of [0, 1]) await pointAlias(RM_ALIAS[k], ids[k]);
+    await lineApi(`/user/all/richmenu/${ids[0]}`, {});
+    const cur = await lineApi("/user/all/richmenu", undefined, "GET").catch(() => ({}));
+    assert(cur.richMenuId === ids[0], "新選單沒有設成功，舊選單保留");
+  } catch (e) {
+    // 失敗：新建的刪掉；分頁 alias 若已改到新的，指回舊的
+    if (two && old.length === 2) for (const k of [0, 1]) await pointAlias(RM_ALIAS[k], old[k]).catch(() => undefined);
+    for (const id of ids) await lineApi(`/richmenu/${id}`, undefined, "DELETE").catch(() => undefined);
+    throw e;
   }
-  await lineApi(`/user/all/richmenu/${id}`, {});
-  const cur = await lineApi("/user/all/richmenu", undefined, "GET").catch(() => ({}));
-  assert(cur.richMenuId === id, "新選單沒有設成功，舊選單保留");
-  if (old && old !== id) await lineApi(`/richmenu/${old}`, undefined, "DELETE").catch(() => undefined);
-  await db.doc("settings/shop").set({ lineBot: { richMenuId: id, richMenuOn: true, richMenuConfig: { layout, cells: cells.map((c) => ({ action: c.action, url: c.url ?? null, label: c.label ?? null })) } } }, { merge: true });
-  return { ok: true, id };
+  for (const id of old) if (!ids.includes(id)) await lineApi(`/richmenu/${id}`, undefined, "DELETE").catch(() => undefined);
+  await db.doc("settings/shop").set(
+    {
+      lineBot: {
+        richMenuId: ids[0],
+        richMenuIds: ids,
+        richMenuOn: true,
+        richMenuConfig: { tabs: two ? tabs : null, pages: built.map((b) => ({ layout: b.layout, cells: b.cells.map((c) => ({ action: c.action, url: c.url ?? null, label: c.label ?? null })) })) },
+      },
+    },
+    { merge: true }
+  );
+  return { ok: true, ids };
 });

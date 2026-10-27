@@ -1029,3 +1029,7 @@ span.tier-switch { cursor: default; }
 .rm-pos input[type="range"] { width: 120px; }
 .rm-canvas.rm-drag { cursor: grab; touch-action: none; }
 .rm-canvas.rm-drag:active { cursor: grabbing; }
+.rm-tabs { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
+.rm-tab { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border, #ddd); border-radius: 8px; }
+.rm-tab.active { border-color: #4a3b32; }
+.rm-tab input { width: 110px; }
