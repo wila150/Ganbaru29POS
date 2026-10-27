@@ -458,6 +458,15 @@ export function RichMenuEditor() {
 
   /** 拿掉一格：其他格往前補，版型少一格（最少 4 格） */
   const removeCell = (i: number) => setPage((p) => ({ layout: String(p.cells.length - 1), cells: p.cells.filter((_, j) => j !== i) }));
+  /** 跟前／後一格交換位置（照片、文字、位置設定一起換） */
+  const moveCell = (i: number, d: -1 | 1) =>
+    setCells((cs) => {
+      const j = i + d;
+      if (j < 0 || j >= cs.length) return cs;
+      const n = [...cs];
+      [n[i], n[j]] = [n[j], n[i]];
+      return n;
+    });
   const changeLayout = (l: string) => setPage({ layout: l, cells: DEFAULTS[l].map(([a, c], i) => (cells[i] ? { ...cells[i], color: cells[i].color ?? c } : mk(a, c))) });
   live.current = { cells, layout, own: !!own, two };
   // 滾輪縮放：要能擋掉整頁捲動，只能用原生 listener（React 的 onWheel 是 passive）
@@ -703,6 +712,14 @@ export function RichMenuEditor() {
           <div key={i} className="rm-cell">
             <b>
               第 {i + 1} 格
+              <span className="rm-move">
+                <button className="btn btn-sm" disabled={i === 0} onClick={() => moveCell(i, -1)} title="跟前一格交換">
+                  ◀ 往前
+                </button>
+                <button className="btn btn-sm" disabled={i === cells.length - 1} onClick={() => moveCell(i, 1)} title="跟後一格交換">
+                  往後 ▶
+                </button>
+              </span>
               {cells.length > 4 && (
                 <button className="link-btn small" style={{ marginLeft: 8 }} onClick={() => confirm(`移除第 ${i + 1} 格（${c.zh}）？後面的格子會往前補。`) && removeCell(i)}>
                   ✕ 移除這格

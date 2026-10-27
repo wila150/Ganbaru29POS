@@ -1039,3 +1039,4 @@ span.tier-switch { cursor: default; }
 .rm-ver-new input { flex: 1; min-width: 160px; }
 .rm-ver { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border, #eee); }
 .rm-ver b { flex: 1; }
+.rm-move { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
