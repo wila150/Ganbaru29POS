@@ -95,7 +95,15 @@ const SEEN_KEY = "g29.seenChangelog";
  * 新版本偵測（電腦、平板主畫面 App 都一樣）：每 2 分鐘、以及每次切回 App 時比對 version.json。
  * 有新版就跳出視窗（含這次更新內容），按「立即更新」才重新整理；收銀台有進行中的單時改成上方提示列，不打斷結帳。
  */
+/** 客人看的頁面（會員卡、LINE 頁、顧客螢幕）不跳「有新版本／這次更新了什麼」——那是給店員看的 */
+const isCustomerPage = () => /^\/(card|line|display)(\/|$)/.test(window.location.pathname);
+
 export function UpdateChecker() {
+  if (isCustomerPage()) return null;
+  return <StaffUpdateChecker />;
+}
+
+function StaffUpdateChecker() {
   const [upcoming, setUpcoming] = useState<ChangeEntry | null>(null);
   const [found, setFound] = useState(false);
   const [later, setLater] = useState(false);
