@@ -11,6 +11,7 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-27-n",
     date: "2026-10-27",
     title: "LINE 客人自己查訂單",
     items: [
