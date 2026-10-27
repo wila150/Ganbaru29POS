@@ -881,10 +881,21 @@ async function replyForYou(uid: string): Promise<Msg[]> {
     .map((p) => ({ p, score: p.cats.reduce((a, c) => a + (weight.get(c) ?? 0), 0) + Math.max(0, 2 - (newest - p.at) / (30 * 86400_000)) }))
     .sort((a, b) => b.score - a.score || b.p.at - a.p.at);
   const personal = weight.size > 0;
-  const pick = scored.slice(0, 10).map((r) => r.p);
+  // 每一類輪流挑（客人勾了長褲、短褲、外套…就每類都有，不會全部都是同一類）
+  const cats = [...weight.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+  const buckets = cats.map((c) => scored.filter((r) => r.p.cats.includes(c)).map((r) => r.p));
+  const pick: P[] = [];
+  for (let round = 0; pick.length < 10 && round < 10; round++)
+    for (const b of buckets) {
+      const next = b.find((p) => !pick.includes(p));
+      if (next && pick.length < 10) pick.push(next);
+    }
+  for (const r of scored) if (pick.length < 10 && !pick.includes(r.p)) pick.push(r.p);
   if (!pick.length) return replyNew();
-  const top = [...weight.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([c]) => c);
-  return [text(personal ? `${x.name || ""} 您好！依你常買的「${top.join("、")}」挑了這些 👇` : "先推薦你最新上架的商品，買過幾次之後會越推越準 👇"), await carousel(withSiblings(pick, all), "為你推薦")];
+  // 說明寫客人自己勾的喜好（全部）；沒勾的話寫他常買的類別
+  const likes = ((x.likes ?? []) as string[]).filter((l) => l !== "新品通知");
+  const why = likes.length ? `依你的喜好「${likes.join("、")}」` : `依你常買的「${cats.slice(0, 3).join("、")}」`;
+  return [text(personal ? `${x.name || ""} 您好！${why}挑了這些 👇` : "先推薦你最新上架的商品，買過幾次之後會越推越準 👇"), await carousel(withSiblings(pick, all), "為你推薦")];
 }
 
 async function replyPromo(): Promise<Msg[]> {
