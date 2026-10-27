@@ -365,7 +365,27 @@ function ShopperTagLine({ id }: { id: string }) {
       {tags.length ? <TagChips tags={tags} /> : <span className="muted">沒有標籤</span>}
       {pref && <div className="member-pref">💬 喜好：{pref}</div>}
       {likes.length > 0 && <div className="member-pref">❤️ 客人自選（LINE）：{likes.join("、")}</div>}
+      <LineBound id={id} />
     </>
+  );
+}
+
+/** LINE 綁定狀態；店長以上可以解除（客人換 LINE 帳號、或要測試加入會員流程時） */
+function LineBound({ id }: { id: string }) {
+  const { profile } = useAuth();
+  const [bound, setBound] = useState<{ on: boolean; via?: string } | null>(null);
+  const { busy, run } = useAction();
+  useEffect(() => onSnapshot(doc(db, "shoppers", id), (d) => setBound({ on: !!d.data()?.lineUserId, via: d.data()?.joinedVia === "line" ? "從 LINE 加入" : d.data()?.lineBoundVia === "chat" ? "聊天室綁定" : undefined })), [id]);
+  if (!bound) return null;
+  return (
+    <div className="member-pref">
+      💬 LINE 官方帳號：{bound.on ? `已綁定${bound.via ? `（${bound.via}）` : ""}` : "未綁定"}
+      {bound.on && atLeast(profile?.role, "manager") && (
+        <button className="link-btn small" disabled={busy} onClick={() => confirm("解除這位會員的 LINE 綁定？（客人要重新在 LINE 綁定才能用會員卡）") && run(() => call("lineUnbindMember", { shopperId: id }), "已解除 LINE 綁定")}>
+          　解除綁定
+        </button>
+      )}
+    </div>
   );
 }
 

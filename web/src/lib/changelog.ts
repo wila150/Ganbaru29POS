@@ -11,13 +11,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
-    id: "2026-10-27-a",
+    id: "2026-10-27-b",
     date: "2026-10-27",
     title: "LINE 加入會員、找不到時請店員幫忙",
     items: [
       "客人在 LINE 點「會員卡」，不是會員的話可以直接「加入會員」：填 Email、姓名、手機、生日，自動建立會員並綁定 LINE",
       "以圖搜圖都不是時：可以「再多看幾件」或「請店員幫我找」",
       "後台設定 → LINE 官方帳號 → AI 找商品：看「客人找不到的照片」，回覆後按「處理完」",
+      "會員頁顯示 LINE 綁定狀態，店長可以「解除綁定」",
     ],
   },
   {
