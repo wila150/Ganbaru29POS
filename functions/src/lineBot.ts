@@ -1,5 +1,6 @@
 import bwipjs from "bwip-js";
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { getStorage } from "firebase-admin/storage";
 import QRCode from "qrcode";
 import sharp from "sharp";
 import { logger } from "firebase-functions";
@@ -1448,9 +1449,64 @@ export const richMenuPhoto = onCall(async (req) => {
   await requireRole(req, "owner");
   const url = str(req.data?.url, "圖片", { max: 600 });
   assert(/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/ganbaru29\./.test(url), "只能用本店的商品圖片");
+  const max = req.data?.max === 2500 ? 2500 : 1250; // 整張選單圖要原尺寸
   const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
-  const jpg = await sharp(buf).rotate().resize({ width: 1250, height: 1250, fit: "inside" }).jpeg({ quality: 85 }).toBuffer();
+  const jpg = await sharp(buf).rotate().resize({ width: max, height: max, fit: "inside" }).jpeg({ quality: 88 }).toBuffer();
   return { dataUrl: `data:image/jpeg;base64,${jpg.toString("base64")}` };
+});
+
+// ---------- 選單草稿／版本（圖片存到 Storage，重新整理或網站更新後不會重置） ----------
+
+/** data URL → 存到 Storage（同一張圖只存一次），回傳網址；已經是網址就原樣回傳 */
+async function storeRmImage(v: unknown): Promise<string | null> {
+  if (typeof v !== "string" || !v) return null;
+  if (/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/ganbaru29\./.test(v)) return v;
+  const m = v.match(/^data:image\/\w+;base64,(.+)$/);
+  if (!m) return null;
+  const buf = Buffer.from(m[1], "base64");
+  assert(buf.length < 6_000_000, "圖片太大");
+  const path = `richmenu/${createHash("sha1").update(buf).digest("hex").slice(0, 24)}.jpg`;
+  const f = getStorage().bucket().file(path);
+  const [exists] = await f.exists();
+  let token = randomBytes(12).toString("hex");
+  if (exists) token = String((await f.getMetadata())[0].metadata?.firebaseStorageDownloadTokens ?? token).split(",")[0];
+  else await f.save(buf, { contentType: "image/jpeg", resumable: false, metadata: { metadata: { firebaseStorageDownloadTokens: token } } });
+  return `https://firebasestorage.googleapis.com/v0/b/${getStorage().bucket().name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
+}
+
+type RmDraft = { two?: boolean; tabs?: unknown[]; pages?: { layout?: string; own?: unknown; cells?: Record<string, unknown>[] }[] };
+
+/** 存選單：id = "working"（編輯中自動存）或某個版本；圖片換成 Storage 網址後回傳 */
+export const saveRichMenuDraft = onCall({ timeoutSeconds: 60, memory: "512MiB" }, async (req) => {
+  const actor = await requireRole(req, "owner");
+  const id = req.data?.id === "working" ? "working" : String(req.data?.id || db.collection("richMenuDrafts").doc().id).replace(/[^\w-]/g, "").slice(0, 40);
+  const d = (req.data?.draft ?? {}) as RmDraft;
+  assert(Array.isArray(d.pages) && d.pages.length >= 1 && d.pages.length <= 2, "選單內容不正確");
+  const pages = await Promise.all(
+    d.pages.slice(0, 2).map(async (p) => ({
+      layout: String(p.layout ?? "5").slice(0, 2),
+      own: await storeRmImage(p.own),
+      cells: await Promise.all((p.cells ?? []).slice(0, 6).map(async (c) => ({ ...c, photo: await storeRmImage(c.photo) }))),
+    }))
+  );
+  const draft = { two: !!d.two, tabs: (d.tabs ?? []).slice(0, 2), pages };
+  const name = id === "working" ? "編輯中" : str(req.data?.name || "未命名", "名稱", { max: 30 });
+  await db.doc(`richMenuDrafts/${id}`).set({ name, draft, savedAt: FieldValue.serverTimestamp(), by: actor.name ?? null });
+  return { id, draft };
+});
+
+export const listRichMenuDrafts = onCall(async (req) => {
+  await requireRole(req, "owner");
+  const s = await db.collection("richMenuDrafts").orderBy("savedAt", "desc").limit(30).get();
+  return { list: s.docs.map((x) => ({ id: x.id, name: x.data().name, savedAt: x.data().savedAt?.toMillis?.() ?? 0, by: x.data().by ?? null, draft: x.data().draft })) };
+});
+
+export const deleteRichMenuDraft = onCall(async (req) => {
+  await requireRole(req, "owner");
+  const id = str(req.data?.id, "版本", { max: 40 });
+  assert(id !== "working", "不能刪除編輯中的草稿");
+  await db.doc(`richMenuDrafts/${id}`).delete();
+  return { ok: true };
 });
 
 /** 兩頁選單：上方分頁列的高度（跟網頁編輯器一致） */

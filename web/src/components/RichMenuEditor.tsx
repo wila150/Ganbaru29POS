@@ -19,6 +19,8 @@ interface Cell {
   url?: string;
   /** 這一格自己上傳的照片（data URL）；沒有就用共用的商品照片 */
   photo?: string;
+  /** 這張照片存在 Storage 的網址（存過才有；換新照片就清掉，下次存檔再上傳） */
+  photoSrc?: string;
   /** 只放這張圖、不疊文字（客人自己做好的格子圖） */
   plain?: boolean;
   /** 字放在最下面，不遮到圖中間（例如 logo 底圖） */
@@ -108,6 +110,28 @@ interface Page {
   cells: Cell[];
   /** 自己上傳的整張選單圖 */
   own: string | null;
+  ownSrc?: string;
+}
+type Draft = { two: boolean; tabs: Tab[]; pages: { layout: string; own: string | null; cells: Cell[] }[] };
+type Version = { id: string; name: string; savedAt: number; by: string | null; draft: Draft };
+
+/** Storage 網址 → data URL（畫布不能直接讀別的網域的圖，請後端代抓） */
+const fetchPic = (url: string, max = 1250) => call<{ dataUrl: string }>("richMenuPhoto", { url, max }).then((r) => r.dataUrl);
+
+/** 存起來的選單 → 編輯器狀態（圖片抓回來） */
+async function fromDraft(d: Draft): Promise<{ two: boolean; tabs: Tab[]; pages: Page[] }> {
+  const pages: Page[] = await Promise.all(
+    d.pages.map(async (p): Promise<Page> => ({
+      layout: BOXES[p.layout] ? p.layout : "6",
+      own: p.own ? await fetchPic(p.own, 2500).catch(() => null) : null,
+      ownSrc: p.own ?? undefined,
+      cells: await Promise.all(
+        p.cells.map(async (c): Promise<Cell> => (c.photo ? { ...c, photo: await fetchPic(c.photo).catch(() => undefined), photoSrc: c.photo } : { ...c, photo: undefined, photoSrc: undefined }))
+      ),
+    }))
+  );
+  while (pages.length < 2) pages.push({ layout: "6", own: null, ownSrc: undefined, cells: PAGE_DEFAULTS[1].map(([a, c]) => mk(a, c)) });
+  return { two: d.two, tabs: d.tabs?.length === 2 ? d.tabs : TAB_DEFAULTS, pages };
 }
 const boxesFor = (layout: string, two: boolean) =>
   two ? BOXES[layout].map((b) => ({ x: b.x, y: TAB_H + Math.round(b.y * K2), w: b.w, h: Math.round((b.y + b.h) * K2) - Math.round(b.y * K2) })) : BOXES[layout];
@@ -384,6 +408,10 @@ export function RichMenuEditor() {
     saved?.tabs?.length === 2 ? saved.tabs.map((zh, k) => ({ en: TAB_DEFAULTS[k].en, zh })) : TAB_DEFAULTS
   );
   const [pi, setPi] = useState(0); // 正在編輯第幾頁
+  const [loaded, setLoaded] = useState(false); // 存過的草稿載入完才開始自動存（不然會被預設蓋掉）
+  const [saveState, setSaveState] = useState<"" | "saving" | "saved" | "error">("");
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [verName, setVerName] = useState("");
   const page = pages[two ? pi : 0];
   const { layout, cells, own } = page;
   const piRef = useRef(0);
@@ -391,7 +419,7 @@ export function RichMenuEditor() {
   const setPage = (patch: Partial<Page> | ((p: Page) => Partial<Page>)) =>
     setPages((ps) => ps.map((p, j) => (j === piRef.current ? { ...p, ...(typeof patch === "function" ? patch(p) : patch) } : p)));
   const setCells = (f: (cs: Cell[]) => Cell[]) => setPage((p) => ({ cells: f(p.cells) }));
-  const setOwn = (v: string | null) => setPage({ own: v });
+  const setOwn = (v: string | null) => setPage({ own: v, ownSrc: undefined });
   const [photoUrl, setPhotoUrl] = useState<string>(""); // 商品照片（data URL）
   const [photoPick] = useState("");
   const [picking, setPicking] = useState(0); // 第幾格正在載入商品圖
@@ -450,6 +478,80 @@ export function RichMenuEditor() {
   }, []);
   const upd = (i: number, patch: Partial<Cell>) => setCells((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
 
+  // 打開時載入上次編輯到一半的選單（圖片、位置都會回來）
+  useEffect(() => {
+    call<{ list: Version[] }>("listRichMenuDrafts")
+      .then(async (r) => {
+        setVersions(r.list.filter((v) => v.id !== "working"));
+        const w = r.list.find((v) => v.id === "working");
+        if (w) {
+          const st = await fromDraft(w.draft);
+          setTwo(st.two);
+          setTabs(st.tabs);
+          setPages(st.pages);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const toDraft = (): Draft => ({
+    two,
+    tabs,
+    pages: pages.map((p) => ({ layout: p.layout, own: p.ownSrc ?? p.own, cells: p.cells.map(({ photoSrc, ...c }) => ({ ...c, photo: photoSrc ?? c.photo })) })),
+  });
+  /** 存檔後把新上傳的圖記下 Storage 網址，下次不用再傳 */
+  const save = async (id: string, name?: string) => {
+    const sent = toDraft();
+    const r = await call<{ id: string; draft: Draft }>("saveRichMenuDraft", { id, name, draft: sent });
+    setPages((ps) =>
+      ps.map((p, k) => {
+        const sp = sent.pages[k],
+          rp = r.draft.pages[k];
+        if (!sp || !rp) return p;
+        return {
+          ...p,
+          ownSrc: !p.ownSrc && p.own && p.own === sp.own ? rp.own ?? undefined : p.ownSrc,
+          cells: p.cells.map((c, i) => (!c.photoSrc && c.photo && c.photo === sp.cells[i]?.photo ? { ...c, photoSrc: rp.cells[i]?.photo ?? undefined } : c)),
+        };
+      })
+    );
+    return r;
+  };
+  // 一有修改，停 2 秒自動存（重新整理、網站更新都不會重置）
+  const draftKey = JSON.stringify({ two, tabs, pages: pages.map((p) => ({ l: p.layout, o: p.ownSrc ?? p.own?.length, c: p.cells.map((c) => ({ ...c, photo: c.photoSrc ?? c.photo?.length })) })) });
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      setSaveState("saving");
+      save("working")
+        .then(() => setSaveState("saved"))
+        .catch(() => setSaveState("error"));
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [draftKey, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveVersion = () =>
+    run(async () => {
+      const name = verName.trim() || new Date().toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const r = await save("", name);
+      setVersions((vs) => [{ id: r.id, name, savedAt: Date.now(), by: null, draft: r.draft }, ...vs]);
+      setVerName("");
+    }, "已另存成版本");
+  const loadVersion = (v: Version) =>
+    run(async () => {
+      const st = await fromDraft(v.draft);
+      setTwo(st.two);
+      setTabs(st.tabs);
+      setPages(st.pages);
+      setPi(0);
+    }, `已載入「${v.name}」，確認沒問題再按「套用到 LINE」`);
+  const deleteVersion = (v: Version) =>
+    run(async () => {
+      await call("deleteRichMenuDraft", { id: v.id });
+      setVersions((vs) => vs.filter((x) => x.id !== v.id));
+    });
+
   // 畫預覽（也是要送出的圖）
   useEffect(() => {
     const cv = canvas.current;
@@ -485,7 +587,34 @@ export function RichMenuEditor() {
 
   return (
     <div className="rm-editor">
-      <h3>選單編輯</h3>
+      <h3>
+        選單編輯{" "}
+        <span className="muted small">
+          {!loaded ? "載入上次的選單…" : saveState === "saving" ? "儲存中…" : saveState === "saved" ? "✓ 已自動儲存" : saveState === "error" ? "⚠ 自動儲存失敗，請檢查網路" : ""}
+        </span>
+      </h3>
+      <details className="rm-versions">
+        <summary>已存的版本（{versions.length}）</summary>
+        <div className="rm-ver-new">
+          <input value={verName} onChange={(e) => setVerName(e.target.value)} placeholder="版本名稱，例如：雙11活動" maxLength={30} />
+          <button className="btn btn-sm" disabled={busy || !loaded} onClick={saveVersion}>
+            把目前的選單另存成版本
+          </button>
+        </div>
+        {versions.map((v) => (
+          <div key={v.id} className="rm-ver">
+            <b>{v.name}</b>
+            <span className="muted small">{v.savedAt ? new Date(v.savedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) : ""}</span>
+            <button className="btn btn-sm" disabled={busy} onClick={() => confirm(`載入「${v.name}」？目前編輯中的內容會被取代（可以先另存成版本）。`) && loadVersion(v)}>
+              載入
+            </button>
+            <button className="link-btn small" disabled={busy} onClick={() => confirm(`刪除「${v.name}」？`) && deleteVersion(v)}>
+              刪除
+            </button>
+          </div>
+        ))}
+        {!versions.length && <p className="muted small">還沒有存過版本。編輯中的選單會自動儲存；想留一份（例如節日版、平常版）就另存成版本，之後隨時載入。</p>}
+      </details>
       <div className="chips">
         <button className={`chip ${!two ? "active" : ""}`} onClick={() => setTwo(false)}>
           只要一頁
@@ -591,7 +720,7 @@ export function RichMenuEditor() {
                         cv.width = Math.round(im.width * k);
                         cv.height = Math.round(im.height * k);
                         cv.getContext("2d")!.drawImage(im, 0, 0, cv.width, cv.height);
-                        upd(i, { photo: cv.toDataURL("image/jpeg", 0.88), color: "photo" });
+                        upd(i, { photo: cv.toDataURL("image/jpeg", 0.88), photoSrc: undefined, color: "photo" });
                       };
                       r.readAsDataURL(f);
                     }}
@@ -606,7 +735,7 @@ export function RichMenuEditor() {
                     // 商品圖伺服器不給瀏覽器直接讀，請後端代抓
                     setPicking(i + 1);
                     call<{ dataUrl: string }>("richMenuPhoto", { url })
-                      .then((r) => upd(i, { photo: r.dataUrl, color: "photo", zoom: undefined, px: undefined, py: undefined }))
+                      .then((r) => upd(i, { photo: r.dataUrl, photoSrc: url, color: "photo", zoom: undefined, px: undefined, py: undefined }))
                       .catch(() => alert("這張商品圖抓不到，請換一件或自己上傳"))
                       .finally(() => setPicking(0));
                   }}
@@ -640,14 +769,14 @@ export function RichMenuEditor() {
                         重設位置
                       </button>
                     </span>
-                    <button className="link-btn small" onClick={() => upd(i, { photo: undefined, plain: false, zoom: undefined, px: undefined, py: undefined })}>
+                    <button className="link-btn small" onClick={() => upd(i, { photo: undefined, photoSrc: undefined, plain: false, zoom: undefined, px: undefined, py: undefined })}>
                       移除相片
                     </button>
                   </>
                 )}
               </span>
             )}
-            <select value={c.action} onChange={(e) => upd(i, { ...mk(e.target.value as Action, c.color), color: c.color, photo: c.photo })}>
+            <select value={c.action} onChange={(e) => upd(i, { ...mk(e.target.value as Action, c.color), color: c.color, photo: c.photo, photoSrc: c.photoSrc })}>
               {(Object.keys(ACTIONS) as Action[]).map((a) => (
                 <option key={a} value={a}>
                   {ACTIONS[a].name}
@@ -677,7 +806,7 @@ export function RichMenuEditor() {
           </div>
         ))}
       </div>
-      <button className="btn btn-primary" disabled={busy || !ready} onClick={() => confirm("確定套用新選單？所有好友會立刻看到。") && apply()}>
+      <button className="btn btn-primary" disabled={busy || !ready || !loaded} onClick={() => confirm("確定套用新選單？所有好友會立刻看到。") && apply()}>
         {busy ? "套用中…" : "套用到 LINE"}
       </button>
     </div>

@@ -20,6 +20,6 @@ export { ensureAllMemberCodes, memberCard, resetMemberCard, createCoupons, setCo
 export { lineConfig, lineMemberCard, lineBindMember, lineRegisterMember, lineUnbindMember } from "./lineMember";
 export { buildThumbs } from "./thumbs";
 export { convertSound } from "./sound";
-export { lineWebhook, setLineBotCreds, lineBotStatus, setLineRichMenu, lineCardImage, linePrefs, lineJoin, linePushPreview, linePushSend, linePushLogs, richMenuPhoto, applyRichMenu } from "./lineBot";
+export { lineWebhook, setLineBotCreds, lineBotStatus, setLineRichMenu, lineCardImage, linePrefs, lineJoin, linePushPreview, linePushSend, linePushLogs, richMenuPhoto, applyRichMenu, saveRichMenuDraft, listRichMenuDrafts, deleteRichMenuDraft } from "./lineBot";
 export { buildImageIndex, imageIndexDaily, aiLearnStatus, aiHelpDone } from "./imageSearch";
 export { onlineOrdersWeekly } from "./onlineOrders";

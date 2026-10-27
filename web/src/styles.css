@@ -1033,3 +1033,9 @@ span.tier-switch { cursor: default; }
 .rm-tab { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--border, #ddd); border-radius: 8px; }
 .rm-tab.active { border-color: #4a3b32; }
 .rm-tab input { width: 110px; }
+.rm-versions { margin: 8px 0 12px; }
+.rm-versions summary { cursor: pointer; font-weight: 600; }
+.rm-ver-new { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.rm-ver-new input { flex: 1; min-width: 160px; }
+.rm-ver { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border, #eee); }
+.rm-ver b { flex: 1; }
