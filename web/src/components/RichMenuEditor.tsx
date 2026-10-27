@@ -261,10 +261,10 @@ export function RichMenuEditor() {
         )}
         {!own && cells.some((c) => c.color === "photo") && (
           <select value={photoPick} onChange={(e) => setPhotoPick(e.target.value)} title="照片格要用哪件商品">
-            <option value="">照片：最新商品</option>
+            <option value="">沒上傳相片的照片格：用最新商品</option>
             {products.slice(0, 80).map((p) => (
               <option key={p.id} value={p.url}>
-                照片：{p.title}
+                沒上傳相片的照片格：用「{p.title}」
               </option>
             ))}
           </select>
@@ -274,6 +274,39 @@ export function RichMenuEditor() {
         {cells.map((c, i) => (
           <div key={i} className="rm-cell">
             <b>第 {i + 1} 格</b>
+            {!own && (
+              <span className="rm-photo">
+                <label className="btn btn-sm btn-primary">
+                  📷 {c.photo ? "換相片" : "上傳相片"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      // 縮到 1250px 再放進預覽（手機大圖不會讓頁面變慢）；上傳後這格自動改成照片底
+                      const r = new FileReader();
+                      r.onload = async () => {
+                        const im = await loadImg(String(r.result));
+                        const k = Math.min(1, 1250 / Math.max(im.width, im.height));
+                        const cv = document.createElement("canvas");
+                        cv.width = Math.round(im.width * k);
+                        cv.height = Math.round(im.height * k);
+                        cv.getContext("2d")!.drawImage(im, 0, 0, cv.width, cv.height);
+                        upd(i, { photo: cv.toDataURL("image/jpeg", 0.88), color: "photo" });
+                      };
+                      r.readAsDataURL(f);
+                    }}
+                  />
+                </label>
+                {c.photo && (
+                  <button className="link-btn small" onClick={() => upd(i, { photo: undefined })}>
+                    移除相片
+                  </button>
+                )}
+              </span>
+            )}
             <select value={c.action} onChange={(e) => upd(i, { ...mk(e.target.value as Action, c.color), color: c.color, photo: c.photo })}>
               {(Object.keys(ACTIONS) as Action[]).map((a) => (
                 <option key={a} value={a}>
@@ -294,39 +327,6 @@ export function RichMenuEditor() {
                   ))}
                 </select>
               </>
-            )}
-            {!own && c.color === "photo" && (
-              <span className="rm-photo">
-                <label className="btn btn-sm">
-                  {c.photo ? "換這格的照片" : "上傳這格的照片"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f) return;
-                      // 縮到 1250px 再放進預覽，避免手機大圖讓頁面變慢
-                      const r = new FileReader();
-                      r.onload = async () => {
-                        const im = await loadImg(String(r.result));
-                        const k = Math.min(1, 1250 / Math.max(im.width, im.height));
-                        const cv = document.createElement("canvas");
-                        cv.width = Math.round(im.width * k);
-                        cv.height = Math.round(im.height * k);
-                        cv.getContext("2d")!.drawImage(im, 0, 0, cv.width, cv.height);
-                        upd(i, { photo: cv.toDataURL("image/jpeg", 0.88) });
-                      };
-                      r.readAsDataURL(f);
-                    }}
-                  />
-                </label>
-                {c.photo && (
-                  <button className="link-btn small" onClick={() => upd(i, { photo: undefined })}>
-                    改用商品照片
-                  </button>
-                )}
-              </span>
             )}
             {(c.action === "url" || c.action === "ig") && <input value={c.url ?? ""} onChange={(e) => upd(i, { url: e.target.value.trim() })} placeholder={c.action === "ig" ? "https://www.instagram.com/你的帳號" : "https://"} />}
           </div>
