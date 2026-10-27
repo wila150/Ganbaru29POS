@@ -20,5 +20,5 @@ export { ensureAllMemberCodes, memberCard, resetMemberCard, createCoupons, setCo
 export { lineConfig, lineMemberCard, lineBindMember, lineRegisterMember, lineUnbindMember } from "./lineMember";
 export { buildThumbs } from "./thumbs";
 export { convertSound } from "./sound";
-export { lineWebhook, setLineBotCreds, lineBotStatus, setLineRichMenu, lineCardImage, linePrefs } from "./lineBot";
-export { buildImageIndex, imageIndexDaily, aiLearnStatus } from "./imageSearch";
+export { lineWebhook, setLineBotCreds, lineBotStatus, setLineRichMenu, lineCardImage, linePrefs, lineJoin } from "./lineBot";
+export { buildImageIndex, imageIndexDaily, aiLearnStatus, aiHelpDone } from "./imageSearch";

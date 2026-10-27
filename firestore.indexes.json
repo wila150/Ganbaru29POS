@@ -185,6 +185,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "aiQueries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "needHuman",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "helpAt",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

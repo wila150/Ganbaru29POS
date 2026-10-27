@@ -11,7 +11,9 @@ import { getSecret, setSecret } from "./lib/secrets";
 import { assert, db, errMsg, FieldValue, str } from "./lib/util";
 import { describePromo, promoIsLive, taipeiClock, type Promotion } from "./shared/promo";
 import { mobileKeyCandidates } from "./sync";
-import { embedImage, learnFromQuery, markMiss, rankByImage, saveQuery } from "./imageSearch";
+import { askHuman, embedImage, learnFromQuery, markMiss, nextPage, rankByImage, saveQuery } from "./imageSearch";
+import { birthDateInput } from "./lib/util";
+import { mobileKey } from "./sync";
 
 /**
  * LINE 官方帳號（Messaging API）：圖文選單按鈕 → webhook → 回覆。
@@ -91,7 +93,7 @@ async function replyCard(uid: string): Promise<Msg[]> {
   const s = await shopperByLine(uid);
   if (!s) {
     await db.doc(`lineSessions/${uid}`).set({ step: "phone", tries: 0, at: FieldValue.serverTimestamp() });
-    return [text("還沒綁定會員喔！\n請輸入你在 ganbaru29 註冊會員的「手機號碼」（例如 0912345678）。\n\n香港／澳門手機請加區碼，例如 85291234567。")];
+    return [text("還沒綁定會員喔！\n已經是會員：請輸入註冊用的「手機號碼」（例如 0912345678；香港／澳門加區碼，例如 85291234567）。\n還不是會員：點下面「加入會員」。", [["加入會員", "a=join"]])];
   }
   await ensureMemberCodes([s.id]);
   const x = (await s.ref.get()).data()!;
@@ -556,10 +558,11 @@ ${cat.text}`;
       .sort((a, b) => b.score - a.score);
   }
   // 圖片特徵還沒建好時，退回 AI 文字比對的結果
-  const pickIds = ranked.length ? ranked.slice(0, 8).map((x) => x.pid) : [...aiIds];
+  const allIds = ranked.length ? ranked.map((x) => x.pid) : [...aiIds];
+  const pickIds = allIds.slice(0, 8);
   if (!pickIds.length) return r ? [text(`我看到的是「${r.seen || "這件衣服"}」，店裡好像沒有很像的 🙏\n可以拍清楚一點，或打字描述，例如「找 灰色寬褲」。`, MENU)] : [text("AI 暫時忙線中，請稍後再傳一次，或直接打字「找 黑色長褲」🙏", MENU)];
   const pick = pickIds.map((pid) => byPid.get(pid)!).filter(Boolean);
-  const qid = qv ? await saveQuery(uid, qv, pickIds) : null;
+  const qid = qv ? await saveQuery(uid, qv, allIds, target, r?.seen).catch(() => null) : null;
   const others = [...new Set((r?.items ?? []).map((x) => focusOf(x)).filter(Boolean) as string[])];
   const quick: [string, string][] = [
     ...(qid ? ([["都不是", `a=fbno&q=${qid}`]] as [string, string][]) : []),
@@ -701,6 +704,126 @@ button{margin-top:18px;width:100%;padding:15px;border:0;border-radius:12px;backg
   }
 });
 
+// ---------- 在 LINE 加入會員（表單頁，簽章連結） ----------
+
+const JOIN_URL = "https://asia-east1-ganbaru29.cloudfunctions.net/lineJoin";
+async function joinLink(uid: string, mobile = "") {
+  const exp = Date.now() + 30 * 60_000;
+  const sig = createHmac("sha256", (await botCreds()).channelSecret).update(`join.${uid}.${exp}`).digest("hex").slice(0, 32);
+  return `${JOIN_URL}?u=${encodeURIComponent(uid)}&e=${exp}&s=${sig}${mobile ? `&m=${encodeURIComponent(mobile)}` : ""}`;
+}
+
+async function replyJoin(uid: string, mobile = "", head = "加入 ganbaru29 會員"): Promise<Msg[]> {
+  if (await shopperByLine(uid)) return replyCard(uid);
+  await db.doc(`lineSessions/${uid}`).delete().catch(() => undefined);
+  return [
+    {
+      type: "flex",
+      altText: "加入會員",
+      contents: {
+        type: "bubble",
+        header: { type: "box", layout: "vertical", backgroundColor: "#4a3b32", contents: [{ type: "text", text: "JOIN US", color: "#c9ae90", size: "sm", weight: "bold" }, { type: "text", text: head, color: "#ffffff", weight: "bold", wrap: true }] },
+        body: { type: "box", layout: "vertical", spacing: "sm", contents: [{ type: "text", text: "填 Email、姓名、手機、生日，一分鐘完成。\n會員可以累積購物金、生日優惠，結帳出示 LINE 會員卡就好。", size: "sm", color: "#3b2f28", wrap: true }] },
+        footer: {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            { type: "button", style: "primary", color: "#4a3b32", action: { type: "uri", label: "立即加入會員", uri: await joinLink(uid, mobile) } },
+            { type: "button", style: "secondary", action: { type: "postback", label: "我已經是會員（輸入手機綁定）", data: "a=card", displayText: "會員卡" } },
+          ],
+        },
+      },
+    },
+  ];
+}
+
+/** 加入會員表單：GET 顯示、POST 建立 meepShop 會員並綁定這個 LINE */
+export const lineJoin = onRequest({ maxInstances: 10 }, async (req, res) => {
+  res.set("cache-control", "no-store");
+  const u = String(req.query.u ?? req.body?.u ?? "");
+  const e = Number(req.query.e ?? req.body?.e ?? 0);
+  const sig = String(req.query.s ?? req.body?.s ?? "");
+  const page = (body: string): void => {
+    res.send(`<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>加入會員</title>
+<style>body{margin:0;font-family:-apple-system,"PingFang TC","Noto Sans TC",sans-serif;background:#efe6da;color:#3b2f28}
+header{background:#4a3b32;color:#fff;padding:20px 20px 16px}header small{color:#c9ae90;letter-spacing:2px;font-weight:700}header h1{margin:4px 0 0;font-size:22px}
+main{padding:18px}label{display:block;margin:0 0 14px;font-size:14px;color:#6b5a4d}input{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:13px;font-size:17px;border:2px solid #e2d5c4;border-radius:10px;background:#fff;color:#3b2f28}
+button{margin-top:6px;width:100%;padding:15px;border:0;border-radius:12px;background:#059669;color:#fff;font-size:18px;font-weight:700}
+.err{background:#fee2e2;color:#b91c1c;padding:10px 12px;border-radius:10px;margin-bottom:14px;font-size:14px}.ok{text-align:center;padding:40px 10px;line-height:1.7}.ok b{font-size:44px;display:block}.muted{color:#8a7a6d;font-size:13px}</style></head><body>
+<header><small>JOIN US</small><h1>加入 ganbaru29 會員</h1></header><main>${body}</main></body></html>`);
+  };
+  const form = (v: Record<string, string>, err = ""): void =>
+    page(`${err ? `<div class="err">${esc(err)}</div>` : ""}<form method="post"><input type="hidden" name="u" value="${esc(u)}"><input type="hidden" name="e" value="${e}"><input type="hidden" name="s" value="${esc(sig)}">
+<label>Email<input type="email" name="email" required autocomplete="email" value="${esc(v.email)}"></label>
+<label>姓名<input name="name" required autocomplete="name" value="${esc(v.name)}"></label>
+<label>手機<input name="mobile" required inputmode="tel" autocomplete="tel" placeholder="0912345678" value="${esc(v.mobile)}"></label>
+<label>生日<input type="date" name="birthDate" required value="${esc(v.birthDate)}" max="${new Date().toISOString().slice(0, 10)}"></label>
+<button type="submit">加入會員</button><p class="muted">會員資料會同步到 ganbaru29 官網，可以用同一個 Email 登入官網。</p></form>`);
+  try {
+    const c = await botCreds();
+    const expect = createHmac("sha256", c.channelSecret).update(`join.${u}.${e}`).digest("hex").slice(0, 32);
+    if (!u || !sig || sig.length !== expect.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expect)) || e < Date.now()) {
+      page(`<div class="ok"><b>⏰</b>連結已過期，請回到 LINE 再點一次「加入會員」。</div>`);
+      return;
+    }
+    if (await shopperByLine(u)) {
+      page(`<div class="ok"><b>✓</b>你已經是會員了！<br>回到 LINE 點「會員卡」就能使用。</div>`);
+      return;
+    }
+    if (req.method !== "POST") {
+      form({ email: "", name: "", mobile: String(req.query.m ?? ""), birthDate: "" });
+      return;
+    }
+    const v = { email: String(req.body?.email ?? "").trim().toLowerCase(), name: String(req.body?.name ?? "").trim().slice(0, 40), mobile: String(req.body?.mobile ?? "").trim().slice(0, 20), birthDate: String(req.body?.birthDate ?? "").trim() };
+    // 同一個 LINE 30 分鐘內最多試 5 次
+    const sRef = db.doc(`lineSessions/${u}`);
+    const tries = ((await sRef.get()).data()?.joinTries ?? 0) as number;
+    if (tries >= 5) return form(v, "嘗試太多次了，請稍後再試，或到門市請店員協助。");
+    await sRef.set({ joinTries: tries + 1 }, { merge: true });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email)) return form(v, "Email 格式不正確");
+    if (!v.name) return form(v, "請填姓名");
+    if (!/^(09\d{8}|(\+?(852|853))?\d{8})$/.test(v.mobile.replace(/[\s-]/g, ""))) return form(v, "手機號碼格式不對（台灣 09 開頭 10 碼；香港／澳門 8 碼）");
+    let birthDate: string;
+    try {
+      birthDate = birthDateInput(v.birthDate);
+    } catch {
+      return form(v, "請填正確的生日");
+    }
+    let s;
+    try {
+      s = await meep.createShopper({ email: v.email, name: v.name, mobile: v.mobile.replace(/[\s-]/g, ""), birthDate });
+    } catch (err) {
+      const msg = errMsg(err);
+      return form(v, /exist|已|重複|duplicate/i.test(msg) ? "這個 Email 已經是會員了，請回到 LINE 點「我已經是會員」，用手機綁定。" : `加入失敗：${msg.slice(0, 80)}`);
+    }
+    await db.doc(`shoppers/${s.id}`).set(
+      {
+        email: s.email,
+        emailLower: s.email.toLowerCase(),
+        name: s.name ?? v.name,
+        mobile: s.mobile ?? v.mobile,
+        mobileKey: mobileKey(s.mobile ?? v.mobile),
+        points: s.usableRewardPoints ?? 0,
+        memberGroup: s.memberGroup?.title ?? null,
+        birthDate: s.birthDate ?? birthDate,
+        birthMonth: birthDate.slice(5, 7),
+        joinedAt: s.createdAt ?? new Date().toISOString(),
+        joinedVia: "line",
+        lineUserId: u,
+        lineBoundAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    await ensureMemberCodes([s.id]);
+    await sRef.set({ joinTries: 0 }, { merge: true });
+    page(`<div class="ok"><b>🎉</b>加入成功！歡迎 ${esc(v.name)}<br><br>回到 LINE 點「會員卡」，結帳時出示條碼就能累積購物金。</div><script>setTimeout(()=>{try{window.close()}catch(e){}},2500)</script>`);
+  } catch (err) {
+    logger.error("lineJoin", err);
+    page(`<div class="ok"><b>😵</b>暫時無法加入，請稍後再試，或到門市請店員協助。</div>`);
+  }
+});
+
 /** 為你推薦：看他買過的分類＋會員標籤，挑還沒買過的新品；沒資料就給最新 */
 async function replyForYou(uid: string): Promise<Msg[]> {
   const s = await shopperByLine(uid);
@@ -792,7 +915,7 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
     const found = await db.collection("shoppers").where("mobileKey", "in", keys.slice(0, 10)).limit(2).get();
     if (found.empty) {
       await sRef.delete();
-      return [text("查不到這支手機的會員 🙏\n可以到門市請店員協助加入會員，或到官網註冊後再來綁定。", MENU)];
+      return replyJoin(uid, t, "查不到這支手機的會員 🙏 要現在加入嗎？");
     }
     await sRef.set({ step: "email", shopperId: found.docs[0].id, tries: 0, at: FieldValue.serverTimestamp() });
     return [text("找到了！為了確認是本人，請輸入註冊會員時用的 Email。")];
@@ -866,7 +989,28 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
         ? [text("謝謝！已經記住這件了 🙌 下次有人傳類似的照片，會更快找到。", MENU)]
         : [text("這次的搜尋已經過期了，再傳一次照片就可以 🙏")]
       : a === "fbno"
-      ? (await markMiss(qp.get("q") ?? "", uid).catch(() => undefined), [text("收到，我們會再改進 🙏\n可以：①拍清楚一點、只拍那一件 ②打字描述，例如「找 灰色打褶寬褲」③點「只找褲子」這類按鈕。", MENU)])
+      ? (await markMiss(qp.get("q") ?? "", uid).catch(() => undefined),
+        [
+          text("抱歉沒找到 🙏 你可以：\n① 再多看幾件相似的\n② 請店員幫你找（照片會轉給店員）\n③ 拍清楚一點、只拍那一件再傳一次", [
+            ["再多看幾件", `a=more&q=${qp.get("q") ?? ""}`],
+            ["請店員幫我找", `a=human&q=${qp.get("q") ?? ""}`],
+          ]),
+        ])
+      : a === "more"
+      ? await (async () => {
+          const ids = await nextPage(qp.get("q") ?? "", uid);
+          if (!ids?.length) return [text("相似的都給你看過了 🙏 要不要請店員幫你找？", [["請店員幫我找", `a=human&q=${qp.get("q") ?? ""}`]])];
+          const all = await listedProducts();
+          const by = new Map(all.map((p) => [p.productId, p]));
+          const pick = ids.map((id) => by.get(id)).filter(Boolean) as P[];
+          return [text("再給你幾件相似的 👇", [["都不是", `a=fbno&q=${qp.get("q") ?? ""}`]]), await carousel(withSiblings(pick, all), "更多相似商品", { qid: qp.get("q") ?? "" })];
+        })()
+      : a === "human"
+      ? (await askHuman(qp.get("q") ?? "", uid, (await shopperByLine(uid))?.data().name ?? null).catch(() => false))
+        ? [text("好的，已經把照片轉給店員了 🙌 店員會在這個聊天室回覆你（營業時間內會比較快）。", MENU)]
+        : [text("這次的搜尋已經過期了，請再傳一次照片 🙏")]
+      : a === "join"
+      ? await replyJoin(uid)
       : a === "imgfocus" ? await (async () => { const id = await recentImage(uid); return id ? replyAiImage(uid, id, qp.get("f")) : [text("圖片已經過期了，請再傳一次 🙏")]; })() : a === "prefs" || a === "pref" ? await replyPrefs(uid) : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
   } else if (e.type === "message" && e.message?.type === "image" && e.message.id) {
     out = await replyAiImage(uid, e.message.id);

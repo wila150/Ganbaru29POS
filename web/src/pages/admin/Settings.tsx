@@ -1046,7 +1046,7 @@ function LineOaSettings() {
 /** AI 找商品：學習進度、客人找不到的字、同義詞 */
 function AiLearnPanel() {
   const { settings } = useData();
-  const [st, setSt] = useState<{ indexed: number; products: number; learned: number; confirmed: number; misses: { q: string; kind: string; at: number }[] } | null>(null);
+  const [st, setSt] = useState<{ indexed: number; products: number; learned: number; confirmed: number; misses: { q: string; kind: string; at: number }[]; help?: { id: string; photoUrl: string | null; seen: string | null; customer: string | null; at: number; done: boolean }[] } | null>(null);
   const [syn, setSyn] = useState<[string, string][]>(() => Object.entries(settings.lineBot?.synonyms ?? {}));
   const [k, setK] = useState("");
   const [val, setVal] = useState("");
@@ -1108,6 +1108,27 @@ function AiLearnPanel() {
           新增
         </button>
       </div>
+      <h4>客人找不到的照片（按了「請店員幫我找」）</h4>
+      {st?.help?.length ? (
+        <div className="ai-help">
+          {st.help.map((h) => (
+            <div key={h.id} className="ai-help-item">
+              {h.photoUrl ? <img src={h.photoUrl} alt="" /> : <div className="paydisp-empty">無照片</div>}
+              <div className="small">
+                <b>{h.customer || "客人"}</b>・{new Date(h.at).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                <br />
+                <span className="muted">AI 看到：{h.seen || "—"}</span>
+              </div>
+              <button className="btn btn-sm" disabled={busy} onClick={() => run(async () => (await call("aiHelpDone", { id: h.id }), load()), "已標記處理完")}>
+                處理完
+              </button>
+            </div>
+          ))}
+          <p className="muted small">請到 LINE 官方帳號後台的聊天室回覆客人；如果是店裡沒有的款，可以考慮進貨。</p>
+        </div>
+      ) : (
+        <p className="muted small">目前沒有。</p>
+      )}
       <h4>客人找不到的字（最近 40 筆）</h4>
       {st?.misses.length ? (
         <div className="chip-row">

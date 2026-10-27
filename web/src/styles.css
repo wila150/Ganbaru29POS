@@ -990,3 +990,6 @@ span.tier-switch { cursor: default; }
 .cd-member .cd-phone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 0; position: static; }
 .cd-member .cd-phone h1 { font-size: 32px; margin: 0; }
 @media (orientation: portrait) { .cd-member { flex-direction: column; overflow: auto; } .cd-member-or { padding: 8px 0; } }
+.ai-help { display: flex; flex-direction: column; gap: 8px; }
+.ai-help-item { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; }
+.ai-help-item img, .ai-help-item .paydisp-empty { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; }

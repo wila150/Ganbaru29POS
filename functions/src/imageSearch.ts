@@ -100,10 +100,38 @@ export async function rankByImage(q: Float32Array, allow?: Set<string>): Promise
 }
 
 /** 記住這次查詢（客人之後按「✓ 就是這件」時用） */
-export async function saveQuery(uid: string, v: Float32Array, shown: string[]): Promise<string> {
+/** 記住這次查詢：特徵、排好的商品（給「再多看幾件」用）、縮小的照片（給店員看「客人找不到的照片」） */
+export async function saveQuery(uid: string, v: Float32Array, ranked: string[], photo?: Buffer, seen?: string): Promise<string> {
   const qid = randomBytes(6).toString("hex");
-  await db.doc(`aiQueries/${qid}`).set({ uid, v: toB64(v), shown, at: FieldValue.serverTimestamp() });
+  let photoUrl: string | null = null;
+  if (photo) {
+    const token = randomBytes(12).toString("hex");
+    const f = getStorage().bucket().file(`ai/queries/${qid}.jpg`);
+    await f.save(await sharp(photo).resize({ width: 480, height: 480, fit: "inside" }).jpeg({ quality: 75 }).toBuffer(), { contentType: "image/jpeg", resumable: false, metadata: { metadata: { firebaseStorageDownloadTokens: token } } });
+    photoUrl = `https://firebasestorage.googleapis.com/v0/b/${getStorage().bucket().name}/o/${encodeURIComponent(`ai/queries/${qid}.jpg`)}?alt=media&token=${token}`;
+  }
+  await db.doc(`aiQueries/${qid}`).set({ uid, v: toB64(v), ranked: ranked.slice(0, 40), shown: ranked.slice(0, 8), page: 1, photoUrl, seen: seen ?? null, at: FieldValue.serverTimestamp() });
   return qid;
+}
+
+/** 再多看幾件：同一次查詢的下一批（第 9～16 名…） */
+export async function nextPage(qid: string, uid: string): Promise<string[] | null> {
+  const ref = db.doc(`aiQueries/${qid}`);
+  const q = (await ref.get()).data();
+  if (!q || q.uid !== uid) return null;
+  const page = (q.page ?? 1) as number;
+  const ids = ((q.ranked ?? []) as string[]).slice(page * 8, page * 8 + 8);
+  await ref.update({ page: page + 1 });
+  return ids;
+}
+
+/** 請店員幫我找：列進後台「客人找不到的照片」 */
+export async function askHuman(qid: string, uid: string, name: string | null) {
+  const ref = db.doc(`aiQueries/${qid}`);
+  const q = (await ref.get()).data();
+  if (q?.uid !== uid) return false;
+  await ref.update({ needHuman: true, customer: name, helpAt: FieldValue.serverTimestamp() });
+  return true;
 }
 
 /** ✓ 就是這件：把客人那張照片加進這個商品的參考照片 */
@@ -200,11 +228,21 @@ export const aiLearnStatus = onCall(async (req) => {
     db.collection("aiMisses").orderBy("at", "desc").limit(40).get(),
     db.collection("aiQueries").where("confirmed", ">", "").count().get(),
   ]);
+  const help = await db.collection("aiQueries").where("needHuman", "==", true).orderBy("helpAt", "desc").limit(20).get().catch(() => null);
   return {
     indexed: stored.length,
     products: new Set(stored.map((s) => s.pid)).size,
     learned: learned.data().count,
     confirmed: confirmed.data().count,
     misses: misses.docs.map((d) => ({ q: d.data().q as string, kind: d.data().kind as string, at: d.data().at?.toMillis?.() ?? 0 })),
+    help: (help?.docs ?? []).map((d) => ({ id: d.id, photoUrl: d.data().photoUrl as string | null, seen: d.data().seen as string | null, customer: d.data().customer as string | null, at: d.data().helpAt?.toMillis?.() ?? 0, done: !!d.data().helpDone })),
   };
+});
+
+/** 店員處理完「客人找不到的照片」 */
+export const aiHelpDone = onCall(async (req) => {
+  await requireRole(req, "staff");
+  const id = String(req.data?.id ?? "").replace(/[^0-9a-f]/g, "");
+  if (id) await db.doc(`aiQueries/${id}`).update({ helpDone: true, needHuman: false });
+  return { ok: true };
 });
