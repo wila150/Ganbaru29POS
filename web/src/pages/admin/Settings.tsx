@@ -1068,13 +1068,25 @@ function LinePushPanel() {
   const [q, setQ] = useState("");
   const [logs, setLogs] = useState<{ kind: string; text: string; count: number; by: string; at: number }[]>([]);
   const { busy, run } = useAction();
-  // 上架中的商品（一款一筆），新的排前面
+  // 上架中、有照片的商品；同一款不同顏色合成一列（發送時卡片會自動帶入所有顏色），新的排前面
+  const [cat, setCat] = useState("全部");
   const products = useMemo(() => {
-    const m = new Map<string, { id: string; title: string; at: number; sale: boolean }>();
+    const split = (t: string) => {
+      const m = t.match(/^(.*?)\s+(\S+?)\s*共[一二兩三四五六七八九十\d]+色\s*$/);
+      return m ? { style: m[1].trim(), color: m[2] } : { style: t.trim(), color: null as string | null };
+    };
+    const m = new Map<string, { id: string; title: string; colors: string[]; at: number; sale: boolean; price: number; listPrice: number | null; img: string | null; cats: string[] }>();
     for (const v of variants) {
-      if (v.productStatus !== "LISTED" || m.has(v.productId)) continue;
+      if (v.productStatus !== "LISTED" || !(v.thumbUrl || v.imageUrl)) continue;
+      const { style, color } = split(v.productTitle);
       const at = (v as unknown as { shopCreatedAt?: { toMillis?: () => number } }).shopCreatedAt?.toMillis?.() ?? 0;
-      m.set(v.productId, { id: v.productId, title: v.productTitle, at, sale: (v.listPrice ?? 0) > v.price });
+      const cur = m.get(style);
+      const cats = [v.posCategory, ...(v.tags ?? [])].filter(Boolean) as string[];
+      if (cur) {
+        if (color && !cur.colors.includes(color)) cur.colors.push(color);
+        cur.at = Math.max(cur.at, at);
+        cur.cats = [...new Set([...cur.cats, ...cats])];
+      } else m.set(style, { id: v.productId, title: style, colors: color ? [color] : [], at, sale: (v.listPrice ?? 0) > v.price, price: v.price, listPrice: v.listPrice ?? null, img: v.thumbUrl || v.imageUrl || null, cats });
     }
     return [...m.values()].sort((a, b) => b.at - a.at);
   }, [variants]);
@@ -1087,7 +1099,7 @@ function LinePushPanel() {
     loadLogs();
   }, []);
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 10 ? p : [...p, id]));
-  const list = products.filter((p) => !q || p.title.includes(q)).slice(0, 60);
+  const list = products.filter((p) => (!q || p.title.includes(q) || p.colors.some((c) => c.includes(q))) && (cat === "全部" || (cat === "特價" ? p.sale : p.cats.includes(cat))));
   const over = !!pv && pv.left != null && pv.count > pv.left;
   return (
     <>
@@ -1130,14 +1142,30 @@ function LinePushPanel() {
           </button>
         </span>
       </div>
-      <input className="search" placeholder="搜尋商品名稱" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input className="search" placeholder="搜尋商品名稱或顏色" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="chips">
+        {["全部", "長褲", "短褲", "長袖", "短袖", "外套", "特價"].map((c) => (
+          <button key={c} className={`chip ${cat === c ? "active" : ""}`} onClick={() => setCat(c)}>
+            {c}
+          </button>
+        ))}
+        <span className="muted small">共 {list.length} 款</span>
+      </div>
       <div className="push-list">
         {list.map((p) => (
-          <label key={p.id} className="check">
-            <input type="checkbox" checked={picked.includes(p.id)} onChange={() => toggle(p.id)} /> {p.title}
-            {p.sale && <span className="muted small">（特價）</span>}
+          <label key={p.id} className={`push-item ${picked.includes(p.id) ? "on" : ""}`}>
+            <input type="checkbox" checked={picked.includes(p.id)} onChange={() => toggle(p.id)} />
+            {p.img ? <img src={p.img} alt="" loading="lazy" /> : <span className="push-noimg" />}
+            <span className="push-text">
+              {p.title}
+              {p.colors.length > 0 && <small className="muted">　{p.colors.join("・")}</small>}
+            </span>
+            <span className={`push-price ${p.sale ? "sale" : ""}`}>
+              {p.sale && p.listPrice ? <s className="muted">${p.listPrice}</s> : null} ${p.price}
+            </span>
           </label>
         ))}
+        {!list.length && <p className="muted small">沒有符合的商品</p>}
       </div>
       <button
         className="btn btn-primary"

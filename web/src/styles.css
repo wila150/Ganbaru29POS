@@ -1010,4 +1010,11 @@ span.tier-switch { cursor: default; }
 .member-card.vip .mc-badges span { background-size: 200% 100%; background-image: linear-gradient(90deg, #b8912e, #f6e27a, #b8912e); animation: vip-badge 2.4s linear infinite; }
 @keyframes vip-badge { from { background-position: 200% 0; } to { background-position: 0 0; } }
 @media (prefers-reduced-motion: reduce) { .member-card.vip, .member-card.vip::after, .member-card.vip .mc-badges span { animation: none; } }
-.push-list { max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 2px; }
+.push-list { max-height: 420px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 2px; }
+.push-item { display: grid; grid-template-columns: 20px 44px 1fr auto; align-items: center; gap: 10px; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+.push-item.on { background: var(--ok-bg); }
+.push-item img, .push-noimg { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--surface-2); }
+.push-text { font-size: 14px; line-height: 1.3; }
+.push-price { font-size: 14px; white-space: nowrap; }
+.push-price.sale { color: var(--bad); font-weight: 700; }
+.push-price s { font-weight: 400; margin-right: 4px; }
