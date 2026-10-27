@@ -19,6 +19,8 @@ interface Cell {
   url?: string;
   /** 這一格自己上傳的照片（data URL）；沒有就用共用的商品照片 */
   photo?: string;
+  /** 只放這張圖、不疊文字（客人自己做好的格子圖） */
+  plain?: boolean;
 }
 
 const ACTIONS: Record<Action, { name: string; en: string; zh: string; sub: string }> = {
@@ -170,6 +172,13 @@ export function RichMenuEditor() {
         ctx.fillStyle = col.bg;
         ctx.fillRect(x, y, w, h);
         const pic = cellPics[i] ?? photo;
+        if (c.plain && cellPics[i]) {
+          const im = cellPics[i]!;
+          const s2 = Math.max(w / im.width, h / im.height);
+          ctx.drawImage(im, x + (w - im.width * s2) / 2, y + (h - im.height * s2) / 2, im.width * s2, im.height * s2);
+          ctx.restore();
+          return;
+        }
         if (c.color === "photo" && pic) {
           const s = Math.max(w / pic.width, h / pic.height);
           ctx.drawImage(pic, x + (w - pic.width * s) / 2, y + (h - pic.height * s) * 0.3, pic.width * s, pic.height * s);
@@ -301,9 +310,14 @@ export function RichMenuEditor() {
                   />
                 </label>
                 {c.photo && (
-                  <button className="link-btn small" onClick={() => upd(i, { photo: undefined })}>
-                    移除相片
-                  </button>
+                  <>
+                    <label className="check small">
+                      <input type="checkbox" checked={!!c.plain} onChange={(e) => upd(i, { plain: e.target.checked })} /> 只用這張圖（不疊文字）
+                    </label>
+                    <button className="link-btn small" onClick={() => upd(i, { photo: undefined, plain: false })}>
+                      移除相片
+                    </button>
+                  </>
                 )}
               </span>
             )}
@@ -314,7 +328,7 @@ export function RichMenuEditor() {
                 </option>
               ))}
             </select>
-            {!own && (
+            {!own && !c.plain && (
               <>
                 <input value={c.en} onChange={(e) => upd(i, { en: e.target.value.toUpperCase() })} placeholder="英文大字" />
                 <input value={c.zh} onChange={(e) => upd(i, { zh: e.target.value })} placeholder="中文" />
