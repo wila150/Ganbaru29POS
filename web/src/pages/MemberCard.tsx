@@ -10,6 +10,8 @@ interface Card {
   points: number;
   group: string | null;
   tier: string | null;
+  vip?: boolean;
+  label?: string;
   shopName: string;
 }
 
@@ -24,18 +26,17 @@ export function MemberCard() {
       .catch((e) => setErr(e.message));
   }, [token]);
   return (
-    <div className="member-card-page">
+    <div className={`member-card-page ${card?.vip ? "vip" : ""}`}>
       {err ? (
         <p className="error center">{err}</p>
       ) : !card ? (
         <p className="muted center">載入中…</p>
       ) : (
-        <div className="member-card">
+        <div className={`member-card ${card.vip ? "vip" : ""}`}>
           <div className="mc-shop">{card.shopName}</div>
           <div className="mc-name">{card.name}</div>
           <div className="mc-badges">
-            {card.group && <span>{card.group}</span>}
-            {card.tier && card.tier !== card.group && <span>{card.tier}</span>}
+            <span>{card.vip ? `★ ${card.label}` : card.label ?? card.group ?? "會員"}</span>
           </div>
           <div className="mc-qr">
             <QrImg value={card.code} size={200} />

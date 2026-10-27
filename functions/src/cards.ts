@@ -1,3 +1,4 @@
+import { groupBase, sameGroup } from "./shared/promo";
 import { randomBytes, randomInt } from "crypto";
 import { onCall } from "firebase-functions/v2/https";
 import { requireRole } from "./lib/auth";
@@ -27,6 +28,29 @@ export const ensureAllMemberCodes = onCall({ timeoutSeconds: 300 }, async (req) 
   return { added: await ensureMemberCodes() };
 });
 
+export const VIP_LABEL = "超級VIP";
+/**
+ * 是不是超級VIP（甘爹）：meepShop 群組、門市指定群組或本系統等級，任一個是「有升級條件的等級」（甘爹）就是。
+ * 群組名稱比對忽略括號（甘爹(85折) = 甘爹）。
+ */
+export function isVip(s: FirebaseFirestore.DocumentData, settings: FirebaseFirestore.DocumentData): boolean {
+  const vipNames = ((settings.memberTiers ?? []) as { name: string; upgrade?: unknown[]; minSpend?: number; minSingle?: number }[])
+    .filter((t) => t.upgrade?.length || t.minSpend || t.minSingle)
+    .map((t) => t.name);
+  return ((s.tags ?? []) as string[]).includes(VIP_LABEL) || [s.memberGroup, s.posGroup, s.tier].some((g) => vipNames.some((v) => sameGroup(g, v)));
+}
+
+/** 會員卡上顯示的身分：標籤「超級VIP」→ 超級VIP；甘爹 → 甘爹；其他 → meepShop 群組（尊貴的客人） */
+export function cardLabel(s: FirebaseFirestore.DocumentData, settings: FirebaseFirestore.DocumentData): string {
+  if (((s.tags ?? []) as string[]).includes(VIP_LABEL)) return VIP_LABEL;
+  if (isVip(s, settings)) {
+    const vipNames = ((settings.memberTiers ?? []) as { name: string; upgrade?: unknown[] }[]).filter((t) => t.upgrade?.length).map((t) => t.name);
+    const hit = [s.memberGroup, s.posGroup, s.tier].find((g) => vipNames.some((v) => sameGroup(g, v)));
+    return groupBase(hit) || VIP_LABEL;
+  }
+  return groupBase(s.posGroup ?? s.memberGroup) || "會員";
+}
+
 /** 客人手機上的會員卡（不用登入；以網址裡的 token 辨識，不會露出其他會員資料） */
 export const memberCard = onCall({ maxInstances: 10 }, async (req) => {
   const token = String(req.data?.token ?? "");
@@ -43,7 +67,8 @@ export const memberCard = onCall({ maxInstances: 10 }, async (req) => {
     /* cached points */
   }
   const settings = (await db.doc("settings/shop").get()).data() ?? {};
-  return { name: s.name || "會員", code: s.memberCode, points, group: s.memberGroup ?? null, tier: s.tier ?? null, shopName: settings.shopName || "ganbaru29" };
+  const vip = isVip(s, settings);
+  return { name: s.name || "會員", code: s.memberCode, points, group: s.memberGroup ?? null, tier: s.tier ?? null, vip, label: cardLabel(s, settings), shopName: settings.shopName || "ganbaru29" };
 });
 
 /** 重新產生會員卡連結（舊連結立即失效，例如客人手機遺失） */

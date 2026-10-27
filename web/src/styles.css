@@ -994,3 +994,11 @@ span.tier-switch { cursor: default; }
 .ai-help-item { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; }
 .ai-help-item img, .ai-help-item .paydisp-empty { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; }
 .done-upgrade { margin-top: 8px; font-size: 18px; font-weight: 700; color: var(--warn); }
+/* 超級VIP（甘爹）黑金會員卡 */
+.member-card-page.vip { background: radial-gradient(circle at 30% 0%, #3a3122, #0b0b0b 70%); }
+.member-card.vip { background: linear-gradient(160deg, #1a1a1a, #0d0d0d); color: #f3e5ab; border: 1px solid #b8912e; }
+.member-card.vip .mc-shop { color: #d4af37; }
+.member-card.vip .mc-badges span { background: linear-gradient(90deg, #b8912e, #e6c76a); color: #1a1a1a; font-weight: 700; }
+.member-card.vip .mc-qr, .member-card.vip .mc-barcode { background: #fff; border-radius: 12px; padding: 10px; }
+.member-card.vip .mc-hint { color: #bfae7a; }
+.member-card.vip .mc-points strong { color: #e6c76a; }

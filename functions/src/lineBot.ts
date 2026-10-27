@@ -4,7 +4,7 @@ import QRCode from "qrcode";
 import sharp from "sharp";
 import { logger } from "firebase-functions";
 import { onCall, onRequest } from "firebase-functions/v2/https";
-import { ensureMemberCodes } from "./cards";
+import { cardLabel, ensureMemberCodes, isVip } from "./cards";
 import { requireRole } from "./lib/auth";
 import * as meep from "./lib/meepshop";
 import { getSecret, setSecret } from "./lib/secrets";
@@ -99,7 +99,11 @@ async function replyCard(uid: string): Promise<Msg[]> {
   const x = (await s.ref.get()).data()!;
   const live = await meep.getShopper(s.id).catch(() => null);
   const points = live?.usableRewardPoints ?? x.points ?? 0;
-  const group = x.posGroup ?? x.memberGroup ?? "會員";
+  // 超級VIP（甘爹）黑金卡；一般會員（尊貴的客人）咖啡卡
+  const st0 = await shopSettings();
+  const vip = isVip(x, st0);
+  const group = cardLabel(x, st0);
+  const theme = vip ? { bg: "#111111", title: "#d4af37", sub: "#f3e5ab", accent: "#b8912e", text: `${group} 會員卡` } : { bg: "#4a3b32", title: "#ffffff", sub: "#d9c3a5", accent: "#059669", text: "ganbaru29 會員卡" };
   return [
     {
       type: "flex",
@@ -107,7 +111,7 @@ async function replyCard(uid: string): Promise<Msg[]> {
       contents: {
         type: "bubble",
         size: "giga",
-        header: { type: "box", layout: "vertical", backgroundColor: "#4a3b32", contents: [{ type: "text", text: "ganbaru29 會員卡", color: "#ffffff", weight: "bold", size: "lg" }, { type: "text", text: group, color: "#d1d5db", size: "sm" }] },
+        header: { type: "box", layout: "vertical", backgroundColor: theme.bg, contents: [{ type: "text", text: vip ? "★ ganbaru29" : "ganbaru29", color: theme.sub, size: "xs", weight: "bold" }, { type: "text", text: theme.text, color: theme.title, weight: "bold", size: "lg" }, { type: "text", text: group, color: theme.sub, size: "sm" }] },
         // 條碼直接放大顯示在卡片上，結帳時打開就能掃，不用再點放大
         hero: { type: "image", url: `${CARD_IMG}?t=${x.cardToken}`, size: "full", aspectRatio: "1:1", aspectMode: "fit", backgroundColor: "#ffffff" },
         body: {
@@ -116,7 +120,7 @@ async function replyCard(uid: string): Promise<Msg[]> {
           spacing: "md",
           contents: [
             { type: "text", text: x.name || "會員", weight: "bold", size: "xl" },
-            { type: "box", layout: "horizontal", contents: [{ type: "text", text: "可用購物金", color: "#6b7280", size: "sm" }, { type: "text", text: `${points} 點`, align: "end", weight: "bold", color: "#059669" }] },
+            { type: "box", layout: "horizontal", contents: [{ type: "text", text: "可用購物金", color: "#6b7280", size: "sm" }, { type: "text", text: `${points} 點`, align: "end", weight: "bold", color: theme.accent }] },
             { type: "box", layout: "horizontal", contents: [{ type: "text", text: "會員編號", color: "#6b7280", size: "sm" }, { type: "text", text: x.memberCode ?? "—", align: "end", size: "sm" }] },
           ],
         },

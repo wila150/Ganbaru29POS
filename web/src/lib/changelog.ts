@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-27-h",
+    date: "2026-10-27",
+    title: "甘爹／超級VIP 專屬黑金會員卡",
+    items: [
+      "甘爹（含甘爹(85折)）或有「超級VIP」標籤的會員：LINE 會員卡、會員條碼頁都變成黑金色",
+      "一般會員（尊貴的客人）維持咖啡色卡",
+    ],
+  },
+  {
     id: "2026-10-27-g",
     date: "2026-10-27",
     title: "修正：meepShop 群組改名「甘爹(85折)」後門市沒打折",
