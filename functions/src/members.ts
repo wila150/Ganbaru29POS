@@ -105,7 +105,18 @@ export async function recomputeTiers() {
     let after: string | null = null;
     // 全部歷史訂單（顧客分眾需要「首購」「最後消費」）
     for (let page = 0; page < 400; page++) {
-      const p = await ordersPage({ first: 50, after });
+      // meepShop 偶爾連線中斷：同一頁最多重試 3 次（等 3、6、9 秒），不要因為一頁失敗整晚的等級都沒算
+      let p: Awaited<ReturnType<typeof ordersPage>> | null = null;
+      for (let t = 0; t < 4 && !p; t++) {
+        try {
+          p = await ordersPage({ first: 50, after });
+        } catch (e) {
+          if (t === 3) throw e;
+          logger.warn(`tier recompute: page retry ${t + 1}`, errMsg(e));
+          await sleep(3000 * (t + 1));
+        }
+      }
+      if (!p) break;
       for (const e of p.edges) {
         const o = e.node;
         if (o?.shopper?.id && o.status !== "CANCELED") addUsed(o.shopper.id, "online", Math.round(o.rewardPointUsed ?? 0));
