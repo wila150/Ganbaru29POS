@@ -1146,7 +1146,20 @@ async function replyOrders(uid: string, num: string | null): Promise<Msg[]> {
   );
 }
 
-async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
+/** 客人反映問題（或回覆某張卡片）→ 先回「稍等幫你聯絡客服」，之後 30 分鐘機器人不插嘴，讓店員接手 */
+const PROBLEM = /有問題|什麼問題|問題|不對|錯了|弄錯|寄錯|壞了|壞掉|瑕疵|破洞|少了|少寄|沒收到|還沒收到|退貨|換貨|退款|退錢|客訴|怎麼辦|不能用|尺寸不合|不合身/;
+const HANDOFF_MS = 30 * 60_000;
+
+async function handoff(uid: string, t: string): Promise<Msg[] | null> {
+  const ref = db.doc(`lineHandoff/${uid}`);
+  const last = (await ref.get()).data()?.at?.toMillis?.() ?? 0;
+  await ref.set({ at: FieldValue.serverTimestamp(), text: t.slice(0, 200) });
+  if (Date.now() - last < HANDOFF_MS) return null; // 剛剛已經回過，店員接手中
+  return [text("收到！稍等一下，幫您聯絡客服 🙏\n客服會盡快在這裡回覆您。")];
+}
+const handingOff = async (uid: string) => Date.now() - ((await db.doc(`lineHandoff/${uid}`).get()).data()?.at?.toMillis?.() ?? 0) < HANDOFF_MS;
+
+async function handleText(uid: string, msg: string, quoted = false): Promise<Msg[] | null> {
   const t = msg.trim();
   const sRef = db.doc(`lineSessions/${uid}`);
   const sess = (await sRef.get()).data();
@@ -1178,6 +1191,7 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
     return [text(`綁定完成 🎉 ${s.name || ""} 您好！`), ...(await replyCard(uid))];
   }
   if (/^(功能|說明|使用說明|功能說明|怎麼用|教學|help|選單|menu|[?？]+)$/i.test(t)) return replyHelp(uid);
+  if (quoted || PROBLEM.test(t)) return handoff(uid, t);
   const on = orderNumberIn(t);
   if (on || ORDER_ASK.test(t)) return replyOrders(uid, on).catch((e) => (logger.warn("order lookup", errMsg(e)), [text("訂單系統暫時連不上 🙏 請稍後再試，或直接留言，客服會回覆您。")]));
   if (/會員卡|會員/.test(t)) return replyCard(uid);
@@ -1192,18 +1206,19 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
   if (/推薦|喜歡|適合我/.test(t)) return replyForYou(uid);
   if (/新品|新貨|上新/.test(t)) return replyNew();
   if (/特價|特惠|出清|sale/i.test(t)) return replyNew(true);
-  if (/客服|真人|聯絡/.test(t)) return [text("收到了！客服會盡快回覆您 🙏\n可以先告訴我們：想問的商品（或截圖）、身高體重，或訂單編號。")];
+  if (/客服|真人|聯絡/.test(t)) return (await db.doc(`lineHandoff/${uid}`).set({ at: FieldValue.serverTimestamp(), text: t.slice(0, 200) }), [text("收到了！客服會盡快回覆您 🙏\n可以先告訴我們：想問的商品（或截圖）、身高體重，或訂單編號。")]);
   if (/活動|優惠|折扣/.test(t)) return replyPromo();
   if (/門市|地址|營業|電話|地圖|在哪/.test(t)) return replyStore();
   // 沒有指令但像在說商品（例：丹寧、寬褲、格紋襯衫）→ 幫他找；找不到就安靜，留給店家
-  if (looksLikeProduct(t)) return replyAiText(uid, t, true);
+  // 店員接手中：不主動幫忙找商品，免得插嘴
+  if (looksLikeProduct(t) && !(await handingOff(uid))) return replyAiText(uid, t, true);
   return null; // 其他訊息交給店家在 LINE 後台手動回覆
 }
 
 /** 機器人會回的關鍵字（跟 handleText 的判斷一致） */
 const BOT_KEYWORDS = /這件|這條|同款|會員卡|會員|消費|紀錄|購物金|點數|推薦|喜歡|適合我|喜好|偏好|我的風格|新品|新貨|上新|特價|特惠|出清|sale|活動|優惠|折扣|門市|地址|營業|電話|地圖|在哪|客服|真人|聯絡|^(功能|說明|使用說明|功能說明|怎麼用|教學|help|選單|menu|[?？]+)$|^(我)?(想|要)?(找|搜尋|搜)|有沒有.+(褲|袖|衣|外套|包|裙)/i;
 
-async function handleEvent(e: { type: string; replyToken?: string; source?: { userId?: string }; postback?: { data?: string }; message?: { type: string; text?: string; id?: string } }) {
+async function handleEvent(e: { type: string; replyToken?: string; source?: { userId?: string }; postback?: { data?: string }; message?: { type: string; text?: string; id?: string; quotedMessageId?: string } }) {
   const uid = e.source?.userId;
   if (!uid || !e.replyToken) return;
   let out: Msg[] | null = null;
@@ -1258,7 +1273,7 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
   } else if (e.type === "message" && e.message?.type === "image" && e.message.id) {
     out = await replyAiImage(uid, e.message.id);
   } else if (e.type === "message" && e.message?.type === "text") {
-    out = await handleText(uid, e.message.text ?? "");
+    out = await handleText(uid, e.message.text ?? "", !!e.message.quotedMessageId);
   }
   if (out?.length) await reply(e.replyToken, out);
 }
