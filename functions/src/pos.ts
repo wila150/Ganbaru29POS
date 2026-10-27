@@ -119,9 +119,9 @@ export function normalizeTier(t: TierDef): TierDef {
  * 等級名稱也是 meepShop 群組（例：甘爹）時，同時設成門市指定群組，門市折扣馬上生效；
  * 官網群組 API 不能改，記在 meepGroupTodo 提醒店家到 meepShop 後台改。
  */
-async function instantUpgrade(orderId: string, order: FirebaseFirestore.DocumentData, settings: FirebaseFirestore.DocumentData) {
+async function instantUpgrade(orderId: string, order: FirebaseFirestore.DocumentData, settings: FirebaseFirestore.DocumentData): Promise<string | null> {
   const tiers = ((settings.memberTiers ?? []) as TierDef[]).map(normalizeTier).filter((t) => t.enabled !== false && t.upgrade?.length);
-  if (!tiers.length) return;
+  if (!tiers.length) return null;
   const ref = db.doc(`shoppers/${order.shopper.id}`);
   const s = (await ref.get()).data() ?? {};
   const curRank = tiers.findIndex((t) => t.name === s.tier);
@@ -141,14 +141,15 @@ async function instantUpgrade(orderId: string, order: FirebaseFirestore.Document
         tierUntil: t.validityMonths ? Timestamp.fromMillis(now + t.validityMonths * 30.44 * 86400_000) : null,
         tierAt: FieldValue.serverTimestamp(),
         tierUpgradedBy: `order:${orderId}`,
-        ...(isGroup ? { posGroup: t.name } : {}),
+        ...(isGroup ? { posGroup: t.name, posGroupBy: "tier" } : {}),
         ...(isGroup && s.memberGroup !== t.name ? { meepGroupTodo: t.name } : {}),
       },
       { merge: true }
     );
     await db.doc(`posOrders/${orderId}`).update({ tierUpgraded: t.name });
-    return;
+    return t.name;
   }
+  return null;
 }
 
 export function memberTier(settings: FirebaseFirestore.DocumentData, name: string | undefined | null): TierDef | null {
@@ -417,8 +418,10 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
   }
   // 完成之後的四件事彼此不相干 → 同時做（原本一件一件做，結帳要多等好幾秒）
   const rewardAndStats = async () => {
+    // --- 4a. 這一單就達到「單筆」升級門檻 → 先升等；升級後的群組（例：甘爹）沒有回饋規則，這一單也不給回饋金
+    const upgraded = order.shopper ? await instantUpgrade(id, order, settings).catch((e) => (logger.warn(`instant upgrade ${id}`, e), null)) : null;
     // --- 4. 回饋購物金 ---
-    const reward = order.shopper && order.total > 0 ? rewardFor(settings, order.total, order.shopper.group ?? null, order.shopper.tier ?? null) : null;
+    const reward = order.shopper && order.total > 0 ? rewardFor(settings, order.total, upgraded ?? order.shopper.group ?? null, upgraded ?? order.shopper.tier ?? null) : null;
     if (order.shopper && reward) {
       const earned = Math.floor(reward.points * (order.pointMultiplier || 1));
       if (earned > 0) {
@@ -465,8 +468,6 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
         logger.warn(`shopper stats ${id}`, e);
       }
     }
-    // --- 4c. 這一單就達到「單筆」升級門檻 → 立刻升等（不用等凌晨重算）
-    if (order.shopper) await instantUpgrade(id, order, settings).catch((e) => logger.warn(`instant upgrade ${id}`, e));
   };
   await Promise.all([
     pushBulk(moveIds),

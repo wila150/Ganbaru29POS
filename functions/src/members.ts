@@ -159,13 +159,23 @@ export async function recomputeTiers() {
     return { tier: tier.name, since: tier.name === curTier ? curSince ?? now : since, until };
   };
 
-  const shoppers = await db.collection("shoppers").select("tier", "tierUntil", "tierSince").get();
+  const shoppers = await db.collection("shoppers").select("tier", "tierUntil", "tierSince", "posGroup", "posGroupBy", "memberGroup").get();
+  const groups = new Set((settings.memberGroups ?? []) as string[]);
   const writer = db.bulkWriter();
   let updated = 0;
   for (const d of shoppers.docs) {
     const s = spend.get(d.id);
     const cur = d.data();
     const t = decide(purchases.get(d.id) ?? [], cur.tier ?? null, cur.tierUntil?.toMillis?.() ?? null, cur.tierSince?.toMillis?.() ?? null);
+    // 等級名稱也是群組（例：甘爹）→ 門市群組跟著等級走（85 折、不給回饋金）；等級到期就收回（只收回等級自動設的，店長手動指定的不動）
+    const groupPatch: Record<string, unknown> = {};
+    const isVipGroup = !!t.tier && groups.has(t.tier) && t.tier !== base?.name;
+    if (isVipGroup && cur.posGroup !== t.tier && (!cur.posGroup || cur.posGroupBy === "tier")) {
+      Object.assign(groupPatch, { posGroup: t.tier, posGroupBy: "tier" });
+      if (cur.memberGroup !== t.tier) groupPatch.meepGroupTodo = t.tier;
+    } else if (!isVipGroup && cur.posGroupBy === "tier" && cur.posGroup) {
+      Object.assign(groupPatch, { posGroup: null, posGroupBy: null, meepGroupTodo: FieldValue.delete() });
+    }
     writer.set(
       d.ref,
       {
@@ -174,6 +184,7 @@ export async function recomputeTiers() {
         spendOnline12m: s ? Math.round(s.online) : 0,
         maxSingle12m: s ? Math.round(s.maxSingle) : 0,
         tier: t.tier,
+        ...groupPatch,
         tierSince: t.since ? Timestamp.fromMillis(t.since) : null,
         tierUntil: t.until ? Timestamp.fromMillis(t.until) : null,
         tierAt: Timestamp.now(),
