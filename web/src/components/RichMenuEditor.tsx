@@ -21,6 +21,8 @@ interface Cell {
   photo?: string;
   /** 只放這張圖、不疊文字（客人自己做好的格子圖） */
   plain?: boolean;
+  /** 字放在最下面，不遮到圖中間（例如 logo 底圖） */
+  low?: boolean;
 }
 
 const ACTIONS: Record<Action, { name: string; en: string; zh: string; sub: string }> = {
@@ -198,6 +200,65 @@ export function RichMenuEditor() {
           ctx.restore();
           return;
         }
+        if (c.low && cellPics[i]) {
+          // 圖中間對在格子 40% 高的位置，字全部放到下方
+          const im = cellPics[i]!;
+          const s2 = Math.max(w / im.width, h / im.height);
+          const iw = im.width * s2,
+            ih = im.height * s2;
+          const iy = Math.min(y, Math.max(y + h - ih, y + h * 0.4 - ih / 2));
+          ctx.drawImage(im, x + (w - iw) / 2, iy, iw, ih);
+          const gr = ctx.createLinearGradient(0, y + h * 0.6, 0, y + h);
+          gr.addColorStop(0, "rgba(30,22,18,0)");
+          gr.addColorStop(1, "rgba(30,22,18,0.55)");
+          ctx.fillStyle = gr;
+          ctx.fillRect(x, y, w, h);
+          const cx = x + w / 2;
+          const zhY = y + h - 92;
+          const enY = zhY - 74;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "alphabetic";
+          const enPx = fitText(ctx, c.en, (p) => `${p}px "Bebas Neue", Impact, sans-serif`, 120, w * 0.6);
+          const tw = ctx.measureText(c.en).width;
+          const ig = c.action === "ig";
+          const sz = ig ? enPx * 0.95 : 0;
+          const gap = ig ? 28 : 0;
+          const left = cx - (sz + gap + tw) / 2;
+          if (ig) {
+            // IG 彩色圓角方塊＋白色相機，一看就知道是 IG
+            const by = enY - enPx * 0.8;
+            const g2 = ctx.createLinearGradient(left, by + sz, left + sz, by);
+            ["#feda75", "#fa7e1e", "#d62976", "#962fbf", "#4f5bd5"].forEach((st, k) => g2.addColorStop(k / 4, st));
+            ctx.fillStyle = g2;
+            ctx.beginPath();
+            ctx.roundRect(left, by, sz, sz, sz * 0.24);
+            ctx.fill();
+            ctx.strokeStyle = "#fff";
+            ctx.lineWidth = sz * 0.075;
+            ctx.beginPath();
+            ctx.roundRect(left + sz * 0.22, by + sz * 0.22, sz * 0.56, sz * 0.56, sz * 0.16);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(left + sz / 2, by + sz / 2, sz * 0.13, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = "#fff";
+            ctx.beginPath();
+            ctx.arc(left + sz * 0.66, by + sz * 0.34, sz * 0.04, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.fillStyle = "#fff";
+          ctx.font = `${enPx}px "Bebas Neue", Impact, sans-serif`;
+          ctx.fillText(c.en, left + sz + gap, enY);
+          ctx.textAlign = "center";
+          fitText(ctx, c.zh, (p) => `500 ${p}px "Noto Sans TC", sans-serif`, 56, w * 0.86);
+          ctx.fillText(c.zh, cx, zhY);
+          ctx.globalAlpha = 0.75;
+          fitText(ctx, c.sub, (p) => `${p}px "Noto Sans TC", sans-serif`, 36, w * 0.86);
+          ctx.fillText(c.sub, cx, zhY + 52);
+          ctx.globalAlpha = 1;
+          ctx.restore();
+          return;
+        }
         if (c.color === "photo" && pic) {
           const s = Math.max(w / pic.width, h / pic.height);
           ctx.drawImage(pic, x + (w - pic.width * s) / 2, y + (h - pic.height * s) * 0.3, pic.width * s, pic.height * s);
@@ -331,7 +392,10 @@ export function RichMenuEditor() {
                 {c.photo && (
                   <>
                     <label className="check small">
-                      <input type="checkbox" checked={!!c.plain} onChange={(e) => upd(i, { plain: e.target.checked })} /> 只用這張圖（不疊文字）
+                      <input type="checkbox" checked={!!c.plain} onChange={(e) => upd(i, { plain: e.target.checked, low: false })} /> 只用這張圖（不疊文字）
+                    </label>
+                    <label className="check small">
+                      <input type="checkbox" checked={!!c.low} onChange={(e) => upd(i, { low: e.target.checked, plain: false })} /> 字放下面（不遮到圖中間的 logo）
                     </label>
                     <button className="link-btn small" onClick={() => upd(i, { photo: undefined, plain: false })}>
                       移除相片
