@@ -961,6 +961,8 @@ const PAY_ST: Record<string, string> = { PAID: "已付款", RECONCILED: "已付�
 
 /** 訊息裡的訂單編號（8～20 碼數字；09 開頭 10 碼是手機，不算） */
 function orderNumberIn(t: string): string | null {
+  const p = t.replace(/\s/g, "").match(/P(\d{8})-?(\d{1,4})/i);
+  if (p) return `P${p[1]}-${p[2].padStart(4, "0")}`;
   const m = t.replace(/\s/g, "").match(/(?:^#?|訂單[^\d]{0,6})(\d{8,20})$/);
   if (!m || /^09\d{8}$/.test(m[1])) return null;
   return m[1];
@@ -988,28 +990,57 @@ function orderText(o: meep.MOrder): string {
     .join("\n");
 }
 
+const POS_ST: Record<string, string> = { completed: "已完成", partial: "部分退貨", refunded: "已退貨", void: "已作廢" };
+
+/** 門市消費（POS） */
+function storeText(o: FirebaseFirestore.DocumentData): string {
+  const d = (o.createdAt?.toDate?.() ?? new Date()).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric" });
+  const lines = (o.lines ?? []) as { productTitle: string; options?: string; qty: number }[];
+  return [
+    `🏬 門市消費 ${o.orderNo}（${d}）`,
+    `狀態：${POS_ST[o.status] ?? o.status}`,
+    ...lines.slice(0, 6).map((l) => `・${l.productTitle}${l.options ? ` ${l.options}` : ""} ×${l.qty}`),
+    lines.length > 6 ? `…等 ${lines.length} 項` : "",
+    `金額：$${Math.round(o.total ?? 0).toLocaleString()}`,
+    o.invoice?.no && !o.invoice.voided ? `發票：${o.invoice.no}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+const SHOWN_POS = ["completed", "partial", "refunded", "void"];
+
 async function replyOrders(uid: string, num: string | null): Promise<Msg[]> {
   const me = await shopperByLine(uid);
   if (!me) return [text("查訂單要先綁定會員喔 🙏 綁定後就能隨時查自己的訂單。", [["綁定會員", "a=card"]])];
-  let nums: string[];
-  if (num) nums = [num];
-  else {
-    // 系統裡存的網店訂單（每 15 分鐘同步）找最近 3 筆，再向 meepShop 抓最新狀態
-    const snap = await db.collection("onlineOrders").where("shopperId", "==", me.id).select("orderNumber", "createdAt").get();
-    nums = snap.docs
-      .map((d) => d.data())
-      .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
-      .slice(0, 3)
-      .map((d) => String(d.orderNumber));
-    if (!nums.length) return [text("目前查不到您在官網的訂單 🙏\n如果是剛下的單，請過幾分鐘再試，或直接傳訂單編號給我們。")];
-  }
-  const page = await meep.ordersPage({ first: nums.length, query: { orderNumber: nums } });
+  const tail = "\n\n有其他問題直接留言，客服會回覆您 🙏";
+  const notFound = (n: string) => [text(`查不到訂單 ${n} 🙏\n請確認編號，或這筆不是用您綁定的會員消費的。需要協助可以直接留言，客服會回覆您。`)];
   // 只回本人的訂單；別人的編號一律當作查不到
-  const mine = page.edges.flatMap((e) => (e.node && e.node.shopper?.id === me.id ? [e.node] : []));
-  if (!mine.length)
-    return [text(num ? `查不到訂單 ${num} 🙏\n請確認編號，或這筆不是用您綁定的會員下單。需要協助可以直接留言，客服會回覆您。` : "目前查不到您的訂單 🙏")];
-  mine.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-  return [text(mine.map(orderText).join("\n\n") + "\n\n有其他問題直接留言，客服會回覆您 🙏")];
+  if (num?.startsWith("P")) {
+    const q = await db.collection("posOrders").where("orderNo", "==", num).limit(1).get();
+    const o = q.docs[0]?.data();
+    if (!o || o.shopper?.id !== me.id || !SHOWN_POS.includes(o.status)) return notFound(num);
+    return [text(storeText(o) + tail)];
+  }
+  if (num) {
+    const page = await meep.ordersPage({ first: 1, query: { orderNumber: [num] } });
+    const o = page.edges[0]?.node;
+    if (!o || o.shopper?.id !== me.id) return notFound(num);
+    return [text(orderText(o) + tail)];
+  }
+  // 沒給編號：網店＋門市各抓最近幾筆，合在一起取最新 4 筆
+  const [online, store] = await Promise.all([
+    meep.ordersPage({ first: 3, query: { shopperId: me.id } }).catch(() => null),
+    db.collection("posOrders").where("shopper.id", "==", me.id).orderBy("createdAt", "desc").limit(5).get(),
+  ]);
+  const rows = [
+    ...(online?.edges ?? []).flatMap((e) => (e.node && e.node.shopper?.id === me.id ? [{ at: +new Date(e.node.createdAt), msg: orderText(e.node) }] : [])),
+    ...store.docs.map((d) => d.data()).filter((o) => SHOWN_POS.includes(o.status)).map((o) => ({ at: o.createdAt?.toMillis?.() ?? 0, msg: storeText(o) })),
+  ]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 4);
+  if (!rows.length) return [text("目前查不到您的訂單 🙏\n如果是剛下的單，請過幾分鐘再試，或直接傳訂單編號給我們。")];
+  return [text(rows.map((r) => r.msg).join("\n\n") + (online ? "" : "\n\n（官網訂單暫時連不上，只列出門市消費）") + tail)];
 }
 
 async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
