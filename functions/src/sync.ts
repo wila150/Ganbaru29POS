@@ -1,6 +1,7 @@
 import { logger } from "firebase-functions";
 import { onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { syncOnlineOrders } from "./onlineOrders";
 import { getStorage, getDownloadURL } from "firebase-admin/storage";
 import { ensureThumbs } from "./thumbs";
 import { requireRole } from "./lib/auth";
@@ -302,6 +303,12 @@ export const catalogIncremental = onSchedule({ schedule: "every 15 minutes", tim
     await runShopperSync("incremental");
   } catch (e) {
     logger.warn("shopper sync failed", e);
+  }
+  // 網店訂單增量同步（還沒完整匯入時，每次接著匯入一段）
+  try {
+    await syncOnlineOrders(false, Math.min(deadline, Date.now() + 200_000));
+  } catch (e) {
+    logger.warn("online orders sync failed", e);
   }
   const images = await processPendingImages(deadline);
   // 縮圖檢查要讀全部款式（511 筆）：每 15 分鐘都讀一天就 4.9 萬次 → 只有商品或圖片有變才做（每天凌晨的完整同步一定會做）

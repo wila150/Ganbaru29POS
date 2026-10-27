@@ -7,6 +7,7 @@ import { ordersPage, sendRewardPoints } from "./lib/meepshop";
 import { db, errMsg, FieldValue, sleep, taipeiDate, Timestamp, TZ } from "./lib/util";
 import { normalizeTier, type TierCond, type TierDef } from "./pos";
 import { sameGroup } from "./shared/promo";
+import { onlineOrdersReady } from "./onlineOrders";
 
 const MONTH = 30.44 * 86400_000;
 
@@ -101,6 +102,17 @@ export async function recomputeTiers() {
   }
 
   let onlineError: string | null = null;
+  // 網店訂單：系統已經存了一份（每 15 分鐘更新）就讀自己的，幾秒就好；還沒匯入完才去 meepShop 一頁一頁讀
+  if (await onlineOrdersReady()) {
+    const snap = await db.collection("onlineOrders").select("shopperId", "status", "totalPrice", "rewardPointUsed", "createdAt", "lineItems").get();
+    for (const d of snap.docs) {
+      const o = d.data();
+      if (o.shopperId && o.status !== "CANCELED") addUsed(o.shopperId, "online", Math.round(o.rewardPointUsed ?? 0));
+      if (!o.shopperId || o.status !== "CLOSED") continue;
+      const onlineGross = ((o.lineItems ?? []) as { unitPrice?: number; quantity?: number }[]).reduce((s, l) => s + (l.unitPrice ?? 0) * (l.quantity ?? 0), 0);
+      add(o.shopperId, "online", o.totalPrice ?? 0, o.createdAt?.toMillis?.() ?? now, Math.max(onlineGross, o.totalPrice ?? 0));
+    }
+  } else
   try {
     let after: string | null = null;
     // 全部歷史訂單（顧客分眾需要「首購」「最後消費」）

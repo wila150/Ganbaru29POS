@@ -22,3 +22,4 @@ export { buildThumbs } from "./thumbs";
 export { convertSound } from "./sound";
 export { lineWebhook, setLineBotCreds, lineBotStatus, setLineRichMenu, lineCardImage, linePrefs, lineJoin } from "./lineBot";
 export { buildImageIndex, imageIndexDaily, aiLearnStatus, aiHelpDone } from "./imageSearch";
+export { onlineOrdersWeekly } from "./onlineOrders";
