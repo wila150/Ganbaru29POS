@@ -54,7 +54,7 @@ export function ruleMatches(r: SoundRule, c: SoundContext) {
       return !!mm && mm !== "00" && mm === c.today.slice(5, 7);
     }
     case "group":
-      return sameGroup(c.group, r.value);
+      return sameGroup(c.group, r.value == null ? null : String(r.value));
     case "min_total":
       return c.total >= Number(r.value ?? 0);
     case "member":
