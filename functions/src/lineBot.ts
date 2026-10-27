@@ -119,6 +119,10 @@ async function replyCard(uid: string): Promise<Msg[]> {
           layout: "vertical",
           spacing: "md",
           contents: [
+            // 超級VIP／甘爹：會動的金色閃光橫幅（APNG，LINE 會自動播放）
+            ...(vip && (st0.lineBot?.vipBanners?.[group] || st0.lineBot?.vipBanners?.["超級VIP"])
+              ? [{ type: "image", url: st0.lineBot.vipBanners[group] || st0.lineBot.vipBanners["超級VIP"], size: "full", aspectRatio: "750:220", aspectMode: "cover", animated: true }]
+              : []),
             { type: "text", text: x.name || "會員", weight: "bold", size: "xl" },
             { type: "box", layout: "horizontal", contents: [{ type: "text", text: "可用購物金", color: "#6b7280", size: "sm" }, { type: "text", text: `${points} 點`, align: "end", weight: "bold", color: theme.accent }] },
             { type: "box", layout: "horizontal", contents: [{ type: "text", text: "會員編號", color: "#6b7280", size: "sm" }, { type: "text", text: x.memberCode ?? "—", align: "end", size: "sm" }] },

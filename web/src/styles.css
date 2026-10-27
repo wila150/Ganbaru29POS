@@ -1002,3 +1002,11 @@ span.tier-switch { cursor: default; }
 .member-card.vip .mc-qr, .member-card.vip .mc-barcode { background: #fff; border-radius: 12px; padding: 10px; }
 .member-card.vip .mc-hint { color: #bfae7a; }
 .member-card.vip .mc-points strong { color: #e6c76a; }
+/* 超級VIP 卡：金色流光外框＋徽章閃光 */
+@keyframes vip-glow { 0%, 100% { box-shadow: 0 0 0 1px #b8912e, 0 0 18px rgba(230, 199, 106, 0.25), 0 20px 50px rgba(0, 0, 0, 0.6); } 50% { box-shadow: 0 0 0 1px #f6e27a, 0 0 34px rgba(246, 226, 122, 0.55), 0 20px 50px rgba(0, 0, 0, 0.6); } }
+@keyframes vip-sweep { 0% { transform: translateX(-160%) skewX(-20deg); } 60%, 100% { transform: translateX(260%) skewX(-20deg); } }
+.member-card.vip { position: relative; overflow: hidden; animation: vip-glow 2.6s ease-in-out infinite; }
+.member-card.vip::after { content: ""; position: absolute; top: -20%; left: 0; width: 45%; height: 140%; pointer-events: none; background: linear-gradient(90deg, transparent, rgba(255, 246, 200, 0.18), transparent); animation: vip-sweep 3.2s ease-in-out infinite; }
+.member-card.vip .mc-badges span { background-size: 200% 100%; background-image: linear-gradient(90deg, #b8912e, #f6e27a, #b8912e); animation: vip-badge 2.4s linear infinite; }
+@keyframes vip-badge { from { background-position: 200% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .member-card.vip, .member-card.vip::after, .member-card.vip .mc-badges span { animation: none; } }

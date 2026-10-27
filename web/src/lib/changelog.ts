@@ -11,12 +11,13 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
-    id: "2026-10-27-h",
+    id: "2026-10-27-i",
     date: "2026-10-27",
     title: "甘爹／超級VIP 專屬黑金會員卡",
     items: [
       "甘爹（含甘爹(85折)）或有「超級VIP」標籤的會員：LINE 會員卡、會員條碼頁都變成黑金色",
       "一般會員（尊貴的客人）維持咖啡色卡",
+      "超級VIP／甘爹的 LINE 會員卡上方有會動的金色閃光橫幅，條碼頁的卡片外框也會流光閃動",
     ],
   },
   {
