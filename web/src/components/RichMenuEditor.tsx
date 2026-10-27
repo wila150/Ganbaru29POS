@@ -300,7 +300,8 @@ export function RichMenuEditor() {
           return;
         }
         if (c.color === "photo" && pic) {
-          if (cellPics[i]) geo[i] = placeImg(ctx, pic, cellPics[i] ? c : { ...c, zoom: undefined, px: undefined, py: undefined }, x, y, w, h, 0.3);
+          const gm = placeImg(ctx, pic, cellPics[i] ? c : { ...c, zoom: undefined, px: undefined, py: undefined }, x, y, w, h, 0.3);
+          if (cellPics[i]) geo[i] = gm;
           const gr = ctx.createLinearGradient(0, y, 0, y + h);
           gr.addColorStop(0, "rgba(40,30,24,0.15)");
           gr.addColorStop(1, "rgba(40,30,24,0.65)");
