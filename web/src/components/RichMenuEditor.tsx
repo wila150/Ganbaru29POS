@@ -8,7 +8,7 @@ import { useAction } from "./ui";
  * 圖片在瀏覽器用 canvas 畫（街頭風：Bebas Neue 英文大字＋思源黑體中文），也可以改用自己上傳的圖。
  */
 
-type Action = "card" | "new" | "sale" | "promo" | "store" | "foryou" | "prefs" | "service" | "url" | "ig";
+type Action = "card" | "new" | "sale" | "promo" | "store" | "foryou" | "prefs" | "service" | "orders" | "help" | "url" | "ig";
 type Color = "photo" | "brown" | "gray" | "purple" | "igGrad" | "igMilk";
 interface Cell {
   action: Action;
@@ -40,6 +40,8 @@ const ACTIONS: Record<Action, { name: string; en: string; zh: string; sub: strin
   foryou: { name: "為你推薦", en: "FOR YOU", zh: "為你推薦", sub: "依你的喜好挑選" },
   prefs: { name: "我的喜好", en: "MY STYLE", zh: "我的喜好", sub: "新品・特價通知" },
   service: { name: "一對一客服", en: "SERVICE", zh: "一對一客服", sub: "尺寸諮詢・訂單進度" },
+  orders: { name: "查訂單", en: "MY ORDERS", zh: "查訂單", sub: "出貨進度・門市消費" },
+  help: { name: "功能說明", en: "HOW TO USE", zh: "功能說明", sub: "LINE 可以做什麼" },
   ig: { name: "Instagram", en: "INSTAGRAM", zh: "追蹤 IG", sub: "穿搭・新品搶先看" },
   url: { name: "打開網址", en: "SHOP", zh: "逛官網", sub: "ganbaru29.com" },
 };

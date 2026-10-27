@@ -75,6 +75,8 @@ const MENU: [string, string][] = [
   ["新品", "a=new"],
   ["本月活動", "a=promo"],
   ["門市資訊", "a=store"],
+  ["查訂單", "a=orders"],
+  ["功能說明", "a=help"],
 ];
 const $ = (n: number) => `NT$ ${Math.round(n).toLocaleString("en-US")}`;
 
@@ -941,6 +943,88 @@ async function replyStore(): Promise<Msg[]> {
 
 // ---------- 綁定會員（在聊天室輸入手機 → Email 確認） ----------
 
+// ---------- 功能說明（客人不知道官方帳號能做什麼） ----------
+
+const HELP: [string, string, string][] = [
+  ["💳", "會員卡", "a=card"],
+  ["📦", "查訂單・出貨進度", "a=orders"],
+  ["🧾", "消費紀錄・購物金", "a=history"],
+  ["🆕", "看新品", "a=new"],
+  ["🏷️", "特價商品", "a=sale"],
+  ["✨", "為你推薦", "a=foryou"],
+  ["🔔", "設定想收到的通知", "a=prefs"],
+  ["📍", "門市地址・營業時間", "a=store"],
+];
+
+function replyHelp(intro = ""): Msg[] {
+  const item = ([icon, label, data]: [string, string, string]) => ({
+    type: "box",
+    layout: "horizontal",
+    spacing: "md",
+    paddingTop: "10px",
+    paddingBottom: "10px",
+    action: { type: "postback", label: label.slice(0, 20), data, displayText: label },
+    contents: [
+      { type: "text", text: icon, flex: 0, size: "md" },
+      { type: "text", text: label, size: "md", color: "#3b2f28", flex: 1 },
+      { type: "text", text: "›", size: "lg", color: "#c9ae90", flex: 0 },
+    ],
+  });
+  const tip = (t: string, d: string) => ({
+    type: "box",
+    layout: "vertical",
+    contents: [
+      { type: "text", text: t, size: "sm", weight: "bold", color: "#3b2f28" },
+      { type: "text", text: d, size: "xs", color: "#8a7a6d", wrap: true },
+    ],
+  });
+  return [
+    ...(intro ? [text(intro)] : []),
+    {
+      type: "flex",
+      altText: "我可以幫你做這些事：會員卡、查訂單、新品、找商品…",
+      contents: {
+        type: "bubble",
+        header: {
+          type: "box",
+          layout: "vertical",
+          backgroundColor: "#4a3b32",
+          paddingAll: "16px",
+          paddingStart: "20px",
+          contents: [
+            { type: "text", text: "HOW TO USE", color: "#c9ae90", size: "xs", weight: "bold" },
+            { type: "text", text: "我可以幫你做這些事", color: "#ffffff", weight: "bold", size: "lg" },
+            { type: "text", text: "點一下就能用 👇", color: "#eae3da", size: "xs" },
+          ],
+        },
+        body: {
+          type: "box",
+          layout: "vertical",
+          paddingStart: "20px",
+          paddingEnd: "20px",
+          contents: [
+            ...HELP.flatMap((h, k) => (k ? [{ type: "separator" }, item(h)] : [item(h)])),
+            { type: "separator", margin: "md" },
+            { type: "text", text: "也可以直接打字或傳照片", size: "xs", color: "#8a7a6d", margin: "lg" },
+            {
+              type: "box",
+              layout: "vertical",
+              spacing: "md",
+              margin: "md",
+              contents: [
+                tip("🔍 找商品", "打「我想找寬褲」「格紋襯衫」，或傳一張穿搭截圖"),
+                tip("📦 查訂單", "直接貼訂單編號（官網編號或門市收據 P 開頭的單號）"),
+                tip("💬 真人客服", "打「客服」，尺寸、退換貨、其他問題由店員回覆"),
+              ],
+            },
+          ],
+        },
+      },
+      quickReply: { items: MENU.map(([label, data]) => ({ type: "action", action: { type: "postback", label, data, displayText: label } })) },
+    } as Msg,
+  ];
+}
+
 // ---------- 查訂單（只查得到自己的） ----------
 
 const ORDER_ST: Record<string, string> = { PROCESSING: "處理中", CLOSED: "已完成", CANCELED: "已取消", RETURN: "退貨" };
@@ -1152,6 +1236,7 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
     await sRef.delete();
     return [text(`綁定完成 🎉 ${s.name || ""} 您好！`), ...(await replyCard(uid))];
   }
+  if (/^(功能|說明|使用說明|功能說明|怎麼用|教學|help|選單|menu|[?？]+)$/i.test(t)) return replyHelp();
   const on = orderNumberIn(t);
   if (on || ORDER_ASK.test(t)) return replyOrders(uid, on).catch((e) => (logger.warn("order lookup", errMsg(e)), [text("訂單系統暫時連不上 🙏 請稍後再試，或直接留言，客服會回覆您。")]));
   if (/會員卡|會員/.test(t)) return replyCard(uid);
@@ -1175,7 +1260,7 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
 }
 
 /** 機器人會回的關鍵字（跟 handleText 的判斷一致） */
-const BOT_KEYWORDS = /這件|這條|同款|會員卡|會員|消費|紀錄|購物金|點數|推薦|喜歡|適合我|喜好|偏好|我的風格|新品|新貨|上新|特價|特惠|出清|sale|活動|優惠|折扣|門市|地址|營業|電話|地圖|在哪|客服|真人|聯絡|^(我)?(想|要)?(找|搜尋|搜)|有沒有.+(褲|袖|衣|外套|包|裙)/i;
+const BOT_KEYWORDS = /這件|這條|同款|會員卡|會員|消費|紀錄|購物金|點數|推薦|喜歡|適合我|喜好|偏好|我的風格|新品|新貨|上新|特價|特惠|出清|sale|活動|優惠|折扣|門市|地址|營業|電話|地圖|在哪|客服|真人|聯絡|^(功能|說明|使用說明|功能說明|怎麼用|教學|help|選單|menu|[?？]+)$|^(我)?(想|要)?(找|搜尋|搜)|有沒有.+(褲|袖|衣|外套|包|裙)/i;
 
 async function handleEvent(e: { type: string; replyToken?: string; source?: { userId?: string }; postback?: { data?: string }; message?: { type: string; text?: string; id?: string } }) {
   const uid = e.source?.userId;
@@ -1194,7 +1279,7 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
   }
   if (e.type === "follow") {
     const st = await shopSettings();
-    out = [text(`歡迎加入 ${st.shopName || "ganbaru29"}！👋\n點下方選單可以看會員卡、消費紀錄、新品和本月活動。\n第一次使用請先點「會員卡」綁定會員。`, MENU)];
+    out = replyHelp(`歡迎加入 ${st.shopName === "ganbaru29" || !st.shopName ? "29 STUDIO" : st.shopName}！👋\n第一次使用請先點「會員卡」綁定會員，就能查訂單、看購物金。\n之後忘記怎麼用，隨時打「功能」就會再出現這張說明。`);
     await db.doc(`lineFollowers/${uid}`).set({ followedAt: FieldValue.serverTimestamp(), blocked: false }, { merge: true });
   } else if (e.type === "unfollow") {
     await db.doc(`lineFollowers/${uid}`).set({ blocked: true, unfollowedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -1229,7 +1314,7 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
         : [text("這次的搜尋已經過期了，請再傳一次照片 🙏")]
       : a === "join"
       ? await replyJoin(uid)
-      : a === "imgfocus" ? await (async () => { const id = await recentImage(uid); return id ? replyAiImage(uid, id, qp.get("f")) : [text("圖片已經過期了，請再傳一次 🙏")]; })() : a === "prefs" || a === "pref" ? await replyPrefs(uid) : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : null;
+      : a === "imgfocus" ? await (async () => { const id = await recentImage(uid); return id ? replyAiImage(uid, id, qp.get("f")) : [text("圖片已經過期了，請再傳一次 🙏")]; })() : a === "prefs" || a === "pref" ? await replyPrefs(uid) : a === "foryou" ? await replyForYou(uid) : a === "barcode" ? await replyBarcode(uid) : a === "card" ? await replyCard(uid) : a === "history" ? await replyHistory(uid) : a === "new" ? await replyNew() : a === "sale" ? await replyNew(true) : a === "promo" ? await replyPromo() : a === "store" ? await replyStore() : a === "help" ? replyHelp() : a === "orders" ? await replyOrders(uid, null).catch(() => [text("訂單系統暫時連不上 🙏 請稍後再試。")]) : null;
   } else if (e.type === "message" && e.message?.type === "image" && e.message.id) {
     out = await replyAiImage(uid, e.message.id);
   } else if (e.type === "message" && e.message?.type === "text") {
@@ -1412,6 +1497,8 @@ const RM_ACTIONS: Record<string, { data?: string; text?: string; label: string }
   foryou: { data: "a=foryou", label: "為你推薦" },
   prefs: { data: "a=prefs", label: "我的喜好" },
   service: { text: "我想聯絡客服", label: "一對一客服" },
+  orders: { data: "a=orders", label: "查訂單" },
+  help: { data: "a=help", label: "功能說明" },
   url: { label: "網址" },
   ig: { label: "追蹤 IG" },
 };
