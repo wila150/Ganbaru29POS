@@ -1,3 +1,4 @@
+import { sameGroup } from "./promo";
 /**
  * 結帳音效。內建音效用 Web Audio 即時合成（不用下載檔案）；自訂音效是後台上傳的音檔。
  * iPad／iPhone 規定聲音要在使用者點擊時「解鎖」：第一次點畫面時就先解鎖，之後結帳完成（非同步）也能出聲。
@@ -53,7 +54,7 @@ export function ruleMatches(r: SoundRule, c: SoundContext) {
       return !!mm && mm !== "00" && mm === c.today.slice(5, 7);
     }
     case "group":
-      return !!c.group && c.group === r.value;
+      return sameGroup(c.group, r.value);
     case "min_total":
       return c.total >= Number(r.value ?? 0);
     case "member":

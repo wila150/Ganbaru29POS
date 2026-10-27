@@ -6,6 +6,7 @@ import { notifyOwner } from "./lib/line";
 import { ordersPage, sendRewardPoints } from "./lib/meepshop";
 import { db, errMsg, FieldValue, sleep, taipeiDate, Timestamp, TZ } from "./lib/util";
 import { normalizeTier, type TierCond, type TierDef } from "./pos";
+import { sameGroup } from "./shared/promo";
 
 const MONTH = 30.44 * 86400_000;
 
@@ -169,10 +170,10 @@ export async function recomputeTiers() {
     const t = decide(purchases.get(d.id) ?? [], cur.tier ?? null, cur.tierUntil?.toMillis?.() ?? null, cur.tierSince?.toMillis?.() ?? null);
     // 等級名稱也是群組（例：甘爹）→ 門市群組跟著等級走（85 折、不給回饋金）；等級到期就收回（只收回等級自動設的，店長手動指定的不動）
     const groupPatch: Record<string, unknown> = {};
-    const isVipGroup = !!t.tier && groups.has(t.tier) && t.tier !== base?.name;
-    if (isVipGroup && cur.posGroup !== t.tier && (!cur.posGroup || cur.posGroupBy === "tier")) {
-      Object.assign(groupPatch, { posGroup: t.tier, posGroupBy: "tier" });
-      if (cur.memberGroup !== t.tier) groupPatch.meepGroupTodo = t.tier;
+    const isVipGroup = !!t.tier && [...groups].some((g) => sameGroup(g, t.tier)) && t.tier !== base?.name;
+    // meepShop 群組已經是甘爹（含「甘爹(85折)」）的不用另外設門市群組
+    if (isVipGroup && !sameGroup(cur.memberGroup, t.tier) && !sameGroup(cur.posGroup, t.tier) && (!cur.posGroup || cur.posGroupBy === "tier")) {
+      Object.assign(groupPatch, { posGroup: t.tier, posGroupBy: "tier", meepGroupTodo: t.tier });
     } else if (!isVipGroup && cur.posGroupBy === "tier" && cur.posGroup) {
       Object.assign(groupPatch, { posGroup: null, posGroupBy: null, meepGroupTodo: FieldValue.delete() });
     }

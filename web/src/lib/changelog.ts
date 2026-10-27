@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: "2026-10-27-g",
+    date: "2026-10-27",
+    title: "修正：meepShop 群組改名「甘爹(85折)」後門市沒打折",
+    items: [
+      "群組名稱比對會忽略括號（甘爹(85折) = 甘爹），57 位甘爹會員門市 85 折恢復正常",
+      "之後在 meepShop 改群組名稱（括號裡的說明）也不會影響門市折扣、回饋、結帳音效",
+    ],
+  },
+  {
     id: "2026-10-27-f",
     date: "2026-10-27",
     title: "甘爹（VIP）升級條件更新",

@@ -150,6 +150,10 @@ function ctxOf(c: PromoContext | string): PromoContext {
   return typeof c === "string" ? { date: c, weekday: new Date(`${c}T12:00:00Z`).getUTCDay(), hhmm: "12:00", isMember: false, tier: null } : c;
 }
 
+/** 群組名稱比對：忽略括號裡的說明（meepShop 改成「甘爹(85折)」也還是「甘爹」） */
+export const groupBase = (g: string | null | undefined) => String(g ?? "").replace(/[（(][^）)]*[）)]/g, "").trim();
+export const sameGroup = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && groupBase(a) === groupBase(b);
+
 export function promoIsLive(p: Promotion, c: PromoContext | string): boolean {
   const ctx = ctxOf(c);
   if (!p.active) return false;
@@ -161,7 +165,7 @@ export function promoIsLive(p: Promotion, c: PromoContext | string): boolean {
   if (p.timeTo && ctx.hhmm > p.timeTo) return false;
   if (p.memberRule === "members" && !ctx.isMember) return false;
   if (p.memberRule === "tiers" && !(ctx.tier && (p.memberTiers ?? []).includes(ctx.tier))) return false;
-  if (p.memberRule === "groups" && !(ctx.group && (p.memberGroups ?? []).includes(ctx.group))) return false;
+  if (p.memberRule === "groups" && !(ctx.group && (p.memberGroups ?? []).some((g) => sameGroup(g, ctx.group)))) return false;
   return true;
 }
 

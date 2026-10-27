@@ -4,7 +4,7 @@ import { Actor, atLeast, requireRole } from "./lib/auth";
 import * as meep from "./lib/meepshop";
 import { createMovement, pushBulk } from "./lib/movements";
 import { assert, birthDateInput, db, errMsg, FieldValue, HttpsError, int, num, str, taipeiDate, Timestamp } from "./lib/util";
-import { applyPromotions, taipeiClock, type Promotion } from "./shared/promo";
+import { applyPromotions, sameGroup, taipeiClock, type Promotion } from "./shared/promo";
 import { claimOnlinePayment } from "./payments/index";
 import { refundLinePay } from "./payments/linepay";
 import { invoiceAfterRefund, issueForOrder, parseInvoiceRequest } from "./payments/invoice";
@@ -67,7 +67,7 @@ export interface RewardRule {
 }
 export function rewardFor(settings: FirebaseFirestore.DocumentData, total: number, group: string | null, tier: string | null) {
   const rules = ((settings.rewardRules ?? []) as RewardRule[]).filter(
-    (r) => r.active && (!r.groups?.length || (group && r.groups.includes(group))) && (!r.tiers?.length || (tier && r.tiers.includes(tier))) && total >= (r.minSpend ?? 0)
+    (r) => r.active && (!r.groups?.length || (group && r.groups.some((g) => sameGroup(g, group)))) && (!r.tiers?.length || (tier && r.tiers.includes(tier))) && total >= (r.minSpend ?? 0)
   );
   if (!rules.length) {
     const pct = Number(settings.rewardPercent ?? 0);
@@ -133,7 +133,7 @@ async function instantUpgrade(orderId: string, order: FirebaseFirestore.Document
     if (!ok) continue;
     const now = Date.now();
     const groups = (settings.memberGroups ?? []) as string[];
-    const isGroup = groups.includes(t.name);
+    const isGroup = groups.some((g) => sameGroup(g, t.name));
     await ref.set(
       {
         tier: t.name,
@@ -142,7 +142,7 @@ async function instantUpgrade(orderId: string, order: FirebaseFirestore.Document
         tierAt: FieldValue.serverTimestamp(),
         tierUpgradedBy: `order:${orderId}`,
         ...(isGroup ? { posGroup: t.name, posGroupBy: "tier" } : {}),
-        ...(isGroup && s.memberGroup !== t.name ? { meepGroupTodo: t.name } : {}),
+        ...(isGroup && !sameGroup(s.memberGroup, t.name) ? { meepGroupTodo: t.name } : {}),
       },
       { merge: true }
     );
