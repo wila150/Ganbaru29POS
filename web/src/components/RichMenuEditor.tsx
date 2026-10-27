@@ -23,6 +23,10 @@ interface Cell {
   plain?: boolean;
   /** 字放在最下面，不遮到圖中間（例如 logo 底圖） */
   low?: boolean;
+  /** 上傳圖的位置：縮放 100~300（%）、左右 / 上下 -100~100（往右 / 往下為正） */
+  zoom?: number;
+  px?: number;
+  py?: number;
 }
 
 const ACTIONS: Record<Action, { name: string; en: string; zh: string; sub: string }> = {
@@ -90,11 +94,33 @@ function loadImg(src: string): Promise<HTMLImageElement> {
 }
 
 /** 字太長就縮小，塞得進格子 */
+/** 把圖蓋滿格子（cover），再依縮放、左右、上下調整位置；defFy＝沒調整時上下停在哪（0 頂、1 底） */
+function placeImg(ctx: CanvasRenderingContext2D, im: HTMLImageElement, c: Cell, x: number, y: number, w: number, h: number, defFy: number | ((ih: number) => number)) {
+  const s = Math.max(w / im.width, h / im.height) * ((c.zoom ?? 100) / 100);
+  const iw = im.width * s,
+    ih = im.height * s;
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  const fy0 = typeof defFy === "function" ? defFy(ih) : defFy;
+  const fx = clamp(0.5 - (c.px ?? 0) / 200);
+  const fy = clamp(fy0 - (c.py ?? 0) / 200);
+  ctx.drawImage(im, x + (w - iw) * fx, y + (h - ih) * fy, iw, ih);
+  return { ew: iw - w, eh: ih - h };
+}
+
+/** 拖拉用：每格上傳圖比格子多出來的寬高（可移動的範圍） */
+const geo: Record<number, { ew: number; eh: number }> = {};
+
 function fitText(ctx: CanvasRenderingContext2D, t: string, font: (px: number) => string, start: number, maxW: number) {
   let px = start;
   ctx.font = font(px);
   while (px > 20 && ctx.measureText(t).width > maxW) ctx.font = font((px -= 4));
   return px;
+}
+
+/** 滑鼠在畫面上的位置 → 畫布座標（畫布 2500×1686 縮小顯示） */
+function toCanvas(e: { clientX: number; clientY: number; currentTarget: HTMLCanvasElement }) {
+  const r = e.currentTarget.getBoundingClientRect();
+  return { x: ((e.clientX - r.left) / r.width) * 2500, y: ((e.clientY - r.top) / r.height) * 1686 };
 }
 
 export function RichMenuEditor() {
@@ -109,6 +135,8 @@ export function RichMenuEditor() {
   const [own, setOwn] = useState<string | null>(null); // 自己上傳的整張選單圖
   const [ready, setReady] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const drag = useRef<{ i: number; sx: number; sy: number; px: number; py: number } | null>(null);
+  const live = useRef({ cells: [] as Cell[], layout: "5", own: false });
   const { busy, run } = useAction();
 
   const products = useMemo(() => {
@@ -142,6 +170,25 @@ export function RichMenuEditor() {
     setLayout(l);
     setCells(DEFAULTS[l].map(([a, c], i) => (cells[i] ? { ...cells[i], color: cells[i].color ?? c } : mk(a, c))));
   };
+  live.current = { cells, layout, own: !!own };
+  // 滾輪縮放：要能擋掉整頁捲動，只能用原生 listener（React 的 onWheel 是 passive）
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const { cells: cs, layout: l, own: o } = live.current;
+      if (o) return;
+      const r = el.getBoundingClientRect();
+      const x = ((e.clientX - r.left) / r.width) * 2500,
+        y = ((e.clientY - r.top) / r.height) * 1686;
+      const i = BOXES[l].findIndex((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h);
+      if (i < 0 || !cs[i]?.photo) return;
+      e.preventDefault();
+      setCells((all) => all.map((c, j) => (j === i ? { ...c, zoom: Math.min(300, Math.max(100, Math.round((c.zoom ?? 100) - e.deltaY * 0.2))) } : c)));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
   const upd = (i: number, patch: Partial<Cell>) => setCells((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)));
 
   // 畫預覽（也是要送出的圖）
@@ -194,20 +241,13 @@ export function RichMenuEditor() {
         }
         const pic = cellPics[i] ?? photo;
         if (c.plain && cellPics[i]) {
-          const im = cellPics[i]!;
-          const s2 = Math.max(w / im.width, h / im.height);
-          ctx.drawImage(im, x + (w - im.width * s2) / 2, y + (h - im.height * s2) / 2, im.width * s2, im.height * s2);
+          geo[i] = placeImg(ctx, cellPics[i]!, c, x, y, w, h, 0.5);
           ctx.restore();
           return;
         }
         if (c.low && cellPics[i]) {
           // 圖中間對在格子 40% 高的位置，字全部放到下方
-          const im = cellPics[i]!;
-          const s2 = Math.max(w / im.width, h / im.height);
-          const iw = im.width * s2,
-            ih = im.height * s2;
-          const iy = Math.min(y, Math.max(y + h - ih, y + h * 0.4 - ih / 2));
-          ctx.drawImage(im, x + (w - iw) / 2, iy, iw, ih);
+          geo[i] = placeImg(ctx, cellPics[i]!, c, x, y, w, h, (ih) => (ih > h ? (ih / 2 - h * 0.4) / (ih - h) : 0.5));
           const gr = ctx.createLinearGradient(0, y + h * 0.6, 0, y + h);
           gr.addColorStop(0, "rgba(30,22,18,0)");
           gr.addColorStop(1, "rgba(30,22,18,0.55)");
@@ -260,8 +300,7 @@ export function RichMenuEditor() {
           return;
         }
         if (c.color === "photo" && pic) {
-          const s = Math.max(w / pic.width, h / pic.height);
-          ctx.drawImage(pic, x + (w - pic.width * s) / 2, y + (h - pic.height * s) * 0.3, pic.width * s, pic.height * s);
+          if (cellPics[i]) geo[i] = placeImg(ctx, pic, cellPics[i] ? c : { ...c, zoom: undefined, px: undefined, py: undefined }, x, y, w, h, 0.3);
           const gr = ctx.createLinearGradient(0, y, 0, y + h);
           gr.addColorStop(0, "rgba(40,30,24,0.15)");
           gr.addColorStop(1, "rgba(40,30,24,0.65)");
@@ -330,7 +369,35 @@ export function RichMenuEditor() {
           </button>
         ))}
       </div>
-      <canvas ref={canvas} width={2500} height={1686} className="rm-canvas" />
+      <canvas
+        ref={canvas}
+        width={2500}
+        height={1686}
+        className={`rm-canvas${!own && cells.some((c) => c.photo) ? " rm-drag" : ""}`}
+        onPointerDown={(e) => {
+          if (own) return;
+          const p = toCanvas(e);
+          const i = BOXES[layout].findIndex((b) => p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h);
+          if (i < 0 || !cells[i]?.photo) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          drag.current = { i, sx: p.x, sy: p.y, px: cells[i].px ?? 0, py: cells[i].py ?? 0 };
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d) return;
+          const p = toCanvas(e);
+          const g = geo[d.i] ?? { ew: 0, eh: 0 };
+          const lim = (v: number) => Math.round(Math.min(100, Math.max(-100, v)));
+          // 往右拖 = 圖往右移；多出來的寬度越大，拖同樣距離改變越少
+          upd(d.i, {
+            px: g.ew > 1 ? lim(d.px + ((p.x - d.sx) * 200) / g.ew) : d.px,
+            py: g.eh > 1 ? lim(d.py + ((p.y - d.sy) * 200) / g.eh) : d.py,
+          });
+        }}
+        onPointerUp={() => (drag.current = null)}
+        onPointerCancel={() => (drag.current = null)}
+      />
+      {!own && cells.some((c) => c.photo) && <p className="muted small">上傳的圖可以直接在預覽上拖拉移動位置；滑鼠滾輪（或觸控板兩指上下）放大縮小。</p>}
       <p className="muted small">上面就是客人會看到的選單（點格子的位置跟下面設定的順序一樣：先上排、左到右）。</p>
       <div className="rm-own">
         <label className="btn btn-sm">
@@ -397,7 +464,21 @@ export function RichMenuEditor() {
                     <label className="check small">
                       <input type="checkbox" checked={!!c.low} onChange={(e) => upd(i, { low: e.target.checked, plain: false })} /> 字放下面（不遮到圖中間的 logo）
                     </label>
-                    <button className="link-btn small" onClick={() => upd(i, { photo: undefined, plain: false })}>
+                    <span className="rm-pos">
+                      <label>
+                        縮放 <input type="range" min={100} max={300} value={c.zoom ?? 100} onChange={(e) => upd(i, { zoom: +e.target.value })} />
+                      </label>
+                      <label>
+                        左右 <input type="range" min={-100} max={100} value={c.px ?? 0} onChange={(e) => upd(i, { px: +e.target.value })} />
+                      </label>
+                      <label>
+                        上下 <input type="range" min={-100} max={100} value={c.py ?? 0} onChange={(e) => upd(i, { py: +e.target.value })} />
+                      </label>
+                      <button className="link-btn small" onClick={() => upd(i, { zoom: undefined, px: undefined, py: undefined })}>
+                        重設位置
+                      </button>
+                    </span>
+                    <button className="link-btn small" onClick={() => upd(i, { photo: undefined, plain: false, zoom: undefined, px: undefined, py: undefined })}>
                       移除相片
                     </button>
                   </>

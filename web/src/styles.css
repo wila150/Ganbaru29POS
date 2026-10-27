@@ -1024,3 +1024,8 @@ span.tier-switch { cursor: default; }
 .rm-cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .rm-cell { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
 .rm-photo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rm-pos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; width: 100%; font-size: 13px; }
+.rm-pos label { display: inline-flex; align-items: center; gap: 6px; }
+.rm-pos input[type="range"] { width: 120px; }
+.rm-canvas.rm-drag { cursor: grab; touch-action: none; }
+.rm-canvas.rm-drag:active { cursor: grabbing; }
