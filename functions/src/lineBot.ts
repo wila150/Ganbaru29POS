@@ -969,43 +969,119 @@ function orderNumberIn(t: string): string | null {
 }
 const ORDER_ASK = /^(查|我的|查詢)?(我的)?訂單(查詢|狀態|進度)?$|^查(貨|出貨|物流)|出貨了嗎|寄出了嗎|到貨了嗎|什麼時候(出貨|寄|到)/;
 
-function orderText(o: meep.MOrder): string {
-  const d = new Date(o.createdAt).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric" });
+/** 訂單卡片（表單樣式）：深咖啡標題列＋左右對齊欄位＋商品＋金額 */
+type Tone = "ok" | "warn" | "mute" | "bad";
+const TONE: Record<Tone, [string, string]> = { ok: ["#e6f4ea", "#1e7a3c"], warn: ["#fff3dc", "#a46a00"], mute: ["#eeeeee", "#777777"], bad: ["#fde8e8", "#b42318"] };
+
+function orderBubble(kind: "STORE" | "ONLINE", title: string, no: string, rows: [string, string | null | undefined][], status: [string, Tone], items: { name: string; qty: number }[], total: number) {
+  const row = (k: string, v: object) => ({ type: "box", layout: "horizontal", spacing: "md", contents: [{ type: "text", text: k, size: "sm", color: "#8a7a6d", flex: 2 }, { ...v, flex: 6 }] });
+  const val = (v: string) => ({ type: "text", text: v, size: "sm", color: "#3b2f28", wrap: true });
+  const [bg, fg] = TONE[status[1]];
+  const badge = { type: "box", layout: "horizontal", contents: [{ type: "box", layout: "vertical", backgroundColor: bg, cornerRadius: "10px", paddingStart: "8px", paddingEnd: "8px", paddingTop: "1px", paddingBottom: "1px", flex: 0, contents: [{ type: "text", text: status[0], size: "xs", weight: "bold", color: fg }] }] };
+  const shown = items.slice(0, 6);
+  return {
+    type: "bubble",
+    header: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#4a3b32",
+      paddingAll: "16px",
+      paddingStart: "20px",
+      contents: [
+        { type: "text", text: kind, color: "#c9ae90", size: "xs", weight: "bold" },
+        { type: "text", text: title, color: "#ffffff", weight: "bold", size: "lg" },
+        { type: "text", text: no, color: "#eae3da", size: "xs" },
+      ],
+    },
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "sm",
+      paddingStart: "20px",
+      paddingEnd: "20px",
+      contents: [
+        row(rows[0][0], val(rows[0][1] ?? "")),
+        row("狀態", badge),
+        ...rows.slice(1).filter((r) => r[1]).map(([k, v]) => row(k, val(v!))),
+        { type: "separator", margin: "md" },
+        ...shown.map((l) => ({
+          type: "box",
+          layout: "horizontal",
+          spacing: "md",
+          margin: "sm",
+          contents: [
+            { type: "text", text: l.name || "—", size: "sm", color: "#3b2f28", wrap: true, maxLines: 2, flex: 6 },
+            { type: "text", text: `×${l.qty}`, size: "sm", color: "#8a7a6d", align: "end", flex: 1 },
+          ],
+        })),
+        ...(items.length > shown.length ? [{ type: "text", text: `…等 ${items.length} 項`, size: "xs", color: "#8a7a6d" }] : []),
+        { type: "separator", margin: "md" },
+        {
+          type: "box",
+          layout: "horizontal",
+          margin: "md",
+          contents: [
+            { type: "text", text: "金額", size: "sm", color: "#8a7a6d", gravity: "bottom" },
+            { type: "text", text: `$${Math.round(total).toLocaleString()}`, size: "xl", weight: "bold", color: "#3b2f28", align: "end" },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+const ONLINE_TONE = (o: meep.MOrder): Tone =>
+  o.status === "CANCELED" ? "mute" : o.status === "RETURN" || ["RETURN", "OUT_OF_STOCK", "RETURN_IN_STORE"].includes(o.shipmentStatus) ? "bad" : o.status === "CLOSED" ? "ok" : "warn";
+
+function orderCard(o: meep.MOrder) {
   const sd = o.shipmentDetail as meep.MOrder["shipmentDetail"] & { trackingCode?: string | null; convenienceStore?: { name: string | null } | null };
   const status =
     o.status === "PROCESSING" ? SHIP_ST[o.shipmentStatus] ?? ORDER_ST[o.status] : o.status === "CLOSED" && o.shipmentStatus === "FULFILLED" ? "已出貨・已完成" : ORDER_ST[o.status] ?? o.status;
-  const items = (o.lineItems ?? []).map((l) => `・${l.title} ×${l.quantity}`).slice(0, 6);
-  const more = (o.lineItems?.length ?? 0) > 6 ? `…等 ${o.lineItems!.length} 項` : "";
-  return [
-    `📦 訂單 ${o.orderNumber}（${d}）`,
-    `狀態：${status}`,
-    `付款：${PAY_ST[o.paymentStatus] ?? o.paymentStatus}`,
-    sd?.name ? `配送：${sd.name}${sd.convenienceStore?.name ? `（${sd.convenienceStore.name}）` : ""}` : "",
-    sd?.trackingCode ? `追蹤碼：${sd.trackingCode}` : "",
-    ...items,
-    more,
-    `金額：$${Math.round(o.totalPrice ?? 0).toLocaleString()}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return orderBubble(
+    "ONLINE",
+    "官網訂單",
+    o.orderNumber,
+    [
+      ["日期", dateTW(new Date(o.createdAt))],
+      ["付款", PAY_ST[o.paymentStatus] ?? o.paymentStatus],
+      ["配送", sd?.name ? `${sd.name}${sd.convenienceStore?.name ? `（${sd.convenienceStore.name}）` : ""}` : null],
+      ["追蹤碼", sd?.trackingCode],
+    ],
+    [status, ONLINE_TONE(o)],
+    (o.lineItems ?? []).map((l) => ({ name: l.title, qty: l.quantity })),
+    o.totalPrice ?? 0
+  );
 }
+
+const dateTW = (d: Date) => d.toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "numeric", day: "numeric" });
 
 const POS_ST: Record<string, string> = { completed: "已完成", partial: "部分退貨", refunded: "已退貨", void: "已作廢" };
 
+const POS_TONE: Record<string, Tone> = { completed: "ok", partial: "bad", refunded: "bad", void: "mute" };
+
 /** 門市消費（POS） */
-function storeText(o: FirebaseFirestore.DocumentData): string {
-  const d = (o.createdAt?.toDate?.() ?? new Date()).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric" });
+function storeCard(o: FirebaseFirestore.DocumentData) {
   const lines = (o.lines ?? []) as { productTitle: string; options?: string; qty: number }[];
+  return orderBubble(
+    "STORE",
+    "門市消費",
+    o.orderNo,
+    [
+      ["日期", dateTW(o.createdAt?.toDate?.() ?? new Date())],
+      ["發票", o.invoice?.no && !o.invoice.voided ? o.invoice.no : null],
+    ],
+    [POS_ST[o.status] ?? o.status, POS_TONE[o.status] ?? "mute"],
+    lines.map((l) => ({ name: `${l.productTitle}${l.options ? ` ${l.options}` : ""}`, qty: l.qty })),
+    o.total ?? 0
+  );
+}
+
+/** 卡片（左右滑）＋一句提示 */
+function ordersMsg(cards: object[], note = ""): Msg[] {
   return [
-    `🏬 門市消費 ${o.orderNo}（${d}）`,
-    `狀態：${POS_ST[o.status] ?? o.status}`,
-    ...lines.slice(0, 6).map((l) => `・${l.productTitle}${l.options ? ` ${l.options}` : ""} ×${l.qty}`),
-    lines.length > 6 ? `…等 ${lines.length} 項` : "",
-    `金額：$${Math.round(o.total ?? 0).toLocaleString()}`,
-    o.invoice?.no && !o.invoice.voided ? `發票：${o.invoice.no}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+    { type: "flex", altText: `您的訂單（${cards.length} 筆）`, contents: cards.length === 1 ? cards[0] : { type: "carousel", contents: cards } } as Msg,
+    text(`${note}有其他問題直接留言，客服會回覆您 🙏`, MENU),
+  ];
 }
 
 const SHOWN_POS = ["completed", "partial", "refunded", "void"];
@@ -1013,20 +1089,19 @@ const SHOWN_POS = ["completed", "partial", "refunded", "void"];
 async function replyOrders(uid: string, num: string | null): Promise<Msg[]> {
   const me = await shopperByLine(uid);
   if (!me) return [text("查訂單要先綁定會員喔 🙏 綁定後就能隨時查自己的訂單。", [["綁定會員", "a=card"]])];
-  const tail = "\n\n有其他問題直接留言，客服會回覆您 🙏";
   const notFound = (n: string) => [text(`查不到訂單 ${n} 🙏\n請確認編號，或這筆不是用您綁定的會員消費的。需要協助可以直接留言，客服會回覆您。`)];
   // 只回本人的訂單；別人的編號一律當作查不到
   if (num?.startsWith("P")) {
     const q = await db.collection("posOrders").where("orderNo", "==", num).limit(1).get();
     const o = q.docs[0]?.data();
     if (!o || o.shopper?.id !== me.id || !SHOWN_POS.includes(o.status)) return notFound(num);
-    return [text(storeText(o) + tail)];
+    return ordersMsg([storeCard(o)]);
   }
   if (num) {
     const page = await meep.ordersPage({ first: 1, query: { orderNumber: [num] } });
     const o = page.edges[0]?.node;
     if (!o || o.shopper?.id !== me.id) return notFound(num);
-    return [text(orderText(o) + tail)];
+    return ordersMsg([orderCard(o)]);
   }
   // 沒給編號：網店＋門市各抓最近幾筆，合在一起取最新 4 筆
   const [online, store] = await Promise.all([
@@ -1034,13 +1109,16 @@ async function replyOrders(uid: string, num: string | null): Promise<Msg[]> {
     db.collection("posOrders").where("shopper.id", "==", me.id).orderBy("createdAt", "desc").limit(5).get(),
   ]);
   const rows = [
-    ...(online?.edges ?? []).flatMap((e) => (e.node && e.node.shopper?.id === me.id ? [{ at: +new Date(e.node.createdAt), msg: orderText(e.node) }] : [])),
-    ...store.docs.map((d) => d.data()).filter((o) => SHOWN_POS.includes(o.status)).map((o) => ({ at: o.createdAt?.toMillis?.() ?? 0, msg: storeText(o) })),
+    ...(online?.edges ?? []).flatMap((e) => (e.node && e.node.shopper?.id === me.id ? [{ at: +new Date(e.node.createdAt), card: orderCard(e.node) }] : [])),
+    ...store.docs.map((d) => d.data()).filter((o) => SHOWN_POS.includes(o.status)).map((o) => ({ at: o.createdAt?.toMillis?.() ?? 0, card: storeCard(o) })),
   ]
     .sort((a, b) => b.at - a.at)
     .slice(0, 4);
   if (!rows.length) return [text("目前查不到您的訂單 🙏\n如果是剛下的單，請過幾分鐘再試，或直接傳訂單編號給我們。")];
-  return [text(rows.map((r) => r.msg).join("\n\n") + (online ? "" : "\n\n（官網訂單暫時連不上，只列出門市消費）") + tail)];
+  return ordersMsg(
+    rows.map((r) => r.card),
+    online ? "" : "（官網訂單暫時連不上，只列出門市消費）\n"
+  );
 }
 
 async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
