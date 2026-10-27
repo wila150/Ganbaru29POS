@@ -11,6 +11,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    date: "2026-10-27",
+    title: "LINE 客人自己查訂單",
+    items: [
+      "已綁定會員的客人在 LINE 打「查訂單」，機器人自動回最近 3 筆官網訂單的狀態、付款、配送、追蹤碼、商品和金額",
+      "客人直接貼訂單編號也會回那一筆；只查得到自己的訂單，別人的編號一律回查不到",
+      "沒綁定會員的客人會請他先綁定",
+    ],
+  },
+  {
     id: "2026-10-27-m",
     date: "2026-10-27",
     title: "LINE 選單自己改（含 Instagram）",

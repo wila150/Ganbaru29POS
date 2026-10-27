@@ -941,6 +941,77 @@ async function replyStore(): Promise<Msg[]> {
 
 // ---------- 綁定會員（在聊天室輸入手機 → Email 確認） ----------
 
+// ---------- 查訂單（只查得到自己的） ----------
+
+const ORDER_ST: Record<string, string> = { PROCESSING: "處理中", CLOSED: "已完成", CANCELED: "已取消", RETURN: "退貨" };
+const SHIP_ST: Record<string, string> = {
+  PROCESSING: "還沒出貨",
+  PREPARING: "備貨中",
+  OUT_OF_STOCK: "缺貨（店家會跟您聯絡）",
+  FULFILLED: "已出貨",
+  PRE_ORDER: "預購中",
+  EXCHANGE: "換貨中",
+  RETURN: "退貨中",
+  PARTIALLY_SHIPPED: "部分出貨",
+  ARRIVE_IN_STORE: "已到門市，可以取貨了",
+  PICKUP_IN_STORE: "已取貨",
+  RETURN_IN_STORE: "門市退貨",
+};
+const PAY_ST: Record<string, string> = { PAID: "已付款", RECONCILED: "已付款", NOT_PAID: "未付款", FAILED: "付款失敗", REFUNDED: "已退款" };
+
+/** 訊息裡的訂單編號（8～20 碼數字；09 開頭 10 碼是手機，不算） */
+function orderNumberIn(t: string): string | null {
+  const m = t.replace(/\s/g, "").match(/(?:^#?|訂單[^\d]{0,6})(\d{8,20})$/);
+  if (!m || /^09\d{8}$/.test(m[1])) return null;
+  return m[1];
+}
+const ORDER_ASK = /^(查|我的|查詢)?(我的)?訂單(查詢|狀態|進度)?$|^查(貨|出貨|物流)|出貨了嗎|寄出了嗎|到貨了嗎|什麼時候(出貨|寄|到)/;
+
+function orderText(o: meep.MOrder): string {
+  const d = new Date(o.createdAt).toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric" });
+  const sd = o.shipmentDetail as meep.MOrder["shipmentDetail"] & { trackingCode?: string | null; convenienceStore?: { name: string | null } | null };
+  const status =
+    o.status === "PROCESSING" ? SHIP_ST[o.shipmentStatus] ?? ORDER_ST[o.status] : o.status === "CLOSED" && o.shipmentStatus === "FULFILLED" ? "已出貨・已完成" : ORDER_ST[o.status] ?? o.status;
+  const items = (o.lineItems ?? []).map((l) => `・${l.title} ×${l.quantity}`).slice(0, 6);
+  const more = (o.lineItems?.length ?? 0) > 6 ? `…等 ${o.lineItems!.length} 項` : "";
+  return [
+    `📦 訂單 ${o.orderNumber}（${d}）`,
+    `狀態：${status}`,
+    `付款：${PAY_ST[o.paymentStatus] ?? o.paymentStatus}`,
+    sd?.name ? `配送：${sd.name}${sd.convenienceStore?.name ? `（${sd.convenienceStore.name}）` : ""}` : "",
+    sd?.trackingCode ? `追蹤碼：${sd.trackingCode}` : "",
+    ...items,
+    more,
+    `金額：$${Math.round(o.totalPrice ?? 0).toLocaleString()}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function replyOrders(uid: string, num: string | null): Promise<Msg[]> {
+  const me = await shopperByLine(uid);
+  if (!me) return [text("查訂單要先綁定會員喔 🙏 綁定後就能隨時查自己的訂單。", [["綁定會員", "a=card"]])];
+  let nums: string[];
+  if (num) nums = [num];
+  else {
+    // 系統裡存的網店訂單（每 15 分鐘同步）找最近 3 筆，再向 meepShop 抓最新狀態
+    const snap = await db.collection("onlineOrders").where("shopperId", "==", me.id).select("orderNumber", "createdAt").get();
+    nums = snap.docs
+      .map((d) => d.data())
+      .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0))
+      .slice(0, 3)
+      .map((d) => String(d.orderNumber));
+    if (!nums.length) return [text("目前查不到您在官網的訂單 🙏\n如果是剛下的單，請過幾分鐘再試，或直接傳訂單編號給我們。")];
+  }
+  const page = await meep.ordersPage({ first: nums.length, query: { orderNumber: nums } });
+  // 只回本人的訂單；別人的編號一律當作查不到
+  const mine = page.edges.flatMap((e) => (e.node && e.node.shopper?.id === me.id ? [e.node] : []));
+  if (!mine.length)
+    return [text(num ? `查不到訂單 ${num} 🙏\n請確認編號，或這筆不是用您綁定的會員下單。需要協助可以直接留言，客服會回覆您。` : "目前查不到您的訂單 🙏")];
+  mine.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+  return [text(mine.map(orderText).join("\n\n") + "\n\n有其他問題直接留言，客服會回覆您 🙏")];
+}
+
 async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
   const t = msg.trim();
   const sRef = db.doc(`lineSessions/${uid}`);
@@ -972,6 +1043,8 @@ async function handleText(uid: string, msg: string): Promise<Msg[] | null> {
     await sRef.delete();
     return [text(`綁定完成 🎉 ${s.name || ""} 您好！`), ...(await replyCard(uid))];
   }
+  const on = orderNumberIn(t);
+  if (on || ORDER_ASK.test(t)) return replyOrders(uid, on).catch((e) => (logger.warn("order lookup", errMsg(e)), [text("訂單系統暫時連不上 🙏 請稍後再試，或直接留言，客服會回覆您。")]));
   if (/會員卡|會員/.test(t)) return replyCard(uid);
   if (/消費|紀錄|購物金|點數/.test(t)) return replyHistory(uid);
   // 「想找這件褲子」「這件外套有嗎」：剛傳過圖 → 用圖找指定那件
@@ -1006,7 +1079,7 @@ async function handleEvent(e: { type: string; replyToken?: string; source?: { us
     const willReply =
       e.type === "postback" ||
       e.message?.type === "image" ||
-      (e.message?.type === "text" && (BOT_KEYWORDS.test(txt) || looksLikeProduct(txt) || (await db.doc(`lineSessions/${uid}`).get()).exists));
+      (e.message?.type === "text" && (BOT_KEYWORDS.test(txt) || !!orderNumberIn(txt) || ORDER_ASK.test(txt) || looksLikeProduct(txt) || (await db.doc(`lineSessions/${uid}`).get()).exists));
     const slow = e.message?.type === "image" || /^(我)?(想|要)?(找|搜)|有沒有|適合|推薦|喜歡/.test(txt) || looksLikeProduct(txt) || /a=(foryou|history|new|sale)/.test(e.postback?.data ?? "");
     if (willReply) lineApi("/chat/loading/start", { chatId: uid, loadingSeconds: slow ? 30 : 10 }).catch(() => undefined);
   }
