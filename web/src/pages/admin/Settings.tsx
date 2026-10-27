@@ -10,6 +10,7 @@ import type { AlertPrefs, RewardRule, ShopSettings, TierCond, TierDef } from "..
 import { DEFAULT_EXPENSE_CATEGORIES } from "./Expenses";
 import { ADMIN_NAV, applyNavConfig, NAV_LOCKED } from "../../components/Layout";
 import { QrImg } from "../../components/QrImg";
+import { RichMenuEditor } from "../../components/RichMenuEditor";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { storage } from "../../firebase";
 import { DEFAULT_SOUND, playCheckoutSound, SOUND_PRESETS, SOUND_WHEN_LABEL, type CheckoutSound, type SoundChoice, type SoundPreset, type SoundRule, type SoundWhen } from "../../lib/sound";
@@ -1013,6 +1014,7 @@ function LineOaSettings() {
         />{" "}
         顯示 ganbaru29 圖文選單
       </label>
+      <RichMenuEditor />
 
       <h3>門市資訊（「門市資訊」按鈕回覆的內容）</h3>
       <div className="paydisp-fields">

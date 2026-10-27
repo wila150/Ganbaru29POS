@@ -1192,3 +1192,99 @@ export const linePushLogs = onCall(async (req) => {
   const s = await db.collection("linePushLogs").orderBy("at", "desc").limit(20).get();
   return { logs: s.docs.map((d) => ({ kind: d.data().kind, text: d.data().text, count: d.data().count, by: d.data().by, at: d.data().at?.toMillis?.() ?? 0 })) };
 });
+
+// ---------- 圖文選單編輯（後台自己改：版型、每格功能、圖片） ----------
+
+const W_RM = 2500;
+const H_RM = 1686;
+/** 版型：每一格的位置（2500×1686） */
+const RM_LAYOUTS: Record<string, { x: number; y: number; w: number; h: number }[]> = {
+  "4": [
+    { x: 0, y: 0, w: 1250, h: 843 },
+    { x: 1250, y: 0, w: 1250, h: 843 },
+    { x: 0, y: 843, w: 1250, h: 843 },
+    { x: 1250, y: 843, w: 1250, h: 843 },
+  ],
+  "5": [
+    { x: 0, y: 0, w: 1250, h: 843 },
+    { x: 1250, y: 0, w: 1250, h: 843 },
+    { x: 0, y: 843, w: 833, h: 843 },
+    { x: 833, y: 843, w: 834, h: 843 },
+    { x: 1667, y: 843, w: 833, h: 843 },
+  ],
+  "6": [
+    { x: 0, y: 0, w: 833, h: 843 },
+    { x: 833, y: 0, w: 834, h: 843 },
+    { x: 1667, y: 0, w: 833, h: 843 },
+    { x: 0, y: 843, w: 833, h: 843 },
+    { x: 833, y: 843, w: 834, h: 843 },
+    { x: 1667, y: 843, w: 833, h: 843 },
+  ],
+};
+const RM_ACTIONS: Record<string, { data?: string; text?: string; label: string }> = {
+  card: { data: "a=card", label: "會員卡" },
+  new: { data: "a=new", label: "最新商品" },
+  sale: { data: "a=sale", label: "限時特惠" },
+  promo: { data: "a=promo", label: "本月活動" },
+  store: { data: "a=store", label: "門市資訊" },
+  foryou: { data: "a=foryou", label: "為你推薦" },
+  prefs: { data: "a=prefs", label: "我的喜好" },
+  service: { text: "我想聯絡客服", label: "一對一客服" },
+  url: { label: "網址" },
+  ig: { label: "追蹤 IG" },
+};
+
+/** 選單編輯器要畫商品照片：圖片伺服器不給瀏覽器直接讀，由這裡代抓（只限本店的圖） */
+export const richMenuPhoto = onCall(async (req) => {
+  await requireRole(req, "owner");
+  const url = str(req.data?.url, "圖片", { max: 600 });
+  assert(/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/ganbaru29\./.test(url), "只能用本店的商品圖片");
+  const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
+  const jpg = await sharp(buf).rotate().resize({ width: 1250, height: 1250, fit: "inside" }).jpeg({ quality: 85 }).toBuffer();
+  return { dataUrl: `data:image/jpeg;base64,${jpg.toString("base64")}` };
+});
+
+/** 套用新選單：建立 → 上傳圖片 → 設成預設 → 確認成功才刪舊的 */
+export const applyRichMenu = onCall({ timeoutSeconds: 120, memory: "512MiB" }, async (req) => {
+  await requireRole(req, "owner");
+  const layout = String(req.data?.layout ?? "");
+  const boxes = RM_LAYOUTS[layout];
+  assert(boxes, "版型不正確");
+  const cells = (Array.isArray(req.data?.cells) ? req.data.cells : []) as { action?: string; url?: string; label?: string }[];
+  assert(cells.length === boxes.length, "每一格都要設定功能");
+  const areas = boxes.map((b, i) => {
+    const c = cells[i];
+    const a = RM_ACTIONS[String(c.action)];
+    assert(a, `第 ${i + 1} 格的功能不正確`);
+    let action: Record<string, string>;
+    if (c.action === "url" || c.action === "ig") {
+      const u = String(c.url ?? "").trim();
+      assert(/^https?:\/\/\S+$/.test(u), `第 ${i + 1} 格的網址不正確`);
+      assert(c.action !== "ig" || /instagram\.com\//i.test(u), `第 ${i + 1} 格請填 Instagram 網址（https://www.instagram.com/帳號）`);
+      action = { type: "uri", uri: u };
+    } else if (a.text) action = { type: "message", text: a.text };
+    else action = { type: "postback", data: a.data!, displayText: (c.label || a.label).slice(0, 20) };
+    return { bounds: { x: b.x, y: b.y, width: b.w, height: b.h }, action };
+  });
+  const raw = String(req.data?.image ?? "").replace(/^data:image\/\w+;base64,/, "");
+  assert(raw.length > 1000, "請提供選單圖片");
+  // 不管上傳什麼尺寸都裁成 2500×1686，JPEG 壓在 1MB 內（LINE 規定）
+  let q = 88;
+  let img = await sharp(Buffer.from(raw, "base64")).rotate().resize(W_RM, H_RM, { fit: "cover" }).jpeg({ quality: q }).toBuffer();
+  while (img.length > 990_000 && q > 50) img = await sharp(img).jpeg({ quality: (q -= 8) }).toBuffer();
+  const st = await shopSettings();
+  const old = String(st.lineBot?.richMenuId ?? "");
+  const created = await lineApi("/richmenu", { size: { width: W_RM, height: H_RM }, selected: true, name: `29 STUDIO ${layout} 格`, chatBarText: (String(req.data?.chatBarText ?? "") || "29 STUDIO 選單").slice(0, 14), areas });
+  const id = created.richMenuId as string;
+  const up = await fetch(`https://api-data.line.me/v2/bot/richmenu/${id}/content`, { method: "POST", headers: { authorization: `Bearer ${await botToken()}`, "content-type": "image/jpeg" }, body: img });
+  if (!up.ok) {
+    await lineApi(`/richmenu/${id}`, undefined, "DELETE").catch(() => undefined);
+    throw new Error(`圖片上傳到 LINE 失敗：${(await up.text()).slice(0, 120)}`);
+  }
+  await lineApi(`/user/all/richmenu/${id}`, {});
+  const cur = await lineApi("/user/all/richmenu", undefined, "GET").catch(() => ({}));
+  assert(cur.richMenuId === id, "新選單沒有設成功，舊選單保留");
+  if (old && old !== id) await lineApi(`/richmenu/${old}`, undefined, "DELETE").catch(() => undefined);
+  await db.doc("settings/shop").set({ lineBot: { richMenuId: id, richMenuOn: true, richMenuConfig: { layout, cells: cells.map((c) => ({ action: c.action, url: c.url ?? null, label: c.label ?? null })) } } }, { merge: true });
+  return { ok: true, id };
+});

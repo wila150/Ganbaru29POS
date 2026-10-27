@@ -1018,3 +1018,8 @@ span.tier-switch { cursor: default; }
 .push-price { font-size: 14px; white-space: nowrap; }
 .push-price.sale { color: var(--bad); font-weight: 700; }
 .push-price s { font-weight: 400; margin-right: 4px; }
+.rm-editor { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
+.rm-canvas { width: 100%; max-width: 720px; height: auto; border-radius: 10px; border: 1px solid var(--border); display: block; margin: 8px 0; }
+.rm-own { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.rm-cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.rm-cell { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
