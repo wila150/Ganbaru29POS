@@ -131,7 +131,8 @@ export function RichMenuEditor() {
     (saved?.layout && BOXES[saved.layout] ? saved.cells.map((c, i) => ({ ...mk(c.action, DEFAULTS[saved.layout][i]?.[1] ?? "brown"), url: c.url ?? mk(c.action, "brown").url })) : DEFAULTS["5"].map(([a, c]) => mk(a, c)))
   );
   const [photoUrl, setPhotoUrl] = useState<string>(""); // 商品照片（data URL）
-  const [photoPick, setPhotoPick] = useState("");
+  const [photoPick] = useState("");
+  const [picking, setPicking] = useState(0); // 第幾格正在載入商品圖
   const [own, setOwn] = useState<string | null>(null); // 自己上傳的整張選單圖
   const [ready, setReady] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -416,16 +417,6 @@ export function RichMenuEditor() {
             改回系統產生的圖
           </button>
         )}
-        {!own && cells.some((c) => c.color === "photo") && (
-          <select value={photoPick} onChange={(e) => setPhotoPick(e.target.value)} title="照片格要用哪件商品">
-            <option value="">沒上傳相片的照片格：用最新商品</option>
-            {products.slice(0, 80).map((p) => (
-              <option key={p.id} value={p.url}>
-                沒上傳相片的照片格：用「{p.title}」
-              </option>
-            ))}
-          </select>
-        )}
       </div>
       <div className="rm-cells">
         {cells.map((c, i) => (
@@ -457,6 +448,27 @@ export function RichMenuEditor() {
                     }}
                   />
                 </label>
+                <select
+                  value=""
+                  disabled={!!picking}
+                  onChange={(e) => {
+                    const url = e.target.value;
+                    if (!url) return;
+                    // 商品圖伺服器不給瀏覽器直接讀，請後端代抓
+                    setPicking(i + 1);
+                    call<{ dataUrl: string }>("richMenuPhoto", { url })
+                      .then((r) => upd(i, { photo: r.dataUrl, color: "photo", zoom: undefined, px: undefined, py: undefined }))
+                      .catch(() => alert("這張商品圖抓不到，請換一件或自己上傳"))
+                      .finally(() => setPicking(0));
+                  }}
+                >
+                  <option value="">{picking === i + 1 ? "載入中…" : "🖼 選商品圖片…"}</option>
+                  {products.slice(0, 120).map((p) => (
+                    <option key={p.id} value={p.url}>
+                      {p.title}
+                    </option>
+                  ))}
+                </select>
                 {c.photo && (
                   <>
                     <label className="check small">
