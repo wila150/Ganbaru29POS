@@ -91,8 +91,8 @@ const DEFAULTS: Record<string, [Action, Color][]> = {
 };
 /** 兩頁選單的預設：第 1 頁逛逛、第 2 頁會員 */
 const PAGE_DEFAULTS: [Action, Color][][] = [
-  [["new", "photo"], ["sale", "gray"], ["promo", "purple"], ["foryou", "brown"], ["url", "gray"], ["ig", "igMilk"]],
-  [["card", "brown"], ["orders", "gray"], ["history", "purple"], ["prefs", "gray"], ["service", "brown"], ["store", "purple"]],
+  [["new", "photo"], ["sale", "gray"], ["foryou", "brown"], ["url", "purple"], ["ig", "igMilk"]],
+  [["card", "brown"], ["orders", "gray"], ["history", "purple"], ["prefs", "gray"], ["service", "brown"]],
 ];
 const TAB_DEFAULTS: Tab[] = [
   { en: "SHOP", zh: "逛逛" },
@@ -130,7 +130,7 @@ async function fromDraft(d: Draft): Promise<{ two: boolean; tabs: Tab[]; pages: 
       ),
     }))
   );
-  while (pages.length < 2) pages.push({ layout: "6", own: null, ownSrc: undefined, cells: PAGE_DEFAULTS[1].map(([a, c]) => mk(a, c)) });
+  while (pages.length < 2) pages.push({ layout: "5", own: null, ownSrc: undefined, cells: PAGE_DEFAULTS[1].map(([a, c]) => mk(a, c)) });
   return { two: d.two, tabs: d.tabs?.length === 2 ? d.tabs : TAB_DEFAULTS, pages };
 }
 const boxesFor = (layout: string, two: boolean) =>
@@ -401,8 +401,8 @@ export function RichMenuEditor() {
     savedPages.length === 2
       ? savedPages.map((sp, k) => fromSaved(sp, PAGE_DEFAULTS[k]))
       : savedPages.length === 1
-      ? [fromSaved(savedPages[0], DEFAULTS[savedPages[0].layout]), { layout: "6", cells: PAGE_DEFAULTS[1].map(([a, c]) => mk(a, c)), own: null }]
-      : PAGE_DEFAULTS.map((d) => ({ layout: "6", cells: d.map(([a, c]) => mk(a, c)), own: null }))
+      ? [fromSaved(savedPages[0], DEFAULTS[savedPages[0].layout]), { layout: "5", cells: PAGE_DEFAULTS[1].map(([a, c]) => mk(a, c)), own: null }]
+      : PAGE_DEFAULTS.map((d) => ({ layout: String(d.length), cells: d.map(([a, c]) => mk(a, c)), own: null }))
   );
   const [tabs, setTabs] = useState<Tab[]>(() =>
     saved?.tabs?.length === 2 ? saved.tabs.map((zh, k) => ({ en: TAB_DEFAULTS[k].en, zh })) : TAB_DEFAULTS
@@ -456,6 +456,8 @@ export function RichMenuEditor() {
     call<{ dataUrl: string }>("richMenuPhoto", { url }).then((r) => setPhotoUrl(r.dataUrl)).catch(() => setPhotoUrl(""));
   }, [photoPick, products.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** 拿掉一格：其他格往前補，版型少一格（最少 4 格） */
+  const removeCell = (i: number) => setPage((p) => ({ layout: String(p.cells.length - 1), cells: p.cells.filter((_, j) => j !== i) }));
   const changeLayout = (l: string) => setPage({ layout: l, cells: DEFAULTS[l].map(([a, c], i) => (cells[i] ? { ...cells[i], color: cells[i].color ?? c } : mk(a, c))) });
   live.current = { cells, layout, own: !!own, two };
   // 滾輪縮放：要能擋掉整頁捲動，只能用原生 listener（React 的 onWheel 是 passive）
@@ -699,7 +701,14 @@ export function RichMenuEditor() {
       <div className="rm-cells">
         {cells.map((c, i) => (
           <div key={i} className="rm-cell">
-            <b>第 {i + 1} 格</b>
+            <b>
+              第 {i + 1} 格
+              {cells.length > 4 && (
+                <button className="link-btn small" style={{ marginLeft: 8 }} onClick={() => confirm(`移除第 ${i + 1} 格（${c.zh}）？後面的格子會往前補。`) && removeCell(i)}>
+                  ✕ 移除這格
+                </button>
+              )}
+            </b>
             {!own && (
               <span className="rm-photo">
                 <label className="btn btn-sm btn-primary">
