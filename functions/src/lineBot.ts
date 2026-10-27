@@ -103,6 +103,10 @@ async function replyCard(uid: string): Promise<Msg[]> {
   const st0 = await shopSettings();
   const vip = isVip(x, st0);
   const group = cardLabel(x, st0);
+  const banner: string | null = vip ? st0.lineBot?.vipBanners?.[group] || st0.lineBot?.vipBanners?.["超級VIP"] || null : null;
+  // 有效期限：系統升級的看 tierUntil；meepShop 直接設的拿不到期限
+  const until = x.tierUntil?.toDate?.() as Date | undefined;
+  const expiry = vip ? (until ? until.toLocaleDateString("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }) : "依官網會員資格") : null;
   const theme = vip ? { bg: "#111111", title: "#d4af37", sub: "#f3e5ab", accent: "#b8912e", text: `${group} 會員卡` } : { bg: "#4a3b32", title: "#ffffff", sub: "#d9c3a5", accent: "#059669", text: "ganbaru29 會員卡" };
   return [
     {
@@ -111,7 +115,10 @@ async function replyCard(uid: string): Promise<Msg[]> {
       contents: {
         type: "bubble",
         size: "giga",
-        header: { type: "box", layout: "vertical", backgroundColor: theme.bg, contents: [{ type: "text", text: vip ? "★ ganbaru29" : "ganbaru29", color: theme.sub, size: "xs", weight: "bold" }, { type: "text", text: theme.text, color: theme.title, weight: "bold", size: "lg" }, { type: "text", text: group, color: theme.sub, size: "sm" }] },
+        // 超級VIP／甘爹：最上面是會動的金色閃光橫幅（APNG）；一般會員：咖啡色標題
+        header: banner
+          ? { type: "box", layout: "vertical", paddingAll: "0px", backgroundColor: "#0d0d0d", contents: [{ type: "image", url: banner, size: "full", aspectRatio: "750:220", aspectMode: "cover", animated: true }] }
+          : { type: "box", layout: "vertical", backgroundColor: theme.bg, contents: [{ type: "text", text: vip ? "★ ganbaru29" : "ganbaru29", color: theme.sub, size: "xs", weight: "bold" }, { type: "text", text: theme.text, color: theme.title, weight: "bold", size: "lg" }, { type: "text", text: group, color: theme.sub, size: "sm" }] },
         // 條碼直接放大顯示在卡片上，結帳時打開就能掃，不用再點放大
         hero: { type: "image", url: `${CARD_IMG}?t=${x.cardToken}`, size: "full", aspectRatio: "1:1", aspectMode: "fit", backgroundColor: "#ffffff" },
         body: {
@@ -119,19 +126,18 @@ async function replyCard(uid: string): Promise<Msg[]> {
           layout: "vertical",
           spacing: "md",
           contents: [
-            // 超級VIP／甘爹：會動的金色閃光橫幅（APNG，LINE 會自動播放）
-            ...(vip && (st0.lineBot?.vipBanners?.[group] || st0.lineBot?.vipBanners?.["超級VIP"])
-              ? [{ type: "image", url: st0.lineBot.vipBanners[group] || st0.lineBot.vipBanners["超級VIP"], size: "full", aspectRatio: "750:220", aspectMode: "cover", animated: true }]
-              : []),
-            { type: "text", text: x.name || "會員", weight: "bold", size: "xl" },
-            { type: "box", layout: "horizontal", contents: [{ type: "text", text: "可用購物金", color: "#6b7280", size: "sm" }, { type: "text", text: `${points} 點`, align: "end", weight: "bold", color: theme.accent }] },
-            { type: "box", layout: "horizontal", contents: [{ type: "text", text: "會員編號", color: "#6b7280", size: "sm" }, { type: "text", text: x.memberCode ?? "—", align: "end", size: "sm" }] },
+            { type: "text", text: x.name || "會員", weight: "bold", size: "xl", color: vip ? "#f3e5ab" : "#111827" },
+            { type: "box", layout: "horizontal", contents: [{ type: "text", text: "可用購物金", color: vip ? "#bfae7a" : "#6b7280", size: "sm" }, { type: "text", text: `${points} 點`, align: "end", weight: "bold", color: vip ? "#e6c76a" : theme.accent }] },
+            { type: "box", layout: "horizontal", contents: [{ type: "text", text: "會員編號", color: vip ? "#bfae7a" : "#6b7280", size: "sm" }, { type: "text", text: x.memberCode ?? "—", align: "end", size: "sm", color: vip ? "#f3e5ab" : "#111827" }] },
+            ...(expiry ? [{ type: "box", layout: "horizontal", contents: [{ type: "text", text: "有效期限", color: "#bfae7a", size: "sm" }, { type: "text", text: expiry, align: "end", size: "sm", color: "#f3e5ab" }] }] : []),
           ],
+          ...(vip ? { backgroundColor: "#111111" } : {}),
         },
         footer: {
           type: "box",
           layout: "vertical",
           spacing: "sm",
+          ...(vip ? { backgroundColor: "#111111" } : {}),
           contents: [
             { type: "button", style: "secondary", action: { type: "postback", label: "消費紀錄", data: "a=history", displayText: "消費紀錄" } },
             { type: "box", layout: "horizontal", spacing: "sm", contents: [
