@@ -686,6 +686,7 @@ export function Done({ order, issues, onClose, autoMail = false }: { order: PosO
         <div className="done-total">{money(order.total)}</div>
         {order.change > 0 && <div className="done-change">找零 {money(order.change)}</div>}
         {order.rewardEarned > 0 && <div className="ok">回饋購物金 {order.rewardEarned} 點</div>}
+        {order.tierUpgraded && <div className="done-upgrade">🎉 這一單達到升級門檻，已升級為「{order.tierUpgraded}」</div>}
       </div>
       <div className="done-mail">
         {mail.state === "sending" && <span className="muted">📧 寄送消費明細中…</span>}

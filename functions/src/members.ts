@@ -21,10 +21,12 @@ export async function recomputeTiers() {
   const ranked = all.filter((t) => t.enabled !== false && t.upgrade?.length);
   const rank = (name: string | null | undefined) => ranked.findIndex((t) => t.name === name);
   const now = Date.now();
-  const purchases = new Map<string, { at: number; amount: number }[]>();
-  const met = (c: TierCond, list: { at: number; amount: number }[], from: number, to: number) => {
+  type Buy = { at: number; amount: number; gross: number };
+  const purchases = new Map<string, Buy[]>();
+  const met = (c: TierCond, list: Buy[], from: number, to: number) => {
     const inRange = list.filter((p) => p.at >= from && p.at <= to);
-    return c.kind === "single" ? inRange.some((p) => p.amount >= c.amount) : inRange.reduce((s, p) => s + p.amount, 0) >= c.amount;
+    const val = (p: Buy) => (c.basis === "list" ? Math.max(p.gross, p.amount) : p.amount);
+    return c.kind === "single" ? inRange.some((p) => val(p) >= c.amount) : inRange.reduce((s, p) => s + val(p), 0) >= c.amount;
   };
   /**
    * 每位會員：近 12 個月（等級用）＋全部歷史（顧客分眾用：消費次數、首購／最後消費日、累計金額）。
@@ -54,8 +56,8 @@ export async function recomputeTiers() {
     cur[k] += v;
     used.set(id, cur);
   };
-  const add = (id: string, k: "store" | "online", v: number, at: number) => {
-    (purchases.get(id) ?? purchases.set(id, []).get(id)!).push({ at, amount: v });
+  const add = (id: string, k: "store" | "online", v: number, at: number, gross = v) => {
+    (purchases.get(id) ?? purchases.set(id, []).get(id)!).push({ at, amount: v, gross });
     const cur = spend.get(id) ?? { store: 0, online: 0, maxSingle: 0, orders: 0, total: 0, first: at, last: at, orders12m: 0, orders6m: 0, orders3m: 0, orders1m: 0, spend6m: 0, spend3m: 0, spend1m: 0 };
     cur.orders++;
     cur.total += v;
@@ -82,7 +84,7 @@ export async function recomputeTiers() {
     spend.set(id, cur);
   };
 
-  const pos = await db.collection("posOrders").select("shopper", "total", "refunds", "status", "createdAt", "rewardPoints", "pointsDeducted").get();
+  const pos = await db.collection("posOrders").select("shopper", "total", "refunds", "status", "createdAt", "rewardPoints", "pointsDeducted", "lines").get();
   for (const d of pos.docs) {
     const o = d.data();
     if (o.shopper?.id && o.pointsDeducted && !["canceled", "void"].includes(o.status)) {
@@ -91,7 +93,10 @@ export async function recomputeTiers() {
     }
     if (!o.shopper?.id || ["pending", "canceled", "void", "refunded"].includes(o.status)) continue;
     const refunded = (o.refunds ?? []).reduce((s: number, r: { amount: number }) => s + r.amount, 0);
-    add(o.shopper.id, "store", (o.total ?? 0) - refunded, o.createdAt?.toMillis?.() ?? now);
+    // 原價（折扣前）：各品項定價×數量，退貨照比例扣
+    const listGross = ((o.lines ?? []) as { listPrice?: number; unitPrice?: number; qty: number }[]).reduce((s, l) => s + (l.listPrice ?? l.unitPrice ?? 0) * l.qty, 0);
+    const net = (o.total ?? 0) - refunded;
+    add(o.shopper.id, "store", net, o.createdAt?.toMillis?.() ?? now, o.total > 0 ? Math.round(listGross * (net / o.total)) : listGross);
   }
 
   let onlineError: string | null = null;
@@ -105,7 +110,8 @@ export async function recomputeTiers() {
         if (o?.shopper?.id && o.status !== "CANCELED") addUsed(o.shopper.id, "online", Math.round(o.rewardPointUsed ?? 0));
         // 與 meepShop 顧客分眾一致：只算「已結案」的網店訂單（處理中、取消、退貨不算消費）
         if (!o?.shopper?.id || o.status !== "CLOSED") continue;
-        add(o.shopper.id, "online", o.totalPrice, new Date(o.createdAt).getTime());
+        const onlineGross = (o.lineItems ?? []).reduce((s, l) => s + (l.unitPrice ?? 0) * (l.quantity ?? 0), 0);
+        add(o.shopper.id, "online", o.totalPrice, new Date(o.createdAt).getTime(), Math.max(onlineGross, o.totalPrice));
       }
       if (!p.pageInfo.hasNextPage || !p.pageInfo.endCursor) break;
       after = p.pageInfo.endCursor;
@@ -122,7 +128,7 @@ export async function recomputeTiers() {
   }
 
   /** 一位會員的等級：先處理目前等級的到期／續會，再看能不能升到更高等級 */
-  const decide = (list: { at: number; amount: number }[], curTier: string | null, curUntil: number | null, curSince: number | null) => {
+  const decide = (list: Buy[], curTier: string | null, curUntil: number | null, curSince: number | null) => {
     let tier: TierDef | null = null;
     let until: number | null = null;
     let since: number | null = curSince;

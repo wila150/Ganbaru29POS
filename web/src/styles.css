@@ -993,3 +993,4 @@ span.tier-switch { cursor: default; }
 .ai-help { display: flex; flex-direction: column; gap: 8px; }
 .ai-help-item { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; }
 .ai-help-item img, .ai-help-item .paydisp-empty { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; }
+.done-upgrade { margin-top: 8px; font-size: 18px; font-weight: 700; color: var(--warn); }

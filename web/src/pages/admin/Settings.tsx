@@ -664,6 +664,10 @@ function CondRow({ c, withPeriod, onChange, onRemove, onAdd }: { c: TierCond; wi
       <span className="muted">消費金額</span>
       <input type="number" min={0} value={c.amount} onChange={(e) => onChange({ ...c, amount: Number(e.target.value) })} style={{ width: 130 }} />
       <span className="muted">元</span>
+      <select value={c.basis ?? "paid"} onChange={(e) => onChange({ ...c, basis: e.target.value as TierCond["basis"] })} title="有打折時金額怎麼算">
+        <option value="paid">實付（折扣後）</option>
+        <option value="list">原價（折扣前，有打折也算）</option>
+      </select>
       <button type="button" className="btn-icon" onClick={onRemove} title="刪除條件">
         ⊗
       </button>

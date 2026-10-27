@@ -373,11 +373,22 @@ function ShopperTagLine({ id }: { id: string }) {
 /** LINE 綁定狀態；店長以上可以解除（客人換 LINE 帳號、或要測試加入會員流程時） */
 function LineBound({ id }: { id: string }) {
   const { profile } = useAuth();
-  const [bound, setBound] = useState<{ on: boolean; via?: string } | null>(null);
+  const [bound, setBound] = useState<{ on: boolean; via?: string; todo?: string } | null>(null);
   const { busy, run } = useAction();
-  useEffect(() => onSnapshot(doc(db, "shoppers", id), (d) => setBound({ on: !!d.data()?.lineUserId, via: d.data()?.joinedVia === "line" ? "從 LINE 加入" : d.data()?.lineBoundVia === "chat" ? "聊天室綁定" : undefined })), [id]);
+  useEffect(() => onSnapshot(doc(db, "shoppers", id), (d) => setBound({ todo: d.data()?.meepGroupTodo ?? undefined, on: !!d.data()?.lineUserId, via: d.data()?.joinedVia === "line" ? "從 LINE 加入" : d.data()?.lineBoundVia === "chat" ? "聊天室綁定" : undefined })), [id]);
   if (!bound) return null;
   return (
+    <>
+    {bound.todo && (
+      <div className="notice notice-warn small">
+        ⚠️ 這位會員已在門市升級為「{bound.todo}」，門市折扣已生效。官網群組 meepShop 不能用程式改，請到 meepShop 後台把他的顧客群組改成「{bound.todo}」。
+        {atLeast(profile?.role, "manager") && (
+          <button className="btn btn-sm" disabled={busy} onClick={() => run(() => call("clearMeepGroupTodo", { id }), "已標記")}>
+            已在 meepShop 改好
+          </button>
+        )}
+      </div>
+    )}
     <div className="member-pref">
       💬 LINE 官方帳號：{bound.on ? `已綁定${bound.via ? `（${bound.via}）` : ""}` : "未綁定"}
       {bound.on && atLeast(profile?.role, "manager") && (
@@ -386,6 +397,7 @@ function LineBound({ id }: { id: string }) {
         </button>
       )}
     </div>
+    </>
   );
 }
 

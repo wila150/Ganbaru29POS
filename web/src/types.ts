@@ -220,6 +220,8 @@ export interface PosOrder {
   paid: number;
   change: number;
   rewardEarned: number;
+  /** 這一單讓會員升級成的等級 */
+  tierUpgraded?: string | null;
   refunds: Refund[];
   refundNotes?: string[];
   invoice?: { no: string; date: string; random: string; print: boolean; stage: boolean; type: string; taxId: string | null; voided?: boolean } | null;
@@ -278,6 +280,8 @@ export interface TierCond {
   kind: "single" | "cumulative";
   amount: number;
   months?: number;
+  /** 金額怎麼算：paid = 實付（折扣後，預設）；list = 原價（折扣前，有折扣也照原價算） */
+  basis?: "paid" | "list";
 }
 
 export interface TierDef {

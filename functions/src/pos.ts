@@ -84,6 +84,8 @@ export interface TierCond {
   kind: "single" | "cumulative";
   amount: number;
   months?: number;
+  /** 金額怎麼算：paid = 實付（折扣後，預設）；list = 原價（折扣前，有折扣也照原價算） */
+  basis?: "paid" | "list";
 }
 /**
  * 會員等級（與 meepShop 顧客群組相同的規則）：
@@ -112,6 +114,43 @@ export function normalizeTier(t: TierDef): TierDef {
   if (t.minSpend) conds.push({ kind: "cumulative", amount: t.minSpend, months: 12 });
   return { ...t, enabled: true, validityMonths: conds.length ? 12 : null, upgrade: conds, renew: conds.map((c) => ({ kind: c.kind, amount: c.amount })) };
 }
+/**
+ * 單筆升等：這一單（實付或原價，看條件設定）達到某等級的「單次購物」門檻，而且比目前等級高 → 立刻升級。
+ * 等級名稱也是 meepShop 群組（例：甘爹）時，同時設成門市指定群組，門市折扣馬上生效；
+ * 官網群組 API 不能改，記在 meepGroupTodo 提醒店家到 meepShop 後台改。
+ */
+async function instantUpgrade(orderId: string, order: FirebaseFirestore.DocumentData, settings: FirebaseFirestore.DocumentData) {
+  const tiers = ((settings.memberTiers ?? []) as TierDef[]).map(normalizeTier).filter((t) => t.enabled !== false && t.upgrade?.length);
+  if (!tiers.length) return;
+  const ref = db.doc(`shoppers/${order.shopper.id}`);
+  const s = (await ref.get()).data() ?? {};
+  const curRank = tiers.findIndex((t) => t.name === s.tier);
+  const paid = order.total ?? 0;
+  const gross = ((order.lines ?? []) as { listPrice?: number; unitPrice?: number; qty: number }[]).reduce((a, l) => a + (l.listPrice ?? l.unitPrice ?? 0) * l.qty, 0);
+  for (let i = tiers.length - 1; i > curRank; i--) {
+    const t = tiers[i];
+    const ok = t.upgrade!.some((c) => c.kind === "single" && (c.basis === "list" ? Math.max(gross, paid) : paid) >= c.amount);
+    if (!ok) continue;
+    const now = Date.now();
+    const groups = (settings.memberGroups ?? []) as string[];
+    const isGroup = groups.includes(t.name);
+    await ref.set(
+      {
+        tier: t.name,
+        tierSince: Timestamp.fromMillis(now),
+        tierUntil: t.validityMonths ? Timestamp.fromMillis(now + t.validityMonths * 30.44 * 86400_000) : null,
+        tierAt: FieldValue.serverTimestamp(),
+        tierUpgradedBy: `order:${orderId}`,
+        ...(isGroup ? { posGroup: t.name } : {}),
+        ...(isGroup && s.memberGroup !== t.name ? { meepGroupTodo: t.name } : {}),
+      },
+      { merge: true }
+    );
+    await db.doc(`posOrders/${orderId}`).update({ tierUpgraded: t.name });
+    return;
+  }
+}
+
 export function memberTier(settings: FirebaseFirestore.DocumentData, name: string | undefined | null): TierDef | null {
   if (!name) return null;
   return ((settings.memberTiers ?? []) as TierDef[]).find((t) => t.name === name) ?? null;
@@ -426,6 +465,8 @@ export const posCheckout = onCall({ ...opts, timeoutSeconds: 120 }, async (req) 
         logger.warn(`shopper stats ${id}`, e);
       }
     }
+    // --- 4c. 這一單就達到「單筆」升級門檻 → 立刻升等（不用等凌晨重算）
+    if (order.shopper) await instantUpgrade(id, order, settings).catch((e) => logger.warn(`instant upgrade ${id}`, e));
   };
   await Promise.all([
     pushBulk(moveIds),
@@ -1115,6 +1156,13 @@ export const setShopperGroup = onCall(opts, async (req) => {
   if (group) assert(((await shopSettings()).memberGroups ?? []).includes(group), "沒有這個群組");
   await ref.update({ posGroup: group, posGroupBy: actor.name, posGroupAt: FieldValue.serverTimestamp() });
   await audit(actor, "member.group", { id, name: cur.name, from: cur.posGroup ?? cur.memberGroup ?? null, to: group });
+  return { ok: true };
+});
+
+/** 店家已在 meepShop 後台改好官網群組 → 清掉提醒 */
+export const clearMeepGroupTodo = onCall(opts, async (req) => {
+  await requireRole(req, "manager");
+  await db.doc(`shoppers/${str(req.data?.id, "會員", { max: 64 })}`).update({ meepGroupTodo: FieldValue.delete() });
   return { ok: true };
 });
 
