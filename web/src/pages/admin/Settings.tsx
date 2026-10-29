@@ -1439,7 +1439,7 @@ function PaymentSettings() {
       </div>
       {pay.provider === "newebpay" && (
         <div className="field">
-          <div className="muted small">藍新付款頁除了信用卡，另外開放（要先向藍新申請啟用，沒啟用就勾會讓付款頁打不開）：</div>
+          <div className="muted small">藍新付款頁除了信用卡，另外開放（藍新後台要顯示「啟用」才能勾；Apple Pay 要看「幕前支付」那一欄，還在「審核中」就先不要勾，不然整個付款頁會打不開、連信用卡都不能付）：</div>
           <div className="chip-row">
             {[
               ["APPLEPAY", "Apple Pay"],
