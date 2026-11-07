@@ -399,6 +399,8 @@ export const reportCenter = onCall({ timeoutSeconds: 300, memory: "1GiB", maxIns
     const feeOf = (method: string): number => {
       const def = ((settings.payMethods ?? []) as { key: string; feePct?: number }[]).find((m) => m.key === method);
       if (def && typeof def.feePct === "number") return def.feePct;
+      // 門市掃碼刷卡（藍新／綠界）：用「金流設定 → 線上刷卡手續費 %」
+      if (method === "newebpay" || method === "ecpay") return Number(settings.payment?.feePct ?? 0) || 0;
       return method === "linepay" ? 5 : 0; // 預設：LINE Pay 5%
     };
     const fees = [...pay]
