@@ -304,15 +304,16 @@ export const catalogIncremental = onSchedule({ schedule: "every 15 minutes", tim
   } catch (e) {
     logger.warn("shopper sync failed", e);
   }
-  // 網店訂單增量同步（還沒完整匯入時，每次接著匯入一段）
+  // 圖片、縮圖先做：網店訂單若 meepShop 卡住，也不會拖到整個函式被中止、圖片永遠補不到
+  const images = await processPendingImages(Math.min(deadline, Date.now() + 200_000));
+  // 縮圖檢查要讀全部款式（511 筆）：每 15 分鐘都讀一天就 4.9 萬次 → 只有商品或圖片有變才做（每天凌晨的完整同步一定會做）
+  if (r.count > 0 || images > 0) await ensureThumbs(deadline).catch((e) => logger.warn("thumbs failed", e));
+  // 網店訂單增量同步（還沒完整匯入時，每次接著匯入一段）；最後做，時間到就停
   try {
-    await syncOnlineOrders(false, Math.min(deadline, Date.now() + 200_000));
+    await syncOnlineOrders(false, Math.min(deadline - 90_000, Date.now() + 200_000));
   } catch (e) {
     logger.warn("online orders sync failed", e);
   }
-  const images = await processPendingImages(deadline);
-  // 縮圖檢查要讀全部款式（511 筆）：每 15 分鐘都讀一天就 4.9 萬次 → 只有商品或圖片有變才做（每天凌晨的完整同步一定會做）
-  if (r.count > 0 || images > 0) await ensureThumbs(deadline).catch((e) => logger.warn("thumbs failed", e));
 });
 
 /** 每天 04:00：完整同步所有款式、會員 */

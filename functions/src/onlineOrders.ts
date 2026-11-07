@@ -13,13 +13,13 @@ const STATE = "private/onlineOrdersSync";
 
 type Page = Awaited<ReturnType<typeof ordersPage>>;
 
-/** 讀一頁，連線中斷最多重試 3 次 */
-async function page(args: Parameters<typeof ordersPage>[0]): Promise<Page> {
+/** 讀一頁，連線中斷最多重試 3 次；快到 deadline 就不再重試（每次重試最久要 3 分多鐘） */
+async function page(args: Parameters<typeof ordersPage>[0], deadline: number): Promise<Page> {
   for (let t = 0; ; t++) {
     try {
       return await ordersPage(args);
     } catch (e) {
-      if (t >= 3) throw e;
+      if (t >= 3 || Date.now() > deadline) throw e;
       logger.warn(`online orders page retry ${t + 1}`, errMsg(e));
       await sleep(3000 * (t + 1));
     }
@@ -54,7 +54,7 @@ export async function syncOnlineOrders(full: boolean, deadline = Date.now() + 48
   let done = false;
   for (let p = 0; p < 1000; p++) {
     if (Date.now() > deadline) break;
-    const res = await page({ first: 50, after, query: since ? { updatedAt: { start: since.toISOString() } } : undefined });
+    const res = await page({ first: 50, after, query: since ? { updatedAt: { start: since.toISOString() } } : undefined }, deadline);
     for (const e of res.edges) if (e.node) {
       writer.set(db.doc(`onlineOrders/${e.node.id}`), toDoc(e.node));
       n++;

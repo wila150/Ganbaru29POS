@@ -258,19 +258,65 @@ const ORDER_FIELDS = `id orderNumber status paymentStatus shipmentStatus totalPr
   paymentDetail { name }
   lineItems { id title quantity unitPrice totalPrice variant { id } }`;
 
+/**
+ * meepShop 的訂單 cursor 翻到舊訂單會卡死（2026-11 實測：第 3 頁連只查 id 都 40 秒以上沒回應），
+ * 但用 createdAt 日期範圍查只要 0.2 秒。cursor 內容是 base64 的 ["createdAt", "id"]，
+ * 所以翻頁時不把 cursor 交給 meepShop，改成「createdAt <= cursor 的時間」再去掉已讀過的那筆。
+ * 對外介面不變：呼叫端照樣拿 endCursor 翻下一頁。
+ */
+function decodeOrderCursor(after: string | null | undefined): { at: string; id: string } | null {
+  if (!after) return null;
+  try {
+    const v = JSON.parse(Buffer.from(after, "base64").toString("utf8"));
+    if (Array.isArray(v) && typeof v[0] === "string" && typeof v[1] === "string" && !Number.isNaN(Date.parse(v[0]))) return { at: v[0], id: v[1] };
+  } catch {
+    /* 不是預期格式 */
+  }
+  return null;
+}
+
+function encodeOrderCursor(at: string, id: string) {
+  return Buffer.from(`["${at}", "${id}"]`, "utf8").toString("base64");
+}
+
+async function ordersByTime<T extends { id: string; createdAt: string }>(
+  run: (vars: { first: number; after: string | null; query: Record<string, unknown> | null }) => Promise<Connection<T>>,
+  args: { first: number; after?: string | null; query?: Record<string, unknown> | null }
+): Promise<Connection<T>> {
+  const cur = decodeOrderCursor(args.after);
+  if (args.after && !cur) return run({ first: args.first, after: args.after, query: args.query ?? null });
+  if (!cur) return run({ first: args.first, after: null, query: args.query ?? null });
+  const q = { ...(args.query ?? {}) } as Record<string, unknown>;
+  const range = { ...((q.createdAt as Record<string, unknown> | undefined) ?? {}) };
+  if (!range.end || Date.parse(String(range.end)) > Date.parse(cur.at)) range.end = cur.at;
+  q.createdAt = range;
+  // end 是「含」：多拿幾筆，把 cursor 那筆濾掉
+  const res = await run({ first: Math.min(args.first + 5, 100), after: null, query: q });
+  const nodes = res.edges.filter((e) => e.node && e.node.id !== cur.id);
+  const kept = nodes.slice(0, args.first);
+  const last = kept[kept.length - 1]?.node;
+  return {
+    ...res,
+    edges: kept,
+    pageInfo: { hasNextPage: res.pageInfo.hasNextPage || nodes.length > kept.length, endCursor: last ? encodeOrderCursor(last.createdAt, last.id) : null },
+  };
+}
+
 export async function ordersPage(args: { first?: number; after?: string | null; query?: Record<string, unknown> }) {
-  const data = await gql<{ orders: Connection<MOrder> }>(
-    `query Orders($first: PositiveInt!, $after: String, $query: OrderQueryTermsInput) {
-      orders(first: $first, after: $after, query: $query) {
-        total
-        pageInfo { hasNextPage endCursor }
-        edges { node { ${ORDER_FIELDS} } }
-      }
-    }`,
-    { first: args.first ?? 50, after: args.after ?? null, query: args.query ?? null },
-    { read: true, estimate: 150 }
-  );
-  return data.orders;
+  return ordersByTime<MOrder>(async (vars) => {
+    const data = await gql<{ orders: Connection<MOrder> }>(
+      `query Orders($first: PositiveInt!, $after: String, $query: OrderQueryTermsInput) {
+        orders(first: $first, after: $after, query: $query) {
+          total
+          pageInfo { hasNextPage endCursor }
+          edges { node { ${ORDER_FIELDS} } }
+        }
+      }`,
+      vars,
+      { read: true, estimate: 150 }
+    );
+    return data.orders;
+  }, { first: args.first ?? 50, after: args.after, query: args.query });
 }
 
 /** 待出貨：網店訂單的收件資料（地址、超商門市）＋商品 */
@@ -298,21 +344,23 @@ export interface ShipOrder {
 }
 
 export async function shipOrdersPage(args: { after?: string | null; query: Record<string, unknown> }) {
-  const data = await gql<{ orders: Connection<ShipOrder> }>(
-    `query Ship($after: String, $query: OrderQueryTermsInput) {
-      orders(first: 50, after: $after, query: $query) {
-        pageInfo { hasNextPage endCursor }
-        edges { node { id orderNumber status paymentStatus shipmentStatus totalPrice createdAt
-          shopper { name email }
-          shipmentDetail { carrier name receiverName phone note shippingAddress trackingCode convenienceStore { name address storeCode } }
-          paymentDetail { name }
-          lineItems { title quantity unitPrice variant { id } } } }
-      }
-    }`,
-    { after: args.after ?? null, query: args.query },
-    { read: true, estimate: 150 }
-  );
-  return data.orders;
+  return ordersByTime<ShipOrder>(async (vars) => {
+    const data = await gql<{ orders: Connection<ShipOrder> }>(
+      `query Ship($first: PositiveInt!, $after: String, $query: OrderQueryTermsInput) {
+        orders(first: $first, after: $after, query: $query) {
+          pageInfo { hasNextPage endCursor }
+          edges { node { id orderNumber status paymentStatus shipmentStatus totalPrice createdAt
+            shopper { name email }
+            shipmentDetail { carrier name receiverName phone note shippingAddress trackingCode convenienceStore { name address storeCode } }
+            paymentDetail { name }
+            lineItems { title quantity unitPrice variant { id } } } }
+        }
+      }`,
+      vars,
+      { read: true, estimate: 150 }
+    );
+    return data.orders;
+  }, { first: 50, after: args.after, query: args.query });
 }
 
 export async function updateOrderShipmentStatus(orderNumber: string, shipmentStatus: string) {

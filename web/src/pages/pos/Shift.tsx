@@ -125,7 +125,7 @@ export function OnlineOrders() {
       const r = await call<{ total: number; next: string | null; orders: MOrder[] }>("listOnlineOrders", { days, shipmentStatus: ship || undefined, orderNumber: orderNumber || undefined, after });
       setOrders((o) => (after ? [...o, ...r.orders] : r.orders));
       setNext(r.next);
-      setTotal(r.total);
+      if (!after) setTotal(r.total); // 翻頁時 meepShop 回的是「剩下幾筆」，總數用第一頁的
     });
 
   useEffect(() => {
