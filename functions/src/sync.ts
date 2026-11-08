@@ -295,8 +295,8 @@ export const syncShoppersNow = onCall({ timeoutSeconds: 540, maxInstances: 1 }, 
   return { count: await runShopperSync("full") };
 });
 
-/** 每 15 分鐘：只抓新增或改過的商品 + 補抓圖片 */
-export const catalogIncremental = onSchedule({ schedule: "every 15 minutes", timeZone: TZ, timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
+/** 營業時間 15:00–24:00 每 15 分鐘：只抓新增或改過的商品 + 補抓圖片（2026-11-09 起半夜待機，凌晨 04:00 catalogDaily 照跑） */
+export const catalogIncremental = onSchedule({ schedule: "*/15 15-23 * * *", timeZone: TZ, timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
   const deadline = Date.now() + 520_000;
   const r = await runCatalogSync("incremental", "schedule");
   try {

@@ -9,8 +9,8 @@ import { db, int, sleep, taipeiDate, Timestamp, TZ } from "./lib/util";
 
 const STALE_PROCESSING_MS = 5 * 60_000;
 
-/** 每 5 分鐘：重送 failed（可重試）的異動；卡在 processing 太久的標為 unknown */
-export const retryFailed = onSchedule({ schedule: "every 5 minutes", timeZone: TZ, timeoutSeconds: 300, maxInstances: 1 }, async () => {
+/** 營業時間 15:00–24:00 每 5 分鐘：重送 failed（可重試）的異動；卡在 processing 太久的標為 unknown（2026-11-09 起半夜待機） */
+export const retryFailed = onSchedule({ schedule: "*/5 15-23 * * *", timeZone: TZ, timeoutSeconds: 300, maxInstances: 1 }, async () => {
   const due = await db.collection("movements").where("status", "==", "failed").where("retryable", "==", true).where("nextRetryAt", "<=", Timestamp.now()).limit(100).get();
   for (const d of due.docs) await pushMovement(d.id);
 

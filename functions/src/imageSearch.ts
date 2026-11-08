@@ -206,7 +206,8 @@ export async function buildIndex(deadline: number) {
  * 每 20 分鐘補一批（免費 API 很慢，一次只能做十幾張）；全部做完後只讀 1 筆狀態就結束，
  * 每 20 小時才完整檢查一次有沒有新商品／新照片（避免一直讀資料庫）。
  */
-export const imageIndexDaily = onSchedule({ schedule: "every 20 minutes", timeZone: "Asia/Taipei", timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
+// 2026-11-09 起只在營業時間 15:00–24:00 跑，半夜待機
+export const imageIndexDaily = onSchedule({ schedule: "*/20 15-23 * * *", timeZone: "Asia/Taipei", timeoutSeconds: 540, memory: "512MiB", maxInstances: 1 }, async () => {
   const st = (await db.doc("private/imageIndex").get()).data();
   const at = st?.at?.toMillis?.() ?? 0;
   if (st && st.remaining === 0 && Date.now() - at < 20 * 3600_000) return;
